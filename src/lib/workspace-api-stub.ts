@@ -290,30 +290,31 @@ export const useListEscalationRules = (): QueryResult<{ rules: any[] }> => ({
 
 export const useListDuplicates = () => emptyListQuery<any>();
 export const useGetFullTranscript = (_id?: string) => emptyQuery<any>();
-// KB search. Schema reserves a pgvector embedding column on
-// kb_documents but no rows have one yet (embeddings are produced by
-// the AI adapter at write time, not in Phase 0). Until that pipeline
-// lands we fall back to text search via ilike across title and
-// content. Returns the top-matching approved doc's content as `answer`.
+// Semantic KB search via the kb-search Edge Function: embeds the query
+// through OpenAI and returns the highest-similarity approved chunks
+// (pgvector cosine, threshold 0.4). Returns the top hit's content as
+// `answer` and the full ranked list as `sources`.
 export function useQueryKb() {
-  return useSupabaseMutation<{ data: { query: string } }, { answer: string; sources: any[] }>(
-    async ({ data: { query } }) => {
-      const trimmed = query.trim();
-      if (!trimmed) return { answer: "No results found.", sources: [] };
-      const { data, error } = await supabase
-        .from("kb_documents")
-        .select("id, title, content, category")
-        .eq("status", "approved")
-        .or(`title.ilike.%${trimmed}%,content.ilike.%${trimmed}%`)
-        .limit(3);
-      if (error) throw new Error(error.message);
-      if (!data || data.length === 0) return { answer: "No results found.", sources: [] };
-      return {
-        answer: data[0].content,
-        sources: data.map((d) => ({ id: d.id, title: d.title, category: d.category })),
-      };
-    },
-  );
+  return useSupabaseMutation<
+    { data: { query: string } },
+    { answer: string; sources: Array<{ id: string; title: string; category: string | null; similarity: number }> }
+  >(async ({ data: { query } }) => {
+    const trimmed = query.trim();
+    if (!trimmed) return { answer: "No results found.", sources: [] };
+    const { data, error } = await supabase.functions.invoke("kb-search", {
+      body: { q: trimmed, limit: 5, threshold: 0.4 },
+    });
+    if (error) throw new Error(error.message);
+    if (!data?.ok) throw new Error(data?.error ?? "kb-search failed");
+    const results = (data.results ?? []) as Array<{
+      id: string; title: string; content: string; category: string | null; similarity: number;
+    }>;
+    if (results.length === 0) return { answer: "No results found.", sources: [] };
+    return {
+      answer: results[0].content,
+      sources: results.map((r) => ({ id: r.id, title: r.title, category: r.category, similarity: r.similarity })),
+    };
+  });
 }
 
 // --- mutations ---
