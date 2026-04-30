@@ -4,6 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
+  Search, GraduationCap,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -65,6 +66,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ctm-calls", label: "Live Calls", icon: <Phone className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const, pulse: true },
     { href: "/pre-call/DEMO-CALL-001", label: "Pre-Call", icon: <PhoneIncoming className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/wrap-up/DEMO-CALL-001", label: "Wrap-Up", icon: <ClipboardCheck className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
+    { href: "/kb", label: "Knowledge Base", icon: <Search className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
+    { href: "/training", label: "Training", icon: <GraduationCap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
