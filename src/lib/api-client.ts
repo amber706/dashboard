@@ -4,7 +4,24 @@
 // fall through to a 501 stub response so the UI can display an empty state.
 
 import { supabase } from "./supabase";
-import type { RepWorkloadData } from "@/hooks/use-ops-api";
+
+// Inlined here to avoid a circular import with `@/hooks/use-ops-api`,
+// which imports from this module. Keep these fields in sync if the
+// canonical type in use-ops-api.ts changes.
+interface RepWorkloadData {
+  rep_id: string;
+  rep_name: string;
+  calls_today: number;
+  missed_calls: number;
+  open_leads: number;
+  overdue_callbacks: number;
+  capacity_status: string;
+  capacity_score: number;
+  first_contact_sla_backlog: number;
+  qa_trend: number | null;
+  avg_callback_speed_minutes: number | null;
+  suggested_actions: string[];
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
