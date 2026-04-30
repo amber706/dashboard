@@ -280,7 +280,7 @@ function AlertCard({
               )}
               {alert.call?.ctm_raw_payload?.agent && (
                 <span className="flex items-center gap-1">
-                  <UserIcon className="w-3 h-3" /> Specialist: {String(alert.call.ctm_raw_payload.agent)}
+                  <UserIcon className="w-3 h-3" /> Specialist: {alert.call.ctm_raw_payload.agent?.name ?? alert.call.ctm_raw_payload.agent?.email ?? String(alert.call.ctm_raw_payload.agent)}
                 </span>
               )}
               {alert.call?.ctm_raw_payload?.tracking_number && (

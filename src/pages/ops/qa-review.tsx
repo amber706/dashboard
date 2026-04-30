@@ -143,7 +143,8 @@ export default function QAReview() {
         {rows.map((r) => {
           const isOpen = expanded === r.id;
           const audio = r.call?.ctm_raw_payload?.audio;
-          const agent = r.call?.ctm_raw_payload?.agent;
+          const agentRaw = r.call?.ctm_raw_payload?.agent;
+          const agent = agentRaw?.name ?? agentRaw?.email ?? (typeof agentRaw === "string" ? agentRaw : null);
           return (
             <Card key={r.id} className={r.needs_supervisor_review && !r.supervisor_signoff_at ? "border-l-4 border-l-rose-500" : ""}>
               <CardHeader className="cursor-pointer" onClick={() => setExpanded(isOpen ? null : r.id)}>
