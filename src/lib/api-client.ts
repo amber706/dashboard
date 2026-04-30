@@ -113,7 +113,7 @@ async function getAttributionConflicts(): Promise<Response> {
       zoho_campaign: row.normalized_campaign ?? "",
       conflict_reason: row.conflict_reason ?? "",
       proposed_correction: proposed,
-      status: "open",
+      status: "pending",
       created_at: row.created_at,
     };
   });
@@ -369,6 +369,126 @@ async function getOpsOverview(): Promise<Response> {
   });
 }
 
+async function signoffFlaggedReview(
+  id: string,
+  queryString: string,
+): Promise<Response> {
+  const params = new URLSearchParams(queryString);
+  const action = params.get("action");
+  const notes = params.get("notes");
+  const coachingTopic = params.get("coaching_topic");
+
+  if (!action) {
+    return jsonResponse({ error: "Missing action" }, 400);
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id ?? null;
+
+  // Pack action and (optional) coaching topic into signoff_notes so they
+  // round-trip through the mapper without a schema change.
+  const parts = [`[${action}]`];
+  if (notes) parts.push(notes);
+  if (coachingTopic) parts.push(`Coaching topic: ${coachingTopic}`);
+
+  const { error } = await supabase
+    .from("call_scores")
+    .update({
+      supervisor_signoff_at: new Date().toISOString(),
+      supervisor_signoff_by: userId,
+      signoff_notes: parts.join("\n"),
+    })
+    .eq("id", id);
+
+  if (error) return jsonResponse({ error: error.message }, 500);
+  return jsonResponse({ ok: true });
+}
+
+async function resolveAttributionConflict(
+  id: string,
+  options: RequestInit,
+): Promise<Response> {
+  let body: { action?: string } = {};
+  try {
+    body = options.body ? JSON.parse(options.body as string) : {};
+  } catch {
+    return jsonResponse({ error: "Invalid JSON body" }, 400);
+  }
+  const action = body.action;
+  if (action !== "approve" && action !== "reject" && action !== "preserve_first_touch") {
+    return jsonResponse({ error: `Unknown attribution action: ${action}` }, 400);
+  }
+
+  const { data: existing, error: readError } = await supabase
+    .from("attribution_records")
+    .select(
+      "audit_log, ctm_source_category, ctm_medium, ctm_campaign, normalized_source, normalized_medium, normalized_campaign",
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (readError) return jsonResponse({ error: readError.message }, 500);
+  if (!existing) return jsonResponse({ error: "Not found" }, 404);
+
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id ?? null;
+
+  const existingLog =
+    typeof existing.audit_log === "object" && existing.audit_log !== null
+      ? (existing.audit_log as Record<string, unknown>)
+      : {};
+  const priorResolutions = Array.isArray(existingLog.resolutions) ? existingLog.resolutions : [];
+  const newResolution = {
+    action,
+    resolved_by: userId,
+    resolved_at: new Date().toISOString(),
+  };
+
+  const update: Record<string, unknown> = {
+    has_conflict: false,
+    audit_log: { ...existingLog, resolutions: [...priorResolutions, newResolution] },
+  };
+
+  if (action === "approve") {
+    update.normalized_source = existing.ctm_source_category;
+    update.normalized_medium = existing.ctm_medium;
+    update.normalized_campaign = existing.ctm_campaign;
+  }
+
+  const { error: writeError } = await supabase
+    .from("attribution_records")
+    .update(update)
+    .eq("id", id);
+
+  if (writeError) return jsonResponse({ error: writeError.message }, 500);
+  return jsonResponse({ ok: true });
+}
+
+async function actOnSuggestion(id: string, action: string): Promise<Response> {
+  if (action !== "acknowledge" && action !== "dismiss" && action !== "act") {
+    return jsonResponse({ error: `Unknown suggestion action: ${action}` }, 400);
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id ?? null;
+  const now = new Date().toISOString();
+
+  const update: Record<string, unknown> =
+    action === "acknowledge"
+      ? { status: "acknowledged", acknowledged_by: userId, acknowledged_at: now }
+      : action === "dismiss"
+        ? { status: "dismissed", dismissed_by: userId, dismissed_at: now }
+        : { status: "completed", completed_by: userId, completed_at: now };
+
+  const { error } = await supabase
+    .from("suggestions")
+    .update(update)
+    .eq("id", id);
+
+  if (error) return jsonResponse({ error: error.message }, 500);
+  return jsonResponse({ ok: true });
+}
+
 async function getRepWorkload(): Promise<Response> {
   const { data, error } = await supabase
     .from("profiles")
@@ -400,7 +520,7 @@ async function getRepWorkload(): Promise<Response> {
 // matched falls through to a 501 stub.
 async function routeApiPath(
   path: string,
-  _options: RequestInit,
+  options: RequestInit,
 ): Promise<Response | null> {
   // Strip query string for matching; individual handlers parse it themselves.
   const [pathOnly, queryString = ""] = path.split("?");
@@ -419,9 +539,26 @@ async function routeApiPath(
     case "/ops/overview":
       return getOpsOverview();
     default: {
-      // Detail endpoint: /ops/flagged-reviews/<id>
+      const signoffMatch = pathOnly.match(/^\/ops\/flagged-reviews\/([^/]+)\/signoff$/);
+      if (signoffMatch) return signoffFlaggedReview(signoffMatch[1], queryString);
+
       const detailMatch = pathOnly.match(/^\/ops\/flagged-reviews\/([^/]+)$/);
       if (detailMatch) return getFlaggedReviewById(detailMatch[1]);
+
+      const suggestionActionMatch = pathOnly.match(
+        /^\/ops\/suggestions\/([^/]+)\/(acknowledge|dismiss|act)$/,
+      );
+      if (suggestionActionMatch) {
+        return actOnSuggestion(suggestionActionMatch[1], suggestionActionMatch[2]);
+      }
+
+      const attributionResolveMatch = pathOnly.match(
+        /^\/ops\/attribution-conflicts\/([^/]+)\/resolve$/,
+      );
+      if (attributionResolveMatch) {
+        return resolveAttributionConflict(attributionResolveMatch[1], options);
+      }
+
       return null;
     }
   }

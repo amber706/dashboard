@@ -149,20 +149,6 @@ export interface AttributionConflict {
   created_at: string;
 }
 
-export interface SupervisorReviewItem {
-  id: number;
-  ctm_call_id: string;
-  rep_name: string;
-  qa_score: number | null;
-  qa_status: string;
-  compliance_flags: string[];
-  coaching_recommendation: string;
-  transcript_summary: string;
-  review_type: string;
-  status: string;
-  created_at: string;
-}
-
 export interface AnswerProposal {
   text: string | null;
   confidence: number;
@@ -223,10 +209,6 @@ export function useAttributionConflicts(options?: UsePollingOptions) {
   return usePollingFetch<{ conflicts: AttributionConflict[]; total: number }>("/ops/attribution-conflicts", options);
 }
 
-export function useSupervisorReview(options?: UsePollingOptions) {
-  return usePollingFetch<{ items: SupervisorReviewItem[]; total: number }>("/ops/supervisor-review", options);
-}
-
 export function useKnowledgeItems(options?: UsePollingOptions) {
   return usePollingFetch<{ items: KnowledgeItem[]; total: number }>("/ops/knowledge-review", options);
 }
@@ -257,14 +239,6 @@ export async function resolveAttribution(id: number, action: "approve" | "reject
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action }),
-  });
-}
-
-export async function completeSupervisorReview(id: number, action: "approve_qa" | "adjust" | "coach_rep", notes?: string) {
-  return apiFetch(`/ops/supervisor-review/${id}/resolve`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, notes }),
   });
 }
 
