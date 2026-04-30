@@ -34,6 +34,7 @@ import OpsAttribution from "@/pages/ops/attribution";
 import OpsSupervisorReview from "@/pages/ops/supervisor-review";
 import OpsKnowledge from "@/pages/ops/knowledge";
 import OpsAlerts from "@/pages/ops/alerts";
+import OpsKBDrafts from "@/pages/ops/kb-drafts";
 import OpsTrainingAssignments from "@/pages/ops/training-assignments";
 import OpsQAReview from "@/pages/ops/qa-review";
 import AdminLeads from "@/pages/admin/leads";
@@ -76,6 +77,7 @@ function AppRoutes() {
         <Route path="/ops/supervisor-review" component={OpsSupervisorReview} />
         <Route path="/ops/knowledge" component={OpsKnowledge} />
         <Route path="/ops/alerts" component={OpsAlerts} />
+        <Route path="/ops/kb-drafts" component={OpsKBDrafts} />
         <Route path="/ops/training-assignments" component={OpsTrainingAssignments} />
         <Route path="/ops/qa-review" component={OpsQAReview} />
         <Route path="/admin/leads" component={AdminLeads} />
