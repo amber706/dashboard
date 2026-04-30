@@ -473,6 +473,25 @@ async function actOnSuggestion(id: string, action: string): Promise<Response> {
   const userId = userData.user?.id ?? null;
   const now = new Date().toISOString();
 
+  // Special-case: 'act' on assign_training_for_weakness suggestions routes
+  // through the approve-suggestion Edge Function, which creates the
+  // training_assignment + marks the suggestion completed atomically.
+  if (action === "act") {
+    const { data: sug } = await supabase
+      .from("suggestions")
+      .select("suggestion_type")
+      .eq("id", id)
+      .maybeSingle();
+    if (sug?.suggestion_type === "assign_training_for_weakness") {
+      const { data: invokeData, error: invokeErr } = await supabase.functions.invoke("approve-suggestion", {
+        body: { suggestion_id: id, approver_id: userId },
+      });
+      if (invokeErr) return jsonResponse({ error: invokeErr.message }, 500);
+      if (!invokeData?.ok) return jsonResponse({ error: invokeData?.error ?? "approve-suggestion failed", details: invokeData }, 400);
+      return jsonResponse({ ok: true, ...invokeData });
+    }
+  }
+
   const update: Record<string, unknown> =
     action === "acknowledge"
       ? { status: "acknowledged", acknowledged_by: userId, acknowledged_at: now }
