@@ -34,6 +34,7 @@ interface AlertRow {
     started_at: string | null;
     talk_seconds: number | null;
     ctm_raw_payload: Record<string, any> | null;
+    score: { composite_score: number | null; caller_sentiment: string | null; needs_supervisor_review: boolean | null } | null;
   } | null;
 }
 
@@ -43,6 +44,20 @@ function fmtDuration(seconds: number | null | undefined): string {
   const s = seconds % 60;
   if (m === 0) return `${s}s`;
   return `${m}m ${s}s`;
+}
+
+function getScore(call: AlertRow["call"]): { composite_score: number | null; caller_sentiment: string | null; needs_supervisor_review: boolean | null } | null {
+  if (!call?.score) return null;
+  // PostgREST may return either an object or a single-element array depending on its FK detection.
+  if (Array.isArray(call.score)) return call.score[0] ?? null;
+  return call.score as any;
+}
+
+function scoreColorClass(n: number | null): string {
+  if (n == null) return "text-muted-foreground";
+  if (n >= 80) return "text-emerald-700 dark:text-emerald-400";
+  if (n >= 60) return "text-amber-700 dark:text-amber-400";
+  return "text-rose-700 dark:text-rose-400";
 }
 
 const alertTypeLabel: Record<AlertType, string> = {
@@ -91,7 +106,8 @@ export default function AlertsQueue() {
         id, call_session_id, alert_type, severity, status, trigger_excerpt,
         trigger_chunk_id, classified_at, acknowledged_by, acknowledged_at,
         resolved_by, resolved_at, resolution_notes,
-        call:call_sessions(id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds, ctm_raw_payload)
+        call:call_sessions(id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds, ctm_raw_payload,
+          score:call_scores(composite_score, caller_sentiment, needs_supervisor_review))
       `)
       .order("classified_at", { ascending: false })
       .limit(100);
@@ -273,6 +289,16 @@ function AlertCard({
               {alert.call?.ctm_call_id && (
                 <span className="font-mono text-[10px]">call {alert.call.ctm_call_id}</span>
               )}
+              {(() => {
+                const score = getScore(alert.call);
+                if (!score?.composite_score) return null;
+                return (
+                  <span className="flex items-center gap-1">
+                    QA: <span className={`font-semibold ${scoreColorClass(score.composite_score)}`}>{score.composite_score}</span>
+                    {score.needs_supervisor_review && <Badge variant="outline" className="text-[10px] py-0 px-1 ml-0.5">flagged</Badge>}
+                  </span>
+                );
+              })()}
               {alert.call?.ctm_raw_payload?.audio && (
                 <a
                   href={String(alert.call.ctm_raw_payload.audio)}
