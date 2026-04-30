@@ -515,6 +515,169 @@ async function getRepWorkload(): Promise<Response> {
   return jsonResponse({ reps });
 }
 
+// CTM Call Log handler: paginated list of call_sessions, shaped for the
+// existing /ctm-calls page.
+async function getCTMCalls(queryString: string): Promise<Response> {
+  const params = new URLSearchParams(queryString);
+  const limit = Math.min(parseInt(params.get("limit") ?? "50", 10) || 50, 200);
+  const offset = parseInt(params.get("offset") ?? "0", 10) || 0;
+  const direction = params.get("direction");
+  const startDate = params.get("start_date");
+  const endDate = params.get("end_date");
+
+  let q = supabase
+    .from("call_sessions")
+    .select(`
+      id, ctm_call_id, direction, status, caller_phone_normalized, caller_name,
+      ctm_tracking_number, started_at, ended_at, talk_seconds, ring_seconds,
+      ctm_raw_payload, lead_id,
+      score:call_scores(composite_score, needs_supervisor_review)
+    `, { count: "exact" })
+    .order("started_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (direction && direction !== "all") q = q.eq("direction", direction);
+  if (startDate) q = q.gte("started_at", startDate);
+  if (endDate) q = q.lte("started_at", endDate);
+
+  const { data, error, count } = await q;
+  if (error) return jsonResponse({ error: error.message }, 500);
+
+  const calls = (data ?? []).map((c: any) => {
+    const score = Array.isArray(c.score) ? c.score[0] : c.score;
+    const audio = c.ctm_raw_payload?.audio;
+    const transcript = c.ctm_raw_payload?.transcription_text;
+    return {
+      ctm_call_id: c.ctm_call_id,
+      direction: c.direction,
+      call_status: c.status,
+      caller_phone: c.caller_phone_normalized ?? "",
+      caller_name: c.caller_name ?? "",
+      tracking_number: c.ctm_tracking_number ?? "",
+      tracking_label: c.ctm_raw_payload?.tracking_label ?? "",
+      answering_ctm_user_id: c.ctm_raw_payload?.agent_id ?? "",
+      agent_name: c.ctm_raw_payload?.agent ?? null,
+      start_time: c.started_at,
+      end_time: c.ended_at,
+      total_duration_seconds: (c.talk_seconds ?? 0) + (c.ring_seconds ?? 0),
+      talk_duration_seconds: c.talk_seconds ?? 0,
+      missed_call_flag: c.status === "missed" || c.status === "abandoned",
+      has_recording: Boolean(audio),
+      has_transcript: Boolean(transcript),
+      recording_url: audio ?? "",
+      transcript_preview: transcript ? String(transcript).slice(0, 200) : "",
+      zoho_lead_id: "",
+      source_event_type: "webhook",
+      lead_score: null,
+      lead_quality_tier: null,
+      call_score_total: score?.composite_score ?? null,
+      qa_status: score?.needs_supervisor_review ? "review" : (score?.composite_score != null ? "pass" : null),
+      conversion_probability: null,
+      hot_lead_flag: null,
+    };
+  });
+
+  return jsonResponse({ calls, total: count ?? calls.length, limit, offset });
+}
+
+// Single-call detail for the expand row.
+async function getCTMCallDetail(ctmCallId: string): Promise<Response> {
+  const { data: call, error } = await supabase
+    .from("call_sessions")
+    .select(`
+      id, ctm_call_id, direction, status, caller_phone_normalized, caller_name,
+      ctm_tracking_number, started_at, ended_at, talk_seconds, ring_seconds, ctm_raw_payload,
+      score:call_scores(composite_score, caller_sentiment, needs_supervisor_review,
+        qualification_completeness, rapport_and_empathy, objection_handling, urgency_handling,
+        next_step_clarity, script_adherence, compliance, booking_or_transfer, overall_quality,
+        coaching_takeaways, compliance_flags)
+    `)
+    .eq("ctm_call_id", ctmCallId)
+    .maybeSingle();
+  if (error) return jsonResponse({ error: error.message }, 500);
+  if (!call) return jsonResponse({ error: "not found" }, 404);
+
+  const score = Array.isArray(call.score) ? call.score[0] : call.score;
+  const audio = call.ctm_raw_payload?.audio;
+  const transcript = call.ctm_raw_payload?.transcription_text;
+
+  const { data: chunks } = await supabase
+    .from("transcript_chunks")
+    .select("sequence_number, speaker, content")
+    .eq("call_session_id", call.id)
+    .order("sequence_number", { ascending: true });
+
+  return jsonResponse({
+    call: {
+      ctm_call_id: call.ctm_call_id,
+      direction: call.direction,
+      call_status: call.status,
+      caller_phone: call.caller_phone_normalized,
+      caller_name: call.caller_name,
+      tracking_number: call.ctm_tracking_number,
+      agent_name: call.ctm_raw_payload?.agent ?? null,
+      start_time: call.started_at,
+      end_time: call.ended_at,
+      talk_duration_seconds: call.talk_seconds,
+      total_duration_seconds: (call.talk_seconds ?? 0) + (call.ring_seconds ?? 0),
+      recording_url: audio ?? "",
+      transcript_text: transcript ?? "",
+      transcript_chunks: chunks ?? [],
+      zoho_lead_id: "",
+    },
+    analysis: score ? {
+      agent_score: {
+        percentage: score.composite_score,
+        qa_status: score.needs_supervisor_review ? "review" : (score.composite_score >= 60 ? "pass" : "fail"),
+      },
+      categories: {
+        qualification: score.qualification_completeness,
+        rapport: score.rapport_and_empathy,
+        objection: score.objection_handling,
+        urgency: score.urgency_handling,
+        next_step: score.next_step_clarity,
+        script: score.script_adherence,
+        compliance: score.compliance,
+        booking: score.booking_or_transfer,
+        overall: score.overall_quality,
+      },
+      caller_sentiment: score.caller_sentiment,
+      coaching_takeaways: score.coaching_takeaways,
+      compliance_flags: score.compliance_flags,
+    } : null,
+  });
+}
+
+// CTM Stats: counters for the page header.
+async function getCTMStats(): Promise<Response> {
+  const sinceISO = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [{ count: total }, { count: pending }, inboundRes, outboundRes, missedRes, withRecRes, withTransRes] = await Promise.all([
+    supabase.from("call_sessions").select("id", { count: "exact", head: true }).gte("created_at", sinceISO),
+    supabase.from("call_scores").select("id", { count: "exact", head: true }).eq("needs_supervisor_review", true).is("supervisor_signoff_at", null),
+    supabase.from("call_sessions").select("id", { count: "exact", head: true }).eq("direction", "inbound").gte("created_at", sinceISO),
+    supabase.from("call_sessions").select("id", { count: "exact", head: true }).eq("direction", "outbound").gte("created_at", sinceISO),
+    supabase.from("call_sessions").select("id", { count: "exact", head: true }).in("status", ["missed", "abandoned"]).gte("created_at", sinceISO),
+    supabase.from("call_sessions").select("id", { count: "exact", head: true }).not("ctm_raw_payload->>audio", "is", null).gte("created_at", sinceISO),
+    supabase.from("call_sessions").select("id", { count: "exact", head: true }).not("ctm_raw_payload->>transcription_text", "is", null).gte("created_at", sinceISO),
+  ]);
+  const { count: agents } = await supabase.from("profiles").select("id", { count: "exact", head: true }).eq("is_active", true).in("role", ["specialist", "manager"]);
+
+  return jsonResponse({
+    total_calls: total ?? 0,
+    total_agents: agents ?? 0,
+    pending_reviews: pending ?? 0,
+    calls_by_direction: {
+      inbound: inboundRes.count ?? 0,
+      outbound: outboundRes.count ?? 0,
+      missed: missedRes.count ?? 0,
+    },
+    enrichment: {
+      calls_with_recording: withRecRes.count ?? 0,
+      calls_with_transcript: withTransRes.count ?? 0,
+    },
+  });
+}
+
 // Route table: incoming `/ops/...` path -> handler that returns a fake Response.
 // Add an entry here as each endpoint is ported to Supabase. Anything not
 // matched falls through to a 501 stub.
@@ -538,7 +701,22 @@ async function routeApiPath(
       return getFlaggedReviewStats();
     case "/ops/overview":
       return getOpsOverview();
+    case "/ctm-admin/calls":
+      return getCTMCalls(queryString);
+    case "/ctm-admin/stats":
+      return getCTMStats();
     default: {
+      const ctmDetailMatch = pathOnly.match(/^\/ctm-admin\/calls\/([^/]+)$/);
+      if (ctmDetailMatch) return getCTMCallDetail(ctmDetailMatch[1]);
+
+      // Backfill / enrichment endpoints — these are no-ops in the new
+      // architecture (CTM webhooks push directly), so respond OK with
+      // a friendly message instead of 501-ing.
+      if (pathOnly === "/ctm-admin/backfill" || pathOnly === "/ctm-admin/enrich-pending"
+          || pathOnly.startsWith("/ctm-admin/enrich/")) {
+        return jsonResponse({ ok: true, message: "Webhook ingest is real-time; no manual backfill needed." });
+      }
+
       const signoffMatch = pathOnly.match(/^\/ops\/flagged-reviews\/([^/]+)\/signoff$/);
       if (signoffMatch) return signoffFlaggedReview(signoffMatch[1], queryString);
 
