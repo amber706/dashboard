@@ -548,6 +548,7 @@ async function getCTMCalls(queryString: string): Promise<Response> {
     const audio = c.ctm_raw_payload?.audio;
     const transcript = c.ctm_raw_payload?.transcription_text;
     return {
+      id: c.id,
       ctm_call_id: c.ctm_call_id,
       direction: c.direction,
       call_status: c.status,
@@ -609,6 +610,7 @@ async function getCTMCallDetail(ctmCallId: string): Promise<Response> {
 
   return jsonResponse({
     call: {
+      id: call.id,
       ctm_call_id: call.ctm_call_id,
       direction: call.direction,
       call_status: call.status,

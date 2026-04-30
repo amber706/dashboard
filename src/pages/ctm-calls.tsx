@@ -46,6 +46,7 @@ import {
 import { format } from "date-fns";
 
 interface CTMCall {
+  id?: string;
   ctm_call_id: string;
   direction: string;
   call_status: string;
@@ -371,6 +372,13 @@ export default function CTMCalls() {
 
                   {expandedId === call.ctm_call_id && callDetail && (
                     <div className="px-12 pb-4 space-y-3">
+                      {(callDetail.call as any).id && (
+                        <a href={`/live/${(callDetail.call as any).id}`}
+                           className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                           onClick={(e) => e.stopPropagation()}>
+                          Open full live-call view →
+                        </a>
+                      )}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                         <div>
                           <span className="text-muted-foreground">CTM Call ID:</span>
