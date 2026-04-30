@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap,
+  Search, GraduationCap, AlertTriangle,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -73,6 +73,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/attribution", label: "Attribution", icon: <Activity className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/supervisor-review", label: "QA / Supervisor", icon: <ShieldAlert className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
+    { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const, pulse: true },
     { href: "/ops/abandoned-calls", label: "Abandoned Calls", icon: <PhoneOff className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/knowledge", label: "Knowledge Review", icon: <HelpCircle className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/analytics", label: "Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },

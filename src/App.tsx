@@ -33,6 +33,7 @@ import OpsWorkload from "@/pages/ops/workload";
 import OpsAttribution from "@/pages/ops/attribution";
 import OpsSupervisorReview from "@/pages/ops/supervisor-review";
 import OpsKnowledge from "@/pages/ops/knowledge";
+import OpsAlerts from "@/pages/ops/alerts";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
 
 const queryClient = new QueryClient({
@@ -71,6 +72,7 @@ function AppRoutes() {
         <Route path="/ops/attribution" component={OpsAttribution} />
         <Route path="/ops/supervisor-review" component={OpsSupervisorReview} />
         <Route path="/ops/knowledge" component={OpsKnowledge} />
+        <Route path="/ops/alerts" component={OpsAlerts} />
         <Route path="/ops/abandoned-calls" component={OpsAbandonedCalls} />
         <Route component={NotFound} />
       </Switch>
