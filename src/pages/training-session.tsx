@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRoute, Link } from "wouter";
-import { ArrowLeft, Loader2, Send, AlertTriangle, Shield, Square, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, Loader2, Send, AlertTriangle, Shield, Square, CheckCircle2, XCircle, Inbox } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,6 +47,7 @@ interface ScoreResult {
 export default function TrainingSession() {
   const [, params] = useRoute<{ id: string }>("/training/:id");
   const scenarioId = params?.id;
+  const { user } = useAuth();
 
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [loadingScenario, setLoadingScenario] = useState(true);
@@ -61,6 +63,40 @@ export default function TrainingSession() {
   const [scoreError, setScoreError] = useState<string | null>(null);
   const [score, setScore] = useState<ScoreResult | null>(null);
 
+  // If this scenario was assigned to the current user, we track the assignment
+  // so we can flip its status as they progress (assigned -> in_progress on
+  // session start, in_progress -> completed when they end + score).
+  const [assignmentId, setAssignmentId] = useState<string | null>(null);
+  const [assignmentNote, setAssignmentNote] = useState<string | null>(null);
+
+  // On mount: find any pending assignment for this specialist + scenario,
+  // and flip it to in_progress. Best-effort; failures don't block the UI.
+  useEffect(() => {
+    if (!scenarioId || !user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("training_assignments")
+        .select("id, status, notes")
+        .eq("specialist_id", user.id)
+        .eq("scenario_id", scenarioId)
+        .in("status", ["assigned", "in_progress"])
+        .order("assigned_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      setAssignmentId(data.id);
+      setAssignmentNote(data.notes ?? null);
+      if (data.status === "assigned") {
+        await supabase
+          .from("training_assignments")
+          .update({ status: "in_progress" })
+          .eq("id", data.id);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [scenarioId, user?.id]);
+
   async function endAndScore() {
     if (!scenarioId || messages.length === 0 || scoring) return;
     setScoring(true);
@@ -72,6 +108,14 @@ export default function TrainingSession() {
       if (error) throw new Error(error.message);
       if (!data?.ok) throw new Error(data?.error ?? "score-training-session failed");
       setScore(data as ScoreResult);
+
+      // If this session resolved an assignment, mark it complete.
+      if (assignmentId) {
+        await supabase
+          .from("training_assignments")
+          .update({ status: "completed", completed_at: new Date().toISOString() })
+          .eq("id", assignmentId);
+      }
     } catch (e) {
       setScoreError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -161,6 +205,18 @@ export default function TrainingSession() {
       <Link href="/training" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="w-4 h-4" /> Back to scenarios
       </Link>
+
+      {assignmentNote && (
+        <Card className="border-l-4 border-l-amber-500 bg-amber-50/30 dark:bg-amber-950/10">
+          <CardContent className="pt-4 pb-4 flex items-start gap-2">
+            <Inbox className="w-4 h-4 text-amber-700 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <div className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase">Manager note</div>
+              <p className="text-sm mt-0.5">{assignmentNote}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
