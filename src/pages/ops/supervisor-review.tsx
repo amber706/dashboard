@@ -527,6 +527,7 @@ function OpsSupervisorReviewContent() {
           icon={<Eye className="w-4 h-4 text-amber-400" />}
           changeType={(stats?.pending ?? 0) > 5 ? "negative" : "neutral"}
           loading={!stats}
+          onClick={() => setStatusFilter("pending")}
         />
         <StatCard
           label="High Priority"
@@ -540,6 +541,7 @@ function OpsSupervisorReviewContent() {
           value={stats?.coaching_scheduled ?? 0}
           icon={<GraduationCap className="w-4 h-4 text-violet-400" />}
           loading={!stats}
+          onClick={() => setStatusFilter("coaching_scheduled")}
         />
         <StatCard
           label="Compliance Flags"
@@ -547,12 +549,14 @@ function OpsSupervisorReviewContent() {
           icon={<Flag className="w-4 h-4 text-orange-400" />}
           changeType={(stats?.compliance_flags ?? 0) > 0 ? "negative" : "neutral"}
           loading={!stats}
+          onClick={() => setStatusFilter("compliance_review")}
         />
         <StatCard
           label="Signed Off Today"
           value={stats?.signed_off_today ?? 0}
           icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
           loading={!stats}
+          onClick={() => setStatusFilter("signed_off")}
         />
       </div>
 
