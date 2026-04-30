@@ -22,9 +22,10 @@ type MutationOptions = {
   onError?: (error: Error) => void;
 };
 
-type MutationResult<TVars = unknown> = {
+type MutationResult<TVars = unknown, TData = unknown> = {
   mutate: (vars: TVars, opts?: MutationOptions) => void;
   mutateAsync: (vars: TVars, opts?: MutationOptions) => Promise<void>;
+  data: TData | undefined;
   isPending: boolean;
   isSuccess: boolean;
   isError: boolean;
@@ -48,9 +49,10 @@ const emptyListQuery = <T>(): QueryResult<T[]> => ({
   refetch: async () => {},
 });
 
-const emptyMutation = <TVars = unknown>(): MutationResult<TVars> => ({
+const emptyMutation = <TVars = unknown, TData = unknown>(): MutationResult<TVars, TData> => ({
   mutate: () => {},
   mutateAsync: async () => {},
+  data: undefined,
   isPending: false,
   isSuccess: false,
   isError: false,
@@ -61,9 +63,10 @@ const emptyMutation = <TVars = unknown>(): MutationResult<TVars> => ({
 // Generic mutation runner that mirrors the react-query MutationResult
 // surface used by the existing pages: mutate(vars, {onSuccess, onError}),
 // isPending, isSuccess, isError, error.
-function useSupabaseMutation<TVars>(
-  fn: (vars: TVars) => Promise<void>,
-): MutationResult<TVars> {
+function useSupabaseMutation<TVars, TData = void>(
+  fn: (vars: TVars) => Promise<TData>,
+): MutationResult<TVars, TData> {
+  const [data, setData] = useState<TData | undefined>(undefined);
   const [isPending, setIsPending] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -74,7 +77,8 @@ function useSupabaseMutation<TVars>(
       setIsSuccess(false);
       setError(null);
       try {
-        await fn(vars);
+        const result = await fn(vars);
+        setData(result);
         setIsSuccess(true);
         opts?.onSuccess?.();
       } catch (e) {
@@ -96,6 +100,7 @@ function useSupabaseMutation<TVars>(
   );
 
   const reset = useCallback(() => {
+    setData(undefined);
     setIsPending(false);
     setIsSuccess(false);
     setError(null);
@@ -104,6 +109,7 @@ function useSupabaseMutation<TVars>(
   return {
     mutate,
     mutateAsync,
+    data,
     isPending,
     isSuccess,
     isError: error !== null,
@@ -157,7 +163,15 @@ export function setAuthTokenGetter(_getter: () => string | null): void {}
 
 // --- queries ---
 
-export const useGetLiveCall = (_id?: string) => emptyQuery<any>();
+// Live call view: deliberately a no-op stub in Phase 0. The page
+// expects { session, transcript, fields, coaching, buffer_state,
+// completion, completion_unresolved }; transcript / fields / coaching
+// are produced by the Phase 2 grader and live-extraction pipeline,
+// which does not exist yet. Wiring just the call_sessions row would
+// render an empty live view with no useful data, and the route's
+// auth/HMR interaction with our supabase client was flaky during the
+// port. Revisit once there's a real in-flight call to render.
+export const useGetLiveCall = (_id?: string, _opts?: unknown) => emptyQuery<any>();
 
 export function useListReps() {
   return useSupabaseQuery<{ reps: any[] }>(
@@ -276,7 +290,31 @@ export const useListEscalationRules = (): QueryResult<{ rules: any[] }> => ({
 
 export const useListDuplicates = () => emptyListQuery<any>();
 export const useGetFullTranscript = (_id?: string) => emptyQuery<any>();
-export const useQueryKb = (..._args: any[]) => emptyQuery<any>();
+// KB search. Schema reserves a pgvector embedding column on
+// kb_documents but no rows have one yet (embeddings are produced by
+// the AI adapter at write time, not in Phase 0). Until that pipeline
+// lands we fall back to text search via ilike across title and
+// content. Returns the top-matching approved doc's content as `answer`.
+export function useQueryKb() {
+  return useSupabaseMutation<{ data: { query: string } }, { answer: string; sources: any[] }>(
+    async ({ data: { query } }) => {
+      const trimmed = query.trim();
+      if (!trimmed) return { answer: "No results found.", sources: [] };
+      const { data, error } = await supabase
+        .from("kb_documents")
+        .select("id, title, content, category")
+        .eq("status", "approved")
+        .or(`title.ilike.%${trimmed}%,content.ilike.%${trimmed}%`)
+        .limit(3);
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) return { answer: "No results found.", sources: [] };
+      return {
+        answer: data[0].content,
+        sources: data.map((d) => ({ id: d.id, title: d.title, category: d.category })),
+      };
+    },
+  );
+}
 
 // --- mutations ---
 
