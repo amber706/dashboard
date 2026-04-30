@@ -35,6 +35,7 @@ import OpsSupervisorReview from "@/pages/ops/supervisor-review";
 import OpsKnowledge from "@/pages/ops/knowledge";
 import OpsAlerts from "@/pages/ops/alerts";
 import OpsTrainingAssignments from "@/pages/ops/training-assignments";
+import OpsQAReview from "@/pages/ops/qa-review";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
 
 const queryClient = new QueryClient({
@@ -75,6 +76,7 @@ function AppRoutes() {
         <Route path="/ops/knowledge" component={OpsKnowledge} />
         <Route path="/ops/alerts" component={OpsAlerts} />
         <Route path="/ops/training-assignments" component={OpsTrainingAssignments} />
+        <Route path="/ops/qa-review" component={OpsQAReview} />
         <Route path="/ops/abandoned-calls" component={OpsAbandonedCalls} />
         <Route component={NotFound} />
       </Switch>
