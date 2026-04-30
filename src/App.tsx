@@ -24,6 +24,8 @@ import CTMAttribution from "@/pages/ctm-attribution";
 import ExecutiveOverview from "@/pages/executive-overview";
 import KnowledgeReview from "@/pages/knowledge-review";
 import KnowledgeBase from "@/pages/kb";
+import TrainingScenarios from "@/pages/training";
+import TrainingSession from "@/pages/training-session";
 import SuggestionDetail from "@/pages/suggestion-detail";
 import OpsOverview from "@/pages/ops/overview";
 import OpsSuggestions from "@/pages/ops/suggestions";
@@ -61,6 +63,8 @@ function AppRoutes() {
         <Route path="/ctm-attribution" component={CTMAttribution} />
         <Route path="/knowledge-review" component={KnowledgeReview} />
         <Route path="/kb" component={KnowledgeBase} />
+        <Route path="/training" component={TrainingScenarios} />
+        <Route path="/training/:id" component={TrainingSession} />
         <Route path="/ops/overview" component={OpsOverview} />
         <Route path="/ops/suggestions" component={OpsSuggestions} />
         <Route path="/ops/workload" component={OpsWorkload} />
