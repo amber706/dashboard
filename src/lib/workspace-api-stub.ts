@@ -17,10 +17,16 @@ type QueryResult<T> = {
   refetch: () => Promise<void>;
 };
 
+type MutationOptions = {
+  onSuccess?: () => void;
+  onError?: (error: Error) => void;
+};
+
 type MutationResult<TVars = unknown> = {
-  mutate: (vars: TVars) => void;
-  mutateAsync: (vars: TVars) => Promise<void>;
+  mutate: (vars: TVars, opts?: MutationOptions) => void;
+  mutateAsync: (vars: TVars, opts?: MutationOptions) => Promise<void>;
   isPending: boolean;
+  isSuccess: boolean;
   isError: boolean;
   error: Error | null;
   reset: () => void;
@@ -46,10 +52,65 @@ const emptyMutation = <TVars = unknown>(): MutationResult<TVars> => ({
   mutate: () => {},
   mutateAsync: async () => {},
   isPending: false,
+  isSuccess: false,
   isError: false,
   error: null,
   reset: () => {},
 });
+
+// Generic mutation runner that mirrors the react-query MutationResult
+// surface used by the existing pages: mutate(vars, {onSuccess, onError}),
+// isPending, isSuccess, isError, error.
+function useSupabaseMutation<TVars>(
+  fn: (vars: TVars) => Promise<void>,
+): MutationResult<TVars> {
+  const [isPending, setIsPending] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const mutateAsync = useCallback(
+    async (vars: TVars, opts?: MutationOptions) => {
+      setIsPending(true);
+      setIsSuccess(false);
+      setError(null);
+      try {
+        await fn(vars);
+        setIsSuccess(true);
+        opts?.onSuccess?.();
+      } catch (e) {
+        const err = e instanceof Error ? e : new Error(String(e));
+        setError(err);
+        opts?.onError?.(err);
+      } finally {
+        setIsPending(false);
+      }
+    },
+    [fn],
+  );
+
+  const mutate = useCallback(
+    (vars: TVars, opts?: MutationOptions) => {
+      void mutateAsync(vars, opts);
+    },
+    [mutateAsync],
+  );
+
+  const reset = useCallback(() => {
+    setIsPending(false);
+    setIsSuccess(false);
+    setError(null);
+  }, []);
+
+  return {
+    mutate,
+    mutateAsync,
+    isPending,
+    isSuccess,
+    isError: error !== null,
+    error,
+    reset,
+  };
+}
 
 // Generic loader that runs a Supabase fetcher and exposes it as a
 // QueryResult. The fetcher is keyed by `depsKey` so changing args
@@ -183,7 +244,13 @@ export function useListKbDocuments() {
         )
         .order("updated_at", { ascending: false });
       if (error) return { data: undefined, error: new Error(error.message) };
-      return { data: { documents: data ?? [] }, error: null };
+      // The admin page reads doc.approved (boolean), so derive it from
+      // the kb_doc_status enum here.
+      const documents = (data ?? []).map((d) => ({
+        ...d,
+        approved: d.status === "approved",
+      }));
+      return { data: { documents }, error: null };
     },
     "kb-documents",
   );
@@ -212,12 +279,55 @@ export const useGetFullTranscript = (_id?: string) => emptyQuery<any>();
 export const useQueryKb = (..._args: any[]) => emptyQuery<any>();
 
 // --- mutations ---
-export const useReindexKb = () => emptyMutation();
+
+// KB document status flips. Schema: kb_documents.status enum
+// ('approved', 'archived', 'pending'). Approve/Unapprove are wired on
+// the admin KB tab; Revoke is exported for parity but not invoked by
+// the current UI.
+export const useApproveKbDocument = () =>
+  useSupabaseMutation<{ docId: string }>(async ({ docId }) => {
+    const { error } = await supabase
+      .from("kb_documents")
+      .update({ status: "approved" })
+      .eq("id", docId);
+    if (error) throw new Error(error.message);
+  });
+
+export const useUnapproveKbDocument = () =>
+  useSupabaseMutation<{ docId: string }>(async ({ docId }) => {
+    const { error } = await supabase
+      .from("kb_documents")
+      .update({ status: "pending" })
+      .eq("id", docId);
+    if (error) throw new Error(error.message);
+  });
+
+export const useRevokeKbDocument = () =>
+  useSupabaseMutation<{ docId: string }>(async ({ docId }) => {
+    const { error } = await supabase
+      .from("kb_documents")
+      .update({ status: "archived" })
+      .eq("id", docId);
+    if (error) throw new Error(error.message);
+  });
+
+// No-op mutations: these have no backing storage in the v3 schema
+// and / or no upstream pipeline producing rows for them to act on yet.
+//
+// - useApproveField: writes confirmed values into field_extractions.
+//   Table exists, but no extractions are produced until the Phase 2
+//   grader / live-transcript pipeline runs.
+// - useUpdateThresholds: needs a thresholds / system-config table that
+//   does not exist in v3. Phase 1+ once the field-extraction pipeline
+//   needs configurable confidence cutoffs.
+// - useMergeLeads: depends on duplicate-detection that hasn't been
+//   built; the admin Duplicates tab is non-functional until then.
+// - useReindexKb / useReplayCall / useRetryFailedWrite: ops actions
+//   that hit pipelines we haven't ported (vector index, replay, write
+//   retry).
 export const useApproveField = () => emptyMutation();
+export const useUpdateThresholds = () => emptyMutation();
+export const useMergeLeads = () => emptyMutation();
+export const useReindexKb = () => emptyMutation();
 export const useReplayCall = () => emptyMutation();
 export const useRetryFailedWrite = () => emptyMutation();
-export const useUpdateThresholds = () => emptyMutation();
-export const useApproveKbDocument = () => emptyMutation();
-export const useRevokeKbDocument = () => emptyMutation();
-export const useUnapproveKbDocument = () => emptyMutation();
-export const useMergeLeads = () => emptyMutation();
