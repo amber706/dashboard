@@ -9,10 +9,23 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
+// Override the default navigator.locks-based auth coordination.
+// navigator.locks is shared across all same-origin tabs in a Chrome session,
+// and orphaned locks (from a closed/crashed tab) cause getSession() to hang
+// forever. The AuthGate then sits in `isLoading: true` and the page never
+// renders. We swap to an in-process lock: per-tab serialization of auth
+// operations, with no cross-tab coordination at all.
+async function processLock<R>(
+  _name: string,
+  _acquireTimeout: number,
+  fn: () => Promise<R>,
+): Promise<R> {
+  return await fn();
+}
+
 // Cache the client on globalThis so Vite HMR re-evaluations reuse the
-// existing GoTrueClient. Multiple instances all contend for the same
-// Web Lock (navigator.locks) and orphan each other, hanging queries
-// behind a never-released auth lock. One client per browser session.
+// existing GoTrueClient. Combined with processLock above, this prevents
+// both intra-tab (HMR) and cross-tab (navigator.locks) deadlock paths.
 const globalCache = globalThis as unknown as { __supabase?: SupabaseClient };
 
 export const supabase: SupabaseClient =
@@ -22,6 +35,7 @@ export const supabase: SupabaseClient =
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      lock: processLock,
     },
   }));
 

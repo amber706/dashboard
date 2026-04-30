@@ -77,10 +77,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    // Belt-and-suspenders against any hang in getSession: force-unblock
+    // the AuthGate after 8 seconds. The page will treat the user as
+    // signed out, which sends them to the login screen — a recoverable
+    // state, much better than an infinite "Loading..." spinner.
+    const failsafe = setTimeout(() => {
+      if (!mounted) return;
+      setIsLoading((wasLoading) => {
+        if (wasLoading) {
+          console.warn("[auth] getSession failsafe fired; treating as signed out");
+        }
+        return false;
+      });
+    }, 8000);
+
     supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
       const u = await loadProfileForSession(data.session);
       if (!mounted) return;
+      clearTimeout(failsafe);
       setUser(u);
       setToken(data.session?.access_token ?? null);
       setIsLoading(false);
