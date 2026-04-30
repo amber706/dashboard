@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "wouter";
-import { Loader2, Users, Phone, Mail, Calendar, AlertTriangle, ChevronDown, ChevronRight, Headphones, MessageSquare, Sparkles, Search } from "lucide-react";
+import { Loader2, Users, Phone, Mail, Calendar, AlertTriangle, ChevronDown, ChevronRight, Headphones, MessageSquare, Sparkles, Search, Send, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,7 @@ function scoreColor(n: number | null): string {
   if (n >= 60) return "text-amber-700 dark:text-amber-400";
   return "text-rose-700 dark:text-rose-400";
 }
+function zoho_id_display(id: string | null): string | null { return id; }
 
 export default function LeadsView() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -144,6 +145,27 @@ export default function LeadsView() {
 function LeadRow({ lead, expanded, onToggle }: { lead: Lead; expanded: boolean; onToggle: () => void }) {
   const [calls, setCalls] = useState<CallSummary[] | null>(null);
   const [extractions, setExtractions] = useState<FieldExtraction[] | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<{ ok: boolean; message: string; zohoId?: string } | null>(null);
+  const [zohoId, setZohoId] = useState<string | null>(lead.zoho_lead_id);
+
+  async function pushToZoho() {
+    setPushing(true);
+    setPushResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("zoho-writeback", {
+        body: { lead_id: lead.id },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.ok) throw new Error(data?.error ?? "zoho-writeback failed");
+      setPushResult({ ok: true, message: `${data.action ?? "synced"} as Zoho ID ${data.zoho_lead_id}`, zohoId: data.zoho_lead_id });
+      if (data.zoho_lead_id) setZohoId(data.zoho_lead_id);
+    } catch (e) {
+      setPushResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setPushing(false);
+    }
+  }
 
   useEffect(() => {
     if (!expanded || calls) return;
@@ -275,9 +297,23 @@ function LeadRow({ lead, expanded, onToggle }: { lead: Lead; expanded: boolean; 
                 )}
               </div>
 
-              <div className="text-xs text-muted-foreground border-t pt-2">
-                Lead created {fmtTime(lead.created_at)}
-                {lead.zoho_lead_id && ` · Zoho ID ${lead.zoho_lead_id}`}
+              <div className="border-t pt-3 flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-xs text-muted-foreground">
+                  Lead created {fmtTime(lead.created_at)}
+                  {zoho_id_display(zohoId) && ` · Zoho ID ${zoho_id_display(zohoId)}`}
+                </div>
+                <div className="flex items-center gap-2">
+                  {pushResult && (
+                    <span className={`text-xs ${pushResult.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}>
+                      {pushResult.ok && <CheckCircle2 className="w-3 h-3 inline mr-1" />}
+                      {pushResult.message.slice(0, 120)}
+                    </span>
+                  )}
+                  <Button size="sm" variant="outline" onClick={pushToZoho} disabled={pushing}>
+                    {pushing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Send className="w-3 h-3 mr-1.5" />}
+                    {zohoId ? "Sync to Zoho" : "Push to Zoho"}
+                  </Button>
+                </div>
               </div>
             </>
           )}
