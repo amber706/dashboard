@@ -1,0 +1,430 @@
+import { useEffect, useRef, useState } from "react";
+import { useRoute, Link } from "wouter";
+import {
+  ArrowLeft, Loader2, Phone, Clock, Timer, User as UserIcon, Headphones,
+  AlertTriangle, MessageSquare, Sparkles, Search, ShieldAlert,
+} from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { useQueryKb } from "@/lib/workspace-api-stub";
+
+interface Call {
+  id: string;
+  ctm_call_id: string;
+  direction: string;
+  status: string;
+  caller_phone_normalized: string | null;
+  caller_name: string | null;
+  started_at: string | null;
+  talk_seconds: number | null;
+  ctm_raw_payload: any;
+  lead_id: string | null;
+}
+
+interface Chunk {
+  id: string;
+  sequence_number: number;
+  speaker: string | null;
+  content: string;
+}
+
+interface Extraction {
+  field_name: string;
+  extracted_value: string | null;
+  confidence: number;
+  source_signal: string | null;
+  status: string;
+}
+
+interface Alert {
+  id: string;
+  alert_type: string;
+  severity: string;
+  status: string;
+  trigger_excerpt: string;
+}
+
+interface Score {
+  composite_score: number | null;
+  caller_sentiment: string | null;
+  needs_supervisor_review: boolean | null;
+  qualification_completeness: number | null;
+  rapport_and_empathy: number | null;
+  next_step_clarity: number | null;
+  compliance: number | null;
+  coaching_takeaways: { what_went_well?: string[]; what_to_try?: string[] } | null;
+}
+
+function fmtTime(s: string | null): string {
+  if (!s) return "—";
+  return new Date(s).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function fmtDur(s: number | null): string {
+  if (!s || s <= 0) return "—";
+  const m = Math.floor(s / 60), r = s % 60;
+  return m === 0 ? `${r}s` : `${m}m ${r}s`;
+}
+function scoreColor(n: number | null): string {
+  if (n == null) return "text-muted-foreground";
+  if (n >= 80) return "text-emerald-700 dark:text-emerald-400";
+  if (n >= 60) return "text-amber-700 dark:text-amber-400";
+  return "text-rose-700 dark:text-rose-400";
+}
+
+function agentName(payload: any): string | null {
+  const a = payload?.agent;
+  if (!a) return null;
+  if (typeof a === "string") return a;
+  return a.name ?? a.email ?? null;
+}
+
+export default function LiveCallView() {
+  const [, params] = useRoute<{ id: string }>("/live/:id");
+  const callId = params?.id;
+
+  const [call, setCall] = useState<Call | null>(null);
+  const [chunks, setChunks] = useState<Chunk[]>([]);
+  const [extractions, setExtractions] = useState<Extraction[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [score, setScore] = useState<Score | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const transcriptRef = useRef<HTMLDivElement>(null);
+
+  // Initial load + realtime subscription for transcript chunks
+  useEffect(() => {
+    if (!callId) return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      const [callRes, chunkRes, extRes, alertRes, scoreRes] = await Promise.all([
+        supabase.from("call_sessions").select("*").eq("id", callId).maybeSingle(),
+        supabase.from("transcript_chunks").select("*").eq("call_session_id", callId).order("sequence_number"),
+        supabase.from("field_extractions").select("field_name, extracted_value, confidence, source_signal, status").eq("call_session_id", callId).order("confidence", { ascending: false }),
+        supabase.from("high_priority_alerts").select("id, alert_type, severity, status, trigger_excerpt").eq("call_session_id", callId),
+        supabase.from("call_scores").select("composite_score, caller_sentiment, needs_supervisor_review, qualification_completeness, rapport_and_empathy, next_step_clarity, compliance, coaching_takeaways").eq("call_session_id", callId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      if (callRes.error) setError(callRes.error.message);
+      if (callRes.data) setCall(callRes.data as Call);
+      setChunks((chunkRes.data ?? []) as Chunk[]);
+      setExtractions((extRes.data ?? []) as Extraction[]);
+      setAlerts((alertRes.data ?? []) as Alert[]);
+      setScore(scoreRes.data as Score | null);
+      setLoading(false);
+    })();
+
+    // Realtime: re-fetch chunks whenever new ones land for this call.
+    // Keeps the transcript live during the call (CTM fires update events
+    // with the full transcript blob; our function replaces chunks).
+    const channel = supabase
+      .channel(`live-call-${callId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transcript_chunks", filter: `call_session_id=eq.${callId}` },
+        async () => {
+          const { data } = await supabase
+            .from("transcript_chunks")
+            .select("*")
+            .eq("call_session_id", callId)
+            .order("sequence_number");
+          if (!cancelled && data) setChunks(data as Chunk[]);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "field_extractions", filter: `call_session_id=eq.${callId}` },
+        async () => {
+          const { data } = await supabase
+            .from("field_extractions")
+            .select("field_name, extracted_value, confidence, source_signal, status")
+            .eq("call_session_id", callId)
+            .order("confidence", { ascending: false });
+          if (!cancelled && data) setExtractions(data as Extraction[]);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "high_priority_alerts", filter: `call_session_id=eq.${callId}` },
+        async () => {
+          const { data } = await supabase
+            .from("high_priority_alerts")
+            .select("id, alert_type, severity, status, trigger_excerpt")
+            .eq("call_session_id", callId);
+          if (!cancelled && data) setAlerts(data as Alert[]);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "call_scores", filter: `call_session_id=eq.${callId}` },
+        async () => {
+          const { data } = await supabase
+            .from("call_scores")
+            .select("composite_score, caller_sentiment, needs_supervisor_review, qualification_completeness, rapport_and_empathy, next_step_clarity, compliance, coaching_takeaways")
+            .eq("call_session_id", callId)
+            .maybeSingle();
+          if (!cancelled) setScore(data as Score | null);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [callId]);
+
+  // Auto-scroll transcript when chunks change
+  useEffect(() => {
+    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
+  }, [chunks]);
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto p-6">
+        <Card><CardContent className="pt-6 text-sm text-muted-foreground flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading call…
+        </CardContent></Card>
+      </div>
+    );
+  }
+
+  if (error || !call) {
+    return (
+      <div className="max-w-7xl mx-auto p-6 space-y-4">
+        <Link href="/ctm-calls" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="w-4 h-4" /> Back to call log
+        </Link>
+        <Card className="border-destructive"><CardContent className="pt-6 text-sm text-destructive">
+          {error ?? "Call not found"}
+        </CardContent></Card>
+      </div>
+    );
+  }
+
+  const audio = call.ctm_raw_payload?.audio;
+  const agent = agentName(call.ctm_raw_payload);
+  const trackingNumber = call.ctm_raw_payload?.tracking_number;
+
+  return (
+    <div className="max-w-7xl mx-auto p-4 space-y-4">
+      <Link href="/ctm-calls" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="w-4 h-4" /> Back to call log
+      </Link>
+
+      {/* Header */}
+      <Card>
+        <CardContent className="pt-5 pb-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-semibold">{call.caller_name ?? call.caller_phone_normalized ?? "Unknown caller"}</h1>
+                <Badge variant="secondary">{call.direction}</Badge>
+                <Badge variant="outline">{call.status}</Badge>
+                {call.lead_id && (
+                  <Link href={`/admin/leads`} className="text-xs text-primary hover:underline">View lead profile →</Link>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {fmtTime(call.started_at)}</span>
+                <span className="flex items-center gap-1"><Timer className="w-3 h-3" /> {fmtDur(call.talk_seconds)}</span>
+                {call.caller_phone_normalized && (
+                  <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {call.caller_phone_normalized}</span>
+                )}
+                {agent && <span className="flex items-center gap-1"><UserIcon className="w-3 h-3" /> {agent}</span>}
+                {trackingNumber && <span>via {trackingNumber}</span>}
+                <span className="font-mono text-[10px]">CTM {call.ctm_call_id}</span>
+              </div>
+            </div>
+            {audio && (
+              <div className="min-w-[280px]">
+                <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5">
+                  <Headphones className="w-3 h-3" /> Recording
+                </div>
+                <audio controls preload="none" className="w-full" src={String(audio)} />
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Alerts banner */}
+      {alerts.length > 0 && (
+        <Card className="border-l-4 border-l-rose-500">
+          <CardContent className="pt-4 pb-4 space-y-2">
+            <div className="text-sm font-semibold flex items-center gap-2 text-rose-700 dark:text-rose-400">
+              <AlertTriangle className="w-4 h-4" /> {alerts.length} high-priority alert{alerts.length > 1 ? "s" : ""} on this call
+            </div>
+            {alerts.map((a) => (
+              <div key={a.id} className="text-sm">
+                <Badge variant="outline" className="mr-2">{a.severity}</Badge>
+                <span className="font-medium">{a.alert_type.replace(/_/g, " ")}</span>
+                <span className="ml-2 text-muted-foreground italic">"{a.trigger_excerpt.slice(0, 200)}"</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Two-column body: transcript left, side panels right */}
+      <div className="grid lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" /> Transcript ({chunks.length} turns)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {chunks.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic text-center py-6">
+                  No transcript yet. CTM transcribes after the call ends; updates will appear here automatically.
+                </p>
+              ) : (
+                <div ref={transcriptRef} className="space-y-1.5 max-h-[60vh] overflow-y-auto pr-2 text-sm">
+                  {chunks.map((c) => (
+                    <div key={c.id} className="leading-relaxed">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mr-2">
+                        {c.speaker ?? "?"}:
+                      </span>
+                      {c.content}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Score breakdown */}
+          {score && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4" /> QA score
+                  </CardTitle>
+                  <div className="text-right">
+                    <span className={`text-2xl font-semibold ${scoreColor(score.composite_score)}`}>{score.composite_score ?? "—"}</span>
+                    <span className="text-xs text-muted-foreground ml-1">composite</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  {[
+                    ["qualification_completeness", "Qual"],
+                    ["rapport_and_empathy", "Rapport"],
+                    ["next_step_clarity", "Next step"],
+                    ["compliance", "Compliance"],
+                  ].map(([key, label]) => {
+                    const v = score[key as keyof Score] as number | null;
+                    return (
+                      <div key={key} className="border rounded p-2 text-center">
+                        <div className="text-muted-foreground">{label}</div>
+                        <div className={`text-base font-semibold ${scoreColor(v)}`}>{v ?? "—"}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {score.coaching_takeaways?.what_to_try && score.coaching_takeaways.what_to_try.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-muted-foreground mb-1">Coaching</div>
+                    <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
+                      {score.coaching_takeaways.what_to_try.slice(0, 3).map((t, i) => <li key={i}>{t}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Right column: KB search + extractions */}
+        <div className="space-y-4">
+          <KbSearchPanel />
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Sparkles className="w-4 h-4" /> Extracted fields ({extractions.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {extractions.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">No extractions yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {extractions.map((e, i) => (
+                    <div key={i} className="border rounded-md p-2 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-xs uppercase">{e.field_name}</span>
+                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                          {(e.confidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <div className="text-foreground mt-0.5">{e.extracted_value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KbSearchPanel() {
+  const [query, setQuery] = useState("");
+  const queryKb = useQueryKb();
+  const sources = (queryKb.data?.sources ?? []) as Array<{ id: string; title: string; category: string | null; similarity: number }>;
+  const topAnswer = queryKb.data?.answer;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Search className="w-4 h-4" /> KB Search
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={(e) => { e.preventDefault(); if (query.trim()) queryKb.mutate({ data: { query: query.trim() } }); }}
+              className="flex gap-2 mb-3">
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Quick lookup…" className="text-sm" />
+          <Button size="sm" type="submit" disabled={queryKb.isPending || !query.trim()}>
+            {queryKb.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+          </Button>
+        </form>
+        {queryKb.error && (
+          <div className="text-xs text-destructive">{(queryKb.error as Error).message}</div>
+        )}
+        {queryKb.data && !queryKb.isPending && (
+          <div className="space-y-2">
+            {sources.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">No matches.</p>
+            ) : (
+              <>
+                <div className="text-sm whitespace-pre-wrap border-l-2 border-primary/30 pl-3">
+                  {topAnswer}
+                </div>
+                <div className="text-xs text-muted-foreground space-y-0.5 pt-1 border-t">
+                  {sources.map((s) => (
+                    <div key={s.id} className="flex justify-between">
+                      <span>{s.title}</span>
+                      <span className="tabular-nums">{(s.similarity * 100).toFixed(0)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

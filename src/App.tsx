@@ -10,7 +10,7 @@ import { RoleProvider } from "@/lib/role-context";
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 
 import Home from "@/pages/home";
-import LiveCall from "@/pages/live-call";
+import LiveCall from "@/pages/live-call-v2";
 import Admin from "@/pages/admin";
 import PreCall from "@/pages/pre-call";
 import WrapUp from "@/pages/wrap-up";
