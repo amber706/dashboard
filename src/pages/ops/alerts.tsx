@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "wouter";
-import { AlertTriangle, Loader2, CheckCircle2, ShieldCheck, X, Clock, Phone } from "lucide-react";
+import { AlertTriangle, Loader2, CheckCircle2, ShieldCheck, X, Clock, Phone, Headphones, User as UserIcon, Timer } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +33,16 @@ interface AlertRow {
     caller_name: string | null;
     started_at: string | null;
     talk_seconds: number | null;
+    ctm_raw_payload: Record<string, any> | null;
   } | null;
+}
+
+function fmtDuration(seconds: number | null | undefined): string {
+  if (!seconds || seconds <= 0) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
 }
 
 const alertTypeLabel: Record<AlertType, string> = {
@@ -82,7 +91,7 @@ export default function AlertsQueue() {
         id, call_session_id, alert_type, severity, status, trigger_excerpt,
         trigger_chunk_id, classified_at, acknowledged_by, acknowledged_at,
         resolved_by, resolved_at, resolution_notes,
-        call:call_sessions(id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds)
+        call:call_sessions(id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds, ctm_raw_payload)
       `)
       .order("classified_at", { ascending: false })
       .limit(100);
@@ -230,21 +239,50 @@ function AlertCard({
     <Card className={`border-l-4 ${severityClass[alert.severity].split(" ")[3]}`}>
       <CardHeader className="cursor-pointer" onClick={onToggle}>
         <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1.5 flex-1">
+          <div className="space-y-2 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <Badge className={severityClass[alert.severity]} variant="outline">
                 {alert.severity}
               </Badge>
               <Badge variant="secondary">{alertTypeLabel[alert.alert_type]}</Badge>
               <Badge className={statusClass[alert.status]} variant="secondary">{alert.status}</Badge>
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="w-3 h-3" /> {fmtTime(alert.classified_at)}
+            </div>
+            <div className="text-xs text-muted-foreground flex items-center gap-x-3 gap-y-1 flex-wrap">
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" /> {fmtTime(alert.call?.started_at ?? alert.classified_at)}
               </span>
-              {alert.call && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Phone className="w-3 h-3" /> {alert.call.caller_phone_normalized ?? "unknown"}
+              {alert.call?.talk_seconds != null && (
+                <span className="flex items-center gap-1">
+                  <Timer className="w-3 h-3" /> {fmtDuration(alert.call.talk_seconds)}
+                </span>
+              )}
+              {alert.call?.caller_phone_normalized && (
+                <span className="flex items-center gap-1">
+                  <Phone className="w-3 h-3" /> {alert.call.caller_phone_normalized}
                   {alert.call.caller_name && ` · ${alert.call.caller_name}`}
                 </span>
+              )}
+              {alert.call?.ctm_raw_payload?.agent && (
+                <span className="flex items-center gap-1">
+                  <UserIcon className="w-3 h-3" /> Specialist: {String(alert.call.ctm_raw_payload.agent)}
+                </span>
+              )}
+              {alert.call?.ctm_raw_payload?.tracking_number && (
+                <span>via {String(alert.call.ctm_raw_payload.tracking_number)}</span>
+              )}
+              {alert.call?.ctm_call_id && (
+                <span className="font-mono text-[10px]">call {alert.call.ctm_call_id}</span>
+              )}
+              {alert.call?.ctm_raw_payload?.audio && (
+                <a
+                  href={String(alert.call.ctm_raw_payload.audio)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center gap-1 text-foreground hover:underline"
+                >
+                  <Headphones className="w-3 h-3" /> Recording
+                </a>
               )}
             </div>
             <p className="text-sm italic text-muted-foreground">"{alert.trigger_excerpt}"</p>
@@ -254,6 +292,16 @@ function AlertCard({
 
       {expanded && (
         <CardContent className="border-t pt-4 space-y-4">
+          {alert.call?.ctm_raw_payload?.audio && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Headphones className="w-3 h-3" /> Call recording
+              </h4>
+              <audio controls preload="none" className="w-full" src={String(alert.call.ctm_raw_payload.audio)}>
+                Your browser does not support audio playback.
+              </audio>
+            </div>
+          )}
           <div>
             <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Full transcript</h4>
             {transcriptLoading ? (

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { Loader2, AlertTriangle, Users, Shield } from "lucide-react";
+import { Loader2, AlertTriangle, Shield, Calendar, Inbox } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -22,28 +23,53 @@ const difficultyColor: Record<Scenario["difficulty"], string> = {
   advanced: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
 };
 
+interface Assignment {
+  id: string;
+  scenario_id: string | null;
+  due_at: string | null;
+  status: "assigned" | "in_progress" | "completed" | "overdue";
+  notes: string | null;
+  scenario: { id: string; title: string; difficulty: string; is_crisis_tagged: boolean } | null;
+}
+
 export default function TrainingScenarios() {
+  const { user } = useAuth();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
-        .from("training_scenarios")
-        .select("id, title, description, difficulty, is_crisis_tagged, involves_minors, programs, skill_tags")
-        .eq("status", "published")
-        .order("difficulty", { ascending: true });
+      const [scRes, asRes] = await Promise.all([
+        supabase
+          .from("training_scenarios")
+          .select("id, title, description, difficulty, is_crisis_tagged, involves_minors, programs, skill_tags")
+          .eq("status", "published")
+          .order("difficulty", { ascending: true }),
+        user?.id
+          ? supabase
+              .from("training_assignments")
+              .select(`
+                id, scenario_id, due_at, status, notes,
+                scenario:training_scenarios(id, title, difficulty, is_crisis_tagged)
+              `)
+              .eq("specialist_id", user.id)
+              .in("status", ["assigned", "in_progress", "overdue"])
+              .order("assigned_at", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+      ]);
       if (cancelled) return;
-      if (error) setError(error.message);
-      else setScenarios((data ?? []) as Scenario[]);
+      if (scRes.error) setError(scRes.error.message);
+      else setScenarios((scRes.data ?? []) as Scenario[]);
+      if (asRes.data) setAssignments(asRes.data as unknown as Assignment[]);
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user?.id]);
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -72,6 +98,50 @@ export default function TrainingScenarios() {
         <Card>
           <CardContent className="pt-6 text-sm text-muted-foreground">No published scenarios yet.</CardContent>
         </Card>
+      )}
+
+      {assignments.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground">
+            <Inbox className="w-4 h-4" /> Assigned to you ({assignments.length})
+          </h2>
+          <div className="space-y-2">
+            {assignments.map((a) => (
+              a.scenario ? (
+                <Link key={a.id} href={`/training/${a.scenario.id}`} className="block">
+                  <Card className="hover:bg-accent/50 transition-colors cursor-pointer border-l-4 border-l-amber-500">
+                    <CardContent className="pt-4 pb-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium">{a.scenario.title}</div>
+                          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
+                            <Badge variant="secondary" className="text-xs">{a.status.replace("_", " ")}</Badge>
+                            <Badge variant="secondary" className="text-xs">{a.scenario.difficulty}</Badge>
+                            {a.scenario.is_crisis_tagged && (
+                              <Badge variant="outline" className="gap-1 text-xs"><AlertTriangle className="w-3 h-3" /> crisis</Badge>
+                            )}
+                            {a.due_at && (
+                              <span className="flex items-center gap-1">
+                                <Calendar className="w-3 h-3" /> Due {new Date(a.due_at).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                          {a.notes && (
+                            <p className="text-sm text-muted-foreground italic mt-1.5">"{a.notes}"</p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              ) : null
+            ))}
+          </div>
+        </div>
+      )}
+
+      {assignments.length > 0 && (
+        <h2 className="text-sm font-semibold text-muted-foreground pt-4">Full library</h2>
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
