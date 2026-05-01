@@ -212,7 +212,7 @@ export default function OpsOutcomes() {
                   <Badge className={`${CATEGORY_CLASS[cat]} border text-[10px] uppercase shrink-0`} variant="outline">
                     {CATEGORY_LABEL[cat]}
                   </Badge>
-                  <div className="flex-1 min-w-0">
+                  <Link href={`/leads/${l.id}`} className="flex-1 min-w-0 hover:underline">
                     <div className="text-sm font-medium truncate">
                       {[l.first_name, l.last_name].filter(Boolean).join(" ") || l.primary_phone_normalized || "Unknown lead"}
                     </div>
@@ -224,7 +224,7 @@ export default function OpsOutcomes() {
                         <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {fmtDate(l.outcome_set_at)}</span>
                       )}
                     </div>
-                  </div>
+                  </Link>
                   {l.last_touch_call_id && (
                     <Link href={`/live/${l.last_touch_call_id}`} className="text-xs text-primary hover:underline shrink-0 flex items-center gap-1">
                       <Phone className="w-3 h-3" /> Last call
