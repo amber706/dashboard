@@ -452,6 +452,22 @@ function OpsOverviewContent() {
                     {isExpanded && ctx && (
                       <div className="px-5 pb-5 pt-0 border-t border-border/30 mt-0">
                         <div className="pt-4 pl-7 space-y-3">
+                          {(ctx as any).call_session_id && (
+                            <div className="flex items-center gap-3">
+                              <Link href={`/live/${(ctx as any).call_session_id}`} className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1">
+                                Open coaching view <ArrowRight className="w-3 h-3" />
+                              </Link>
+                              {(ctx as any).recording_url && (
+                                <a href={(ctx as any).recording_url} target="_blank" rel="noopener noreferrer"
+                                   className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1">
+                                  <Headphones className="w-3 h-3" /> Recording
+                                </a>
+                              )}
+                              {(ctx as any).ctm_call_id && (
+                                <span className="text-[10px] font-mono text-muted-foreground">CTM {(ctx as any).ctm_call_id}</span>
+                              )}
+                            </div>
+                          )}
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
                             {ctx.caller_phone && (
                               <span className="flex items-center gap-1">

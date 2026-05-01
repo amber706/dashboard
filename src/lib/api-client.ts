@@ -333,8 +333,66 @@ async function getOpsOverview(): Promise<Response> {
       .limit(5),
   ]);
 
+  // Hydrate call_context for each suggestion that has a related_call_id.
+  // Single batch query rather than per-row.
+  const callIds = (openSuggestions.data ?? [])
+    .map((r) => r.related_call_id)
+    .filter((id): id is string => Boolean(id));
+  const callMap = new Map<string, any>();
+  const transcriptMap = new Map<string, string>();
+  if (callIds.length > 0) {
+    const [callsRes, chunksRes] = await Promise.all([
+      supabase
+        .from("call_sessions")
+        .select("id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds, direction, status, ctm_raw_payload, lead_id")
+        .in("id", callIds),
+      supabase
+        .from("transcript_chunks")
+        .select("call_session_id, sequence_number, speaker, content")
+        .in("call_session_id", callIds)
+        .order("sequence_number", { ascending: true })
+        .limit(callIds.length * 8),
+    ]);
+    for (const c of callsRes.data ?? []) callMap.set(c.id, c);
+    // Build a short transcript excerpt per call (first 6 turns, ~500 chars max).
+    const byCall = new Map<string, Array<{ sequence_number: number; speaker: string | null; content: string }>>();
+    for (const ch of chunksRes.data ?? []) {
+      const arr = byCall.get(ch.call_session_id) ?? [];
+      if (arr.length < 6) arr.push(ch as any);
+      byCall.set(ch.call_session_id, arr);
+    }
+    for (const [callId, chunks] of byCall.entries()) {
+      const lines = chunks.map((c) => `${c.speaker ?? "?"}: ${c.content}`);
+      let excerpt = lines.join("\n");
+      if (excerpt.length > 500) excerpt = excerpt.slice(0, 500) + "…";
+      transcriptMap.set(callId, excerpt);
+    }
+  }
+
   const top_recommendations = (openSuggestions.data ?? []).map((row) => {
     const owner = row.owner as { full_name: string | null; email: string | null } | null;
+    const call = row.related_call_id ? callMap.get(row.related_call_id) : null;
+    const agentRaw = call?.ctm_raw_payload?.agent;
+    const repName = agentRaw?.name ?? agentRaw?.email ?? null;
+    const transcriptExcerpt = row.related_call_id ? transcriptMap.get(row.related_call_id) ?? null : null;
+
+    const call_context = call ? {
+      call_session_id: call.id,
+      ctm_call_id: call.ctm_call_id,
+      caller_phone: call.caller_phone_normalized,
+      caller_name: call.caller_name,
+      rep_name: repName,
+      call_time: call.started_at,
+      duration_seconds: call.talk_seconds,
+      talk_seconds: call.talk_seconds,
+      direction: call.direction,
+      call_status: call.status,
+      transcript_excerpt: transcriptExcerpt,
+      recording_url: call.ctm_raw_payload?.audio ?? null,
+      lead_score: null,
+      lead_quality_tier: null,
+    } : null;
+
     return {
       id: row.id,
       type: row.suggestion_type,
@@ -350,7 +408,7 @@ async function getOpsOverview(): Promise<Response> {
       related_call_id: row.related_call_id ?? undefined,
       status: row.status,
       created_at: row.created_at,
-      call_context: null,
+      call_context,
     };
   });
 
