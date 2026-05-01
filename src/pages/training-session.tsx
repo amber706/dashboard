@@ -69,13 +69,16 @@ export default function TrainingSession() {
   const [assignmentId, setAssignmentId] = useState<string | null>(null);
   const [assignmentNote, setAssignmentNote] = useState<string | null>(null);
 
-  // Voice mode: browser-native Web Speech API for STT + TTS. No server-side
-  // audio infra needed. Specialist holds Mic to dictate; the caller's
-  // response is auto-spoken aloud via SpeechSynthesis when voice mode is on.
+  // Voice mode: browser-native Web Speech API for mic STT, OpenAI TTS for
+  // caller voice (much higher quality than SpeechSynthesis). Specialist
+  // taps mic to dictate; caller's response is fetched as MP3 from the
+  // /tts Edge Function and played in an <audio> element.
   const [voiceMode, setVoiceMode] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [callerSpeaking, setCallerSpeaking] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const callerAudioRef = useRef<HTMLAudioElement | null>(null);
 
   function ensureRecognition() {
     if (recognitionRef.current) return recognitionRef.current;
@@ -124,21 +127,56 @@ export default function TrainingSession() {
     setListening(false);
   }
 
-  function speakCaller(text: string) {
-    if (!voiceMode || typeof window === "undefined" || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text.replace(/\*[^*]+\*/g, "")); // strip *stage directions*
-    utter.rate = 0.95;
-    utter.pitch = 1.0;
-    // Pick a more natural voice if available
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find((v) => v.name.includes("Samantha") || v.name.includes("Karen") || v.name.includes("Daniel") || v.name.includes("Google US"));
-    if (preferred) utter.voice = preferred;
-    window.speechSynthesis.speak(utter);
+  // Pick a TTS voice that roughly matches the scenario's persona gender if known.
+  function ttsVoiceForScenario(): string {
+    const gender = String(scenario?.persona?.gender ?? "").toLowerCase();
+    if (gender.includes("male") && !gender.includes("female")) return "onyx";  // male
+    if (gender.includes("non-binary") || gender.includes("nonbinary")) return "fable";
+    return "nova"; // default warm female
+  }
+
+  async function speakCaller(text: string) {
+    if (!voiceMode) return;
+    stopSpeaking();
+    try {
+      setCallerSpeaking(true);
+      // Direct fetch (not supabase.functions.invoke) because invoke parses
+      // the body as JSON by default and we need a binary audio/mpeg blob.
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/tts`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text, voice: ttsVoiceForScenario() }),
+      });
+      if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const audio = new Audio(blobUrl);
+      callerAudioRef.current = audio;
+      audio.onended = () => { setCallerSpeaking(false); URL.revokeObjectURL(blobUrl); };
+      audio.onerror = () => { setCallerSpeaking(false); URL.revokeObjectURL(blobUrl); };
+      await audio.play();
+    } catch (e) {
+      setCallerSpeaking(false);
+      // Fallback to browser SpeechSynthesis if our TTS endpoint failed
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        const utter = new SpeechSynthesisUtterance(text.replace(/\*[^*]+\*/g, ""));
+        utter.rate = 0.95;
+        window.speechSynthesis.speak(utter);
+      }
+      console.warn("OpenAI TTS failed, fell back to browser synthesis", e);
+    }
   }
 
   function stopSpeaking() {
+    if (callerAudioRef.current) {
+      try { callerAudioRef.current.pause(); } catch {/* ignore */}
+      callerAudioRef.current = null;
+    }
     if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+    setCallerSpeaking(false);
   }
 
   // Cleanup on unmount
@@ -316,6 +354,11 @@ export default function TrainingSession() {
               )}
               {scenario.involves_minors && (
                 <Badge variant="outline" className="gap-1"><Shield className="w-3 h-3" /> minor</Badge>
+              )}
+              {voiceMode && callerSpeaking && (
+                <Button size="sm" variant="outline" onClick={stopSpeaking}>
+                  <VolumeX className="w-3 h-3 mr-1.5" /> Caller speaking — stop
+                </Button>
               )}
               <Button
                 size="sm"
