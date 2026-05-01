@@ -1,9 +1,15 @@
 import { useEffect, useState, useCallback } from "react";
-import { ShieldAlert, Loader2, Phone, Clock, Timer, User as UserIcon, Headphones, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import { ShieldAlert, Loader2, Phone, Clock, Timer, User as UserIcon, Headphones, AlertTriangle, ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+
+interface TranscriptChunk {
+  sequence_number: number;
+  speaker: string | null;
+  content: string | null;
+}
 
 interface ScoreRow {
   id: string;
@@ -73,6 +79,8 @@ export default function QAReview() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("needs_review");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [transcripts, setTranscripts] = useState<Record<string, TranscriptChunk[]>>({});
+  const [transcriptLoading, setTranscriptLoading] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -100,6 +108,18 @@ export default function QAReview() {
   }, [filter]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadTranscript = useCallback(async (callSessionId: string) => {
+    if (transcripts[callSessionId]) return;
+    setTranscriptLoading(callSessionId);
+    const { data, error } = await supabase
+      .from("transcript_chunks")
+      .select("sequence_number, speaker, content")
+      .eq("call_session_id", callSessionId)
+      .order("sequence_number", { ascending: true });
+    if (!error) setTranscripts((prev) => ({ ...prev, [callSessionId]: (data ?? []) as TranscriptChunk[] }));
+    setTranscriptLoading(null);
+  }, [transcripts]);
 
   async function signoff(id: string) {
     const { error } = await supabase
@@ -147,13 +167,22 @@ export default function QAReview() {
           const agent = agentRaw?.name ?? agentRaw?.email ?? (typeof agentRaw === "string" ? agentRaw : null);
           return (
             <Card key={r.id} className={r.needs_supervisor_review && !r.supervisor_signoff_at ? "border-l-4 border-l-rose-500" : ""}>
-              <CardHeader className="cursor-pointer" onClick={() => setExpanded(isOpen ? null : r.id)}>
+              <CardHeader className="cursor-pointer" onClick={() => {
+                const next = isOpen ? null : r.id;
+                setExpanded(next);
+                if (next && r.call?.id) loadTranscript(r.call.id);
+              }}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1.5 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                       <span className={`text-2xl font-semibold ${scoreColor(r.composite_score)}`}>{r.composite_score ?? "—"}</span>
-                      <span className="text-xs text-muted-foreground">composite</span>
+                      <span
+                        className="text-xs text-muted-foreground underline decoration-dotted underline-offset-2 cursor-help"
+                        title="Composite score: weighted average of the 9 rubric categories below (qualification, rapport, objection handling, urgency, next step, script, compliance, booking, overall). 0-100, higher is better."
+                      >
+                        composite
+                      </span>
                       {r.caller_sentiment && (
                         <Badge variant="outline" className="text-xs">{r.caller_sentiment}</Badge>
                       )}
@@ -197,6 +226,39 @@ export default function QAReview() {
                         </div>
                       );
                     })}
+                  </div>
+
+                  {audio && (
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-1.5">
+                        <Headphones className="w-3 h-3" /> Recording
+                      </h4>
+                      <audio controls preload="none" src={String(audio)} className="w-full h-9" />
+                    </div>
+                  )}
+
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-1.5">
+                      <FileText className="w-3 h-3" /> Transcript
+                    </h4>
+                    {transcriptLoading === r.call?.id && !transcripts[r.call?.id ?? ""] ? (
+                      <div className="text-xs text-muted-foreground flex items-center gap-2">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Loading transcript…
+                      </div>
+                    ) : transcripts[r.call?.id ?? ""]?.length ? (
+                      <div className="border rounded-md max-h-80 overflow-y-auto p-3 space-y-1.5 text-sm bg-muted/30">
+                        {transcripts[r.call!.id].map((c) => (
+                          <div key={c.sequence_number} className="flex gap-2">
+                            <span className="text-xs font-medium text-muted-foreground shrink-0 w-16 uppercase">
+                              {c.speaker ?? "—"}
+                            </span>
+                            <span className="flex-1">{c.content}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground italic">No transcript available.</div>
+                    )}
                   </div>
 
                   {(r.compliance_flags?.length ?? 0) > 0 && (
