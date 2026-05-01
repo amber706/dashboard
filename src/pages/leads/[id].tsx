@@ -36,6 +36,8 @@ interface Lead {
   first_touch_campaign: string | null;
   notes: string | null;
   is_active: boolean | null;
+  lead_score: number | null;
+  lead_interaction_status: string | null;
   created_at: string;
   updated_at: string;
   owner: { full_name: string | null; email: string | null } | null;
@@ -410,7 +412,7 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   // Local form state — initialized from the lead prop, reset on cancel.
-  const [form, setForm] = useState({
+  const initial = () => ({
     first_name: lead.first_name ?? "",
     last_name: lead.last_name ?? "",
     email: lead.email ?? "",
@@ -422,26 +424,21 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
     program_interest: (lead.program_interest ?? []).join(", "),
     stage: lead.stage ?? "",
     notes: lead.notes ?? "",
+    lead_score: lead.lead_score == null ? "" : String(lead.lead_score),
+    lead_interaction_status: lead.lead_interaction_status ?? "",
   });
-
-  function reset() {
-    setForm({
-      first_name: lead.first_name ?? "",
-      last_name: lead.last_name ?? "",
-      email: lead.email ?? "",
-      insurance_provider: lead.insurance_provider ?? "",
-      insurance_qualified: lead.insurance_qualified,
-      urgency: lead.urgency ?? "",
-      relationship_to_patient: lead.relationship_to_patient ?? "",
-      callback_preference: lead.callback_preference ?? "",
-      program_interest: (lead.program_interest ?? []).join(", "),
-      stage: lead.stage ?? "",
-      notes: lead.notes ?? "",
-    });
-  }
+  const [form, setForm] = useState(initial);
+  function reset() { setForm(initial()); }
 
   async function save() {
     setSaving(true);
+    const trimmedScore = form.lead_score.trim();
+    const numScore = trimmedScore === "" ? null : Number(trimmedScore);
+    if (numScore != null && (Number.isNaN(numScore) || numScore < 0 || numScore > 100)) {
+      toast({ title: "Lead score must be 0-100", variant: "destructive" });
+      setSaving(false);
+      return;
+    }
     const patch: Record<string, unknown> = {
       first_name: form.first_name.trim() || null,
       last_name: form.last_name.trim() || null,
@@ -456,6 +453,8 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
         : null,
       stage: form.stage.trim() || null,
       notes: form.notes.trim() || null,
+      lead_score: numScore,
+      lead_interaction_status: form.lead_interaction_status.trim() || null,
       updated_at: new Date().toISOString(),
     };
     const { data, error } = await supabase
@@ -553,6 +552,12 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
             <FieldPair label="Zoho stage">
               <Input value={form.stage} onChange={(e) => setForm({ ...form, stage: e.target.value })} placeholder="exact Zoho Lead_Status text" className="h-8 text-sm" />
             </FieldPair>
+            <FieldPair label="Lead score (0-100, → Zoho Lead_Score)">
+              <Input type="number" min={0} max={100} value={form.lead_score} onChange={(e) => setForm({ ...form, lead_score: e.target.value })} placeholder="—" className="h-8 text-sm" />
+            </FieldPair>
+            <FieldPair label="Lead interaction status (→ Zoho)">
+              <Input value={form.lead_interaction_status} onChange={(e) => setForm({ ...form, lead_interaction_status: e.target.value })} placeholder="e.g. Contacted, Voicemail, Scheduled" className="h-8 text-sm" />
+            </FieldPair>
             <div>
               <div className="text-xs text-muted-foreground mb-1">Notes</div>
               <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="text-sm min-h-[70px]" />
@@ -570,6 +575,8 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
             <FactRow label="Callback preference" value={lead.callback_preference ?? "—"} />
             <FactRow label="Program interest" value={lead.program_interest && lead.program_interest.length > 0 ? lead.program_interest.join(", ") : "—"} />
             <FactRow label="Zoho stage" value={lead.stage ?? "—"} />
+            <FactRow label="Lead score" value={lead.lead_score == null ? "—" : String(lead.lead_score)} />
+            <FactRow label="Interaction status" value={lead.lead_interaction_status ?? "—"} />
             {lead.notes && (
               <div className="pt-2 border-t">
                 <div className="text-xs text-muted-foreground mb-1">Notes</div>

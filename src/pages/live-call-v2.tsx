@@ -24,6 +24,8 @@ interface Call {
   talk_seconds: number | null;
   ctm_raw_payload: any;
   lead_id: string | null;
+  manager_notes: string | null;
+  manual_score: number | null;
 }
 
 interface Chunk {
@@ -383,6 +385,9 @@ export default function LiveCallView() {
               </CardContent>
             </Card>
           )}
+
+          {/* Manager-entered notes + manual score */}
+          {call && <ManagerCallEditor call={call} onSaved={(c) => setCall(c)} />}
         </div>
 
         {/* Right column: live coaching + KB search + extractions */}
@@ -552,6 +557,93 @@ function LiveCoachingPanel({ call, chunks, extractions }: {
             )}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManagerCallEditor({ call, onSaved }: { call: Call; onSaved: (c: Call) => void }) {
+  const [notes, setNotes] = useState(call.manager_notes ?? "");
+  const [score, setScore] = useState<string>(call.manual_score == null ? "" : String(call.manual_score));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  const dirty = notes !== (call.manager_notes ?? "")
+    || score !== (call.manual_score == null ? "" : String(call.manual_score));
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    const trimmedScore = score.trim();
+    const numScore = trimmedScore === "" ? null : Number(trimmedScore);
+    if (numScore != null && (Number.isNaN(numScore) || numScore < 0 || numScore > 100)) {
+      setError("Score must be 0-100");
+      setSaving(false);
+      return;
+    }
+    const { data, error: err } = await supabase
+      .from("call_sessions")
+      .update({ manager_notes: notes.trim() || null, manual_score: numScore })
+      .eq("id", call.id)
+      .select("*")
+      .single();
+    setSaving(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    onSaved(data as Call);
+    setSavedAt(new Date());
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="w-4 h-4" /> Manager notes & score
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <div className="text-xs font-semibold uppercase text-muted-foreground mb-1">Notes</div>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="What was important about this call? Anything you want to reference later or push to Zoho."
+            className="w-full min-h-[80px] text-sm border rounded-md px-3 py-2 bg-background"
+          />
+        </div>
+        <div className="flex items-end gap-3 flex-wrap">
+          <div className="flex-1 min-w-[140px]">
+            <div className="text-xs font-semibold uppercase text-muted-foreground mb-1">Manual score (0-100)</div>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={score}
+              onChange={(e) => setScore(e.target.value)}
+              placeholder="—"
+              className="h-9 text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            {savedAt && !dirty && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Saved {savedAt.toLocaleTimeString()}
+              </span>
+            )}
+            <Button size="sm" onClick={save} disabled={saving || !dirty} className="gap-1.5">
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Save
+            </Button>
+          </div>
+        </div>
+        {error && <div className="text-xs text-destructive">{error}</div>}
+        <p className="text-[11px] text-muted-foreground">
+          Notes and manual score are managers-only. The lead-level score / interaction status (which
+          push to Zoho) live on the lead detail page.
+        </p>
       </CardContent>
     </Card>
   );
