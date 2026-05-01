@@ -3,11 +3,15 @@ import { Link } from "wouter";
 import {
   TrendingUp, Loader2, Trophy, XCircle, Clock,
   Users, Activity, ChevronDown, ChevronRight, Phone, Calendar,
+  Settings, Plus, Trash2, Save, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 
 type Category = "won" | "lost" | "in_progress";
 
@@ -177,6 +181,9 @@ export default function OpsOutcomes() {
         />
       </div>
 
+      {/* Stage mapping editor */}
+      <StageMappingEditor onChanged={load} />
+
       {/* Lead list */}
       <Card>
         <CardHeader>
@@ -311,5 +318,272 @@ function BreakdownCard({ title, icon, rows, expanded, onToggle }: {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface MappingRow {
+  stage_label: string;
+  category: Category;
+  notes: string | null;
+  updated_at: string;
+}
+
+function StageMappingEditor({ onChanged }: { onChanged: () => void }) {
+  const { toast } = useToast();
+  const [mappings, setMappings] = useState<MappingRow[]>([]);
+  const [unmapped, setUnmapped] = useState<Array<{ stage: string; n: number }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [savingLabel, setSavingLabel] = useState<string | null>(null);
+  const [newStage, setNewStage] = useState("");
+  const [newCategory, setNewCategory] = useState<Category>("in_progress");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [mapRes, leadsRes] = await Promise.all([
+      supabase.from("stage_outcome_mapping").select("stage_label, category, notes, updated_at").order("category").order("stage_label"),
+      supabase.from("leads").select("stage").not("stage", "is", null),
+    ]);
+    setMappings((mapRes.data ?? []) as MappingRow[]);
+
+    // Find lead stages that don't have a mapping (case-insensitive).
+    const knownLabels = new Set((mapRes.data ?? []).map((m: any) => String(m.stage_label).toLowerCase()));
+    const stageCounts = new Map<string, number>();
+    for (const r of (leadsRes.data ?? []) as Array<{ stage: string }>) {
+      const s = (r.stage ?? "").trim();
+      if (!s) continue;
+      if (knownLabels.has(s.toLowerCase())) continue;
+      stageCounts.set(s, (stageCounts.get(s) ?? 0) + 1);
+    }
+    setUnmapped([...stageCounts.entries()].map(([stage, n]) => ({ stage, n })).sort((a, b) => b.n - a.n));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { if (expanded) load(); }, [expanded, load]);
+
+  async function recompute() {
+    const { error } = await supabase.rpc("recompute_lead_outcomes");
+    if (error) toast({ title: "Recompute failed", description: error.message, variant: "destructive" });
+    onChanged();
+    load();
+  }
+
+  async function saveMapping(label: string, category: Category, notes: string | null) {
+    setSavingLabel(label);
+    const { error } = await supabase.from("stage_outcome_mapping").upsert({
+      stage_label: label,
+      category,
+      notes,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "stage_label" });
+    setSavingLabel(null);
+    if (error) {
+      toast({ title: "Save failed", description: error.message, variant: "destructive" });
+      return;
+    }
+    await recompute();
+    toast({ title: "Mapping saved", description: `"${label}" → ${category}` });
+  }
+
+  async function deleteMapping(label: string) {
+    setSavingLabel(label);
+    const { error } = await supabase.from("stage_outcome_mapping").delete().eq("stage_label", label);
+    setSavingLabel(null);
+    if (error) {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+      return;
+    }
+    await recompute();
+    toast({ title: "Mapping removed", description: `"${label}" now defaults to in-progress` });
+  }
+
+  async function addNew() {
+    const label = newStage.trim();
+    if (!label) return;
+    await saveMapping(label, newCategory, null);
+    setNewStage("");
+    setNewCategory("in_progress");
+  }
+
+  return (
+    <Card>
+      <CardHeader className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <CardTitle className="text-base flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Settings className="w-4 h-4" /> Stage mapping
+            {unmapped.length > 0 && (
+              <Badge variant="outline" className="ml-1 gap-1 text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="w-3 h-3" /> {unmapped.length} unclassified
+              </Badge>
+            )}
+          </span>
+          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </CardTitle>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Each Zoho lead stage maps to a category. Anything not classified here defaults to "in progress."
+            Edits trigger a recompute so existing leads pick up the new classification immediately.
+          </p>
+
+          {loading && (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading mappings…
+            </div>
+          )}
+
+          {!loading && unmapped.length > 0 && (
+            <div className="border border-amber-500/30 bg-amber-50/40 dark:bg-amber-950/15 rounded-md p-3 space-y-2">
+              <div className="text-xs font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                Unclassified stages found in your lead data ({unmapped.length})
+              </div>
+              <div className="space-y-1.5">
+                {unmapped.map((u) => (
+                  <UnmappedRow
+                    key={u.stage}
+                    stage={u.stage}
+                    count={u.n}
+                    saving={savingLabel === u.stage}
+                    onClassify={(cat) => saveMapping(u.stage, cat, null)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!loading && (
+            <div className="border rounded-md overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-xs text-muted-foreground uppercase tracking-wide">
+                  <tr>
+                    <th className="text-left py-2 px-3">Stage label</th>
+                    <th className="text-left py-2 px-3 w-40">Category</th>
+                    <th className="text-left py-2 px-3">Notes</th>
+                    <th className="py-2 px-3 w-16"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mappings.map((m) => (
+                    <MappingEditRow
+                      key={m.stage_label}
+                      mapping={m}
+                      saving={savingLabel === m.stage_label}
+                      onSave={saveMapping}
+                      onDelete={deleteMapping}
+                    />
+                  ))}
+                  <tr className="border-t bg-muted/20">
+                    <td className="py-2 px-3">
+                      <Input
+                        value={newStage}
+                        onChange={(e) => setNewStage(e.target.value)}
+                        placeholder="Add a new stage label (exact Zoho text)"
+                        className="h-8 text-sm"
+                      />
+                    </td>
+                    <td className="py-2 px-3">
+                      <Select value={newCategory} onValueChange={(v) => setNewCategory(v as Category)}>
+                        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="won">Won (admitted)</SelectItem>
+                          <SelectItem value="lost">Lost (churned)</SelectItem>
+                          <SelectItem value="in_progress">In progress</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="py-2 px-3 text-xs text-muted-foreground">Notes can be edited after adding</td>
+                    <td className="py-2 px-3 text-right">
+                      <Button size="sm" onClick={addNew} disabled={!newStage.trim() || !!savingLabel} className="h-8 gap-1">
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </Button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" onClick={recompute} className="gap-1.5">
+              <Activity className="w-3.5 h-3.5" /> Recompute lead outcomes now
+            </Button>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function UnmappedRow({ stage, count, saving, onClassify }: {
+  stage: string;
+  count: number;
+  saving: boolean;
+  onClassify: (cat: Category) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap text-sm">
+      <code className="bg-background border rounded px-1.5 py-0.5 text-xs">{stage}</code>
+      <span className="text-xs text-muted-foreground">{count} lead{count > 1 ? "s" : ""}</span>
+      <span className="text-xs text-muted-foreground ml-auto mr-2">classify as:</span>
+      <Button size="sm" variant="outline" disabled={saving} onClick={() => onClassify("won")} className="h-7 gap-1 text-xs">
+        <Trophy className="w-3 h-3" /> Won
+      </Button>
+      <Button size="sm" variant="outline" disabled={saving} onClick={() => onClassify("lost")} className="h-7 gap-1 text-xs">
+        <XCircle className="w-3 h-3" /> Lost
+      </Button>
+      <Button size="sm" variant="outline" disabled={saving} onClick={() => onClassify("in_progress")} className="h-7 gap-1 text-xs">
+        <Clock className="w-3 h-3" /> In progress
+      </Button>
+    </div>
+  );
+}
+
+function MappingEditRow({ mapping, saving, onSave, onDelete }: {
+  mapping: MappingRow;
+  saving: boolean;
+  onSave: (label: string, category: Category, notes: string | null) => void;
+  onDelete: (label: string) => void;
+}) {
+  const [category, setCategory] = useState<Category>(mapping.category);
+  const [notes, setNotes] = useState<string>(mapping.notes ?? "");
+  const dirty = category !== mapping.category || notes !== (mapping.notes ?? "");
+
+  return (
+    <tr className="border-t">
+      <td className="py-2 px-3 font-mono text-xs">{mapping.stage_label}</td>
+      <td className="py-2 px-3">
+        <Select value={category} onValueChange={(v) => setCategory(v as Category)}>
+          <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="won">Won</SelectItem>
+            <SelectItem value="lost">Lost</SelectItem>
+            <SelectItem value="in_progress">In progress</SelectItem>
+          </SelectContent>
+        </Select>
+      </td>
+      <td className="py-2 px-3">
+        <Input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Why this mapping?"
+          className="h-8 text-sm"
+        />
+      </td>
+      <td className="py-2 px-3 text-right">
+        <div className="flex gap-1 justify-end">
+          {dirty && (
+            <Button size="sm" variant="default" disabled={saving} onClick={() => onSave(mapping.stage_label, category, notes.trim() || null)} className="h-8 px-2">
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" disabled={saving} onClick={() => { if (confirm(`Remove mapping for "${mapping.stage_label}"? It will default to in-progress.`)) onDelete(mapping.stage_label); }} className="h-8 px-2 text-rose-600 hover:text-rose-700">
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
 }
