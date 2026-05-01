@@ -677,7 +677,13 @@ async function getCTMCalls(queryString: string): Promise<Response> {
     .range(offset, offset + limit - 1);
   if (direction && direction !== "all") q = q.eq("direction", direction);
   if (startDate) q = q.gte("started_at", startDate);
-  if (endDate) q = q.lte("started_at", endDate);
+  if (endDate) {
+    // Frontend sends "yyyy-MM-dd" date strings; append end-of-day so calls
+    // landing today aren't excluded by Postgres reading the bare date as
+    // midnight (start of day).
+    const endIso = /T\d/.test(endDate) ? endDate : `${endDate}T23:59:59.999Z`;
+    q = q.lte("started_at", endIso);
+  }
 
   const { data, error, count } = await q;
   if (error) return jsonResponse({ error: error.message }, 500);
