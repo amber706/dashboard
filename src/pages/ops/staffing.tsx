@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   Calendar, Loader2, RefreshCw, Users, Phone, AlertTriangle, Download,
-  TrendingUp,
+  TrendingUp, Sliders,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +35,13 @@ export default function OpsStaffing() {
   // Tuning knobs the manager can play with — live recompute.
   const [callsPerSpecialistPerHour, setCallsPerSpecialistPerHour] = useState<number>(6);
   const [missedRateAlertThreshold, setMissedRateAlertThreshold] = useState<number>(15);
+  // Schedule-generator controls. All recompute live.
+  const [headcount, setHeadcount] = useState<number>(8);
+  const [shiftHours, setShiftHours] = useState<number>(8);
+  const [daysPerWeek, setDaysPerWeek] = useState<number>(5);
+  const [lunchHours, setLunchHours] = useState<number>(1);
+  const [earliestStart, setEarliestStart] = useState<number>(7);     // 7am
+  const [latestEnd, setLatestEnd] = useState<number>(20);            // 8pm
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,6 +124,123 @@ export default function OpsStaffing() {
     highMissSlots.sort((a, b) => b.missed_rate - a.missed_rate);
     return { totalCalls, totalMissed, peakAvg, peakSlot, busyHourCount, highMissSlots: highMissSlots.slice(0, 8) };
   }, [slots, rows, missedRateAlertThreshold]);
+
+  // ===== Schedule generator =====
+  // Greedy fill: for each person, generate every candidate (start hour,
+  // days-off-pair) shift that respects the operating-window + days-per-
+  // week constraints, score it by how much under-coverage it absorbs,
+  // pick the best, repeat.
+  const schedule = useMemo(() => {
+    if (slots.length === 0) return null;
+
+    // 1. Demand grid = recommended_staff per slot, rounded.
+    const demand: number[][] = slots.map((row) => row.map((s) => s.recommended_staff));
+    const remaining: number[][] = demand.map((row) => row.slice());
+
+    // 2. Generate candidate shifts. A shift has a fixed daily start hour
+    //    and runs `shiftHours` consecutive hours, including a 1h-ish
+    //    lunch in the middle (no coverage during lunch). Working days
+    //    are `daysPerWeek` consecutive days starting from a chosen
+    //    weekday — the remaining days are off.
+    interface Shift {
+      key: string;
+      start_day: number;        // 0-6, the first working weekday
+      start_hour: number;       // 0-23
+      end_hour: number;         // exclusive
+      lunch_start_hour: number; // 0-23, no coverage during this hour
+      working_days: number[];   // weekdays this person works
+    }
+
+    const candidates: Shift[] = [];
+    const lunchOffset = Math.max(1, Math.floor(shiftHours / 2));   // mid-shift
+    for (let startDay = 0; startDay < 7; startDay++) {
+      const workingDays: number[] = [];
+      for (let i = 0; i < daysPerWeek; i++) workingDays.push((startDay + i) % 7);
+      for (let startHour = earliestStart; startHour <= latestEnd - shiftHours; startHour++) {
+        const endHour = startHour + shiftHours;
+        if (endHour > latestEnd) continue;
+        const lunchStart = startHour + lunchOffset;
+        candidates.push({
+          key: `${startDay}-${startHour}`,
+          start_day: startDay,
+          start_hour: startHour,
+          end_hour: endHour,
+          lunch_start_hour: lunchStart,
+          working_days: workingDays,
+        });
+      }
+    }
+
+    function shiftCoverageScore(s: Shift): number {
+      let score = 0;
+      for (const d of s.working_days) {
+        for (let h = s.start_hour; h < s.end_hour; h++) {
+          if (lunchHours > 0 && h >= s.lunch_start_hour && h < s.lunch_start_hour + lunchHours) continue;
+          if (h < 0 || h > 23) continue;
+          if (remaining[d][h] > 0) score++;
+        }
+      }
+      return score;
+    }
+
+    function applyShift(s: Shift) {
+      for (const d of s.working_days) {
+        for (let h = s.start_hour; h < s.end_hour; h++) {
+          if (lunchHours > 0 && h >= s.lunch_start_hour && h < s.lunch_start_hour + lunchHours) continue;
+          if (h < 0 || h > 23) continue;
+          if (remaining[d][h] > 0) remaining[d][h]--;
+        }
+      }
+    }
+
+    const assigned: Array<{ specialist: string; shift: Shift }> = [];
+    for (let i = 0; i < headcount; i++) {
+      let best: Shift | null = null;
+      let bestScore = -1;
+      for (const c of candidates) {
+        const s = shiftCoverageScore(c);
+        if (s > bestScore) { bestScore = s; best = c; }
+      }
+      if (!best) break;
+      // If no slots remain to fill, still assign the person to a sensible
+      // default shift (M-F daytime) so headcount on the schedule matches
+      // input — avoids a confusing partial roster.
+      if (bestScore === 0) {
+        const fallback: Shift = candidates.find((c) => c.start_day === 1 && c.start_hour === 9)
+          ?? candidates[0];
+        assigned.push({ specialist: `Specialist ${i + 1}`, shift: fallback });
+        applyShift(fallback);
+        continue;
+      }
+      applyShift(best);
+      assigned.push({ specialist: `Specialist ${i + 1}`, shift: best });
+    }
+
+    // 3. Compute coverage % = 1 - (remaining demand / total demand).
+    let totalDemand = 0, totalRemaining = 0;
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h < 24; h++) {
+        totalDemand += demand[d][h];
+        totalRemaining += remaining[d][h];
+      }
+    }
+    const coveragePct = totalDemand > 0 ? Math.round(((totalDemand - totalRemaining) / totalDemand) * 100) : 100;
+
+    // 4. Build a (day, hour) → assigned-people grid for visualizing the
+    //    actual staffed schedule against demand.
+    const staffed: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+    for (const a of assigned) {
+      for (const d of a.shift.working_days) {
+        for (let h = a.shift.start_hour; h < a.shift.end_hour; h++) {
+          if (lunchHours > 0 && h >= a.shift.lunch_start_hour && h < a.shift.lunch_start_hour + lunchHours) continue;
+          if (h < 0 || h > 23) continue;
+          staffed[d][h]++;
+        }
+      }
+    }
+
+    return { assigned, coveragePct, totalDemand, remainingDemand: totalRemaining, staffed, demand };
+  }, [slots, headcount, shiftHours, daysPerWeek, lunchHours, earliestStart, latestEnd]);
 
   // Coloring: deeper = more calls. Cap at peakAvg for the gradient.
   function cellClass(avg: number): string {
@@ -320,6 +444,202 @@ export default function OpsStaffing() {
           </CardContent>
         </Card>
       )}
+
+      {/* Generated schedule — recomputes live as controls change */}
+      {!loading && schedule && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sliders className="w-4 h-4" /> Generated schedule
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Greedy assignment of {headcount} specialist{headcount === 1 ? "" : "s"} to shifts that
+              maximally cover the recommended-headcount grid. Tweak the controls and the schedule
+              recomputes instantly.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Controls grid */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <ControlField label="Specialists" value={headcount} min={1} max={50} onChange={setHeadcount} />
+              <ControlField label="Shift hours" value={shiftHours} min={4} max={12} onChange={setShiftHours} />
+              <ControlField label="Days/week" value={daysPerWeek} min={1} max={7} onChange={setDaysPerWeek} />
+              <ControlField label="Lunch (hrs)" value={lunchHours} min={0} max={2} onChange={setLunchHours} />
+              <ControlField label="Earliest start" value={earliestStart} min={0} max={23} onChange={setEarliestStart} suffix=":00" />
+              <ControlField label="Latest end" value={latestEnd} min={1} max={24} onChange={setLatestEnd} suffix=":00" />
+            </div>
+
+            {/* Coverage summary */}
+            <div className="grid grid-cols-3 gap-3 pt-2 border-t">
+              <div>
+                <div className="text-xs text-muted-foreground">Coverage of demand</div>
+                <div className={`text-2xl font-semibold tabular-nums mt-1 ${schedule.coveragePct >= 90 ? "text-emerald-700 dark:text-emerald-400" : schedule.coveragePct >= 70 ? "text-amber-700 dark:text-amber-400" : "text-rose-700 dark:text-rose-400"}`}>
+                  {schedule.coveragePct}%
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {schedule.totalDemand - schedule.remainingDemand} of {schedule.totalDemand} demand-slots filled
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Total scheduled hours/wk</div>
+                <div className="text-2xl font-semibold tabular-nums mt-1">
+                  {headcount * (shiftHours - lunchHours) * daysPerWeek}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {(shiftHours - lunchHours) * daysPerWeek}h per specialist
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Unfilled demand</div>
+                <div className="text-2xl font-semibold tabular-nums mt-1 text-muted-foreground">
+                  {schedule.remainingDemand}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {schedule.remainingDemand === 0 ? "Fully covered" : "Add headcount or extend hours"}
+                </div>
+              </div>
+            </div>
+
+            {/* Per-specialist roster */}
+            <div className="border rounded-md overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40">
+                  <tr>
+                    <th className="text-left p-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Specialist</th>
+                    <th className="text-left p-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Days</th>
+                    <th className="text-left p-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Shift</th>
+                    <th className="text-left p-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Lunch</th>
+                    <th className="text-right p-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Hours/wk</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {schedule.assigned.map((a, i) => (
+                    <tr key={i} className="hover:bg-muted/20">
+                      <td className="p-2 font-medium">{a.specialist}</td>
+                      <td className="p-2 text-xs text-muted-foreground">
+                        {a.shift.working_days.map((d) => DAYS[d]).join(", ")}
+                      </td>
+                      <td className="p-2 text-xs tabular-nums">
+                        {String(a.shift.start_hour).padStart(2, "0")}:00 – {String(a.shift.end_hour).padStart(2, "0")}:00
+                      </td>
+                      <td className="p-2 text-xs text-muted-foreground tabular-nums">
+                        {lunchHours > 0
+                          ? `${String(a.shift.lunch_start_hour).padStart(2, "0")}:00 – ${String(a.shift.lunch_start_hour + lunchHours).padStart(2, "0")}:00`
+                          : "—"}
+                      </td>
+                      <td className="p-2 text-xs text-right tabular-nums">{(shiftHours - lunchHours) * daysPerWeek}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Staffed-vs-demand heatmap (delta view) */}
+            <div>
+              <div className="text-xs font-semibold uppercase text-muted-foreground mb-2">
+                Staffed vs demand (rose = under-staffed, emerald = covered)
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-separate border-spacing-0.5">
+                  <thead>
+                    <tr>
+                      <th className="text-left px-1 py-1 text-muted-foreground sticky left-0 bg-background z-10">Day</th>
+                      {Array.from({ length: 24 }).map((_, h) => (
+                        <th key={h} className="text-center px-1 py-1 text-[10px] text-muted-foreground tabular-nums">
+                          {String(h).padStart(2, "0")}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 7 }).map((_, d) => (
+                      <tr key={d}>
+                        <td className="px-2 py-1 font-medium text-muted-foreground sticky left-0 bg-background z-10">{DAYS[d]}</td>
+                        {Array.from({ length: 24 }).map((_, h) => {
+                          const dem = schedule.demand[d][h];
+                          const staffed = schedule.staffed[d][h];
+                          if (dem === 0 && staffed === 0) {
+                            return <td key={h} className="text-center px-1 py-1.5 rounded text-muted-foreground/30">·</td>;
+                          }
+                          const gap = dem - staffed;
+                          const cls = gap > 0
+                            ? "bg-rose-500/40 text-rose-900 dark:text-rose-100"
+                            : staffed > 0 && dem === 0
+                              ? "bg-blue-500/15 text-blue-700 dark:text-blue-400"
+                              : "bg-emerald-500/25 text-emerald-800 dark:text-emerald-300";
+                          return (
+                            <td key={h} className={`text-center px-1 py-1.5 rounded tabular-nums ${cls}`}
+                              title={`${DAYS[d]} ${String(h).padStart(2, "0")}:00\nDemand: ${dem}\nStaffed: ${staffed}\n${gap > 0 ? `Short ${gap}` : gap < 0 ? `Over by ${-gap}` : "Exact"}`}>
+                              {staffed}{dem > 0 ? `/${dem}` : ""}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  logAudit("export", "calls", null, { format: "csv", surface: "staffing_schedule" });
+                  downloadCsv(`schedule-${new Date().toISOString().slice(0, 10)}.csv`,
+                    schedule.assigned.map((a) => ({
+                      specialist: a.specialist,
+                      days: a.shift.working_days.map((d) => DAYS[d]).join(", "),
+                      shift_start: `${String(a.shift.start_hour).padStart(2, "0")}:00`,
+                      shift_end: `${String(a.shift.end_hour).padStart(2, "0")}:00`,
+                      lunch: lunchHours > 0
+                        ? `${String(a.shift.lunch_start_hour).padStart(2, "0")}:00–${String(a.shift.lunch_start_hour + lunchHours).padStart(2, "0")}:00`
+                        : "",
+                      hours_per_week: (shiftHours - lunchHours) * daysPerWeek,
+                    })), [
+                      { key: "specialist", label: "Specialist" },
+                      { key: "days", label: "Days" },
+                      { key: "shift_start", label: "Shift start" },
+                      { key: "shift_end", label: "Shift end" },
+                      { key: "lunch", label: "Lunch" },
+                      { key: "hours_per_week", label: "Hours/wk" },
+                    ]);
+                }}
+              >
+                <Download className="w-3.5 h-3.5" /> Export schedule CSV
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ControlField({ label, value, min, max, suffix, onChange }: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  suffix?: string;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div>
+      <label className="text-xs text-muted-foreground block mb-1">{label}</label>
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
+          className="w-full h-9 px-2 border rounded-md bg-background text-sm tabular-nums"
+        />
+        {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
+      </div>
     </div>
   );
 }
