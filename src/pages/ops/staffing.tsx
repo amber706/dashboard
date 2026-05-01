@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { downloadCsv } from "@/lib/csv-export";
 import { logAudit } from "@/lib/audit";
+import { erlangCStaff } from "@/lib/erlang";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TZ = "America/Phoenix";   // Arizona — no DST, always MST/UTC-7
@@ -43,6 +44,7 @@ interface CallRow {
   started_at: string;
   status: string;
   direction: string | null;
+  talk_seconds: number | null;
 }
 
 interface SlotStat {
@@ -91,6 +93,13 @@ export default function OpsStaffing() {
   // Tuning knobs the manager can play with — live recompute.
   const [callsPerSpecialistPerHour, setCallsPerSpecialistPerHour] = useState<number>(6);
   const [missedRateAlertThreshold, setMissedRateAlertThreshold] = useState<number>(15);
+  // Erlang C inputs — defaults match common call-center workforce-management
+  // settings. AHT is computed from the loaded data when available.
+  const [useErlang, setUseErlang] = useState<boolean>(true);
+  const [slaTargetPct, setSlaTargetPct] = useState<number>(80);     // % calls answered within slaSeconds
+  const [slaSeconds, setSlaSeconds] = useState<number>(20);
+  const [shrinkagePct, setShrinkagePct] = useState<number>(30);     // breaks, training, meetings
+  const [ahtOverrideSeconds, setAhtOverrideSeconds] = useState<number | null>(null);
   // Schedule-generator controls. The headcount is the primary variable;
   // everything else has sensible defaults for "8am-8pm, 7 days/week"
   // coverage and lives behind an Assumptions disclosure.
@@ -108,7 +117,7 @@ export default function OpsStaffing() {
     setError(null);
     const { data, error: err } = await supabase
       .from("call_sessions")
-      .select("started_at, status, direction")
+      .select("started_at, status, direction, talk_seconds")
       .gte("started_at", since.toISOString())
       .lte("started_at", until.toISOString())
       .not("started_at", "is", null);
@@ -119,6 +128,18 @@ export default function OpsStaffing() {
   }, [since, until, rangePreset]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Average handle time pulled from completed inbound calls in the window.
+  // 30s minimum floor (a busy signal at 5s shouldn't pull AHT to zero).
+  const ahtSeconds = useMemo(() => {
+    if (ahtOverrideSeconds != null) return ahtOverrideSeconds;
+    const tt = rows
+      .filter((r) => (r.direction ?? "inbound") === "inbound" && r.status === "completed" && (r.talk_seconds ?? 0) > 0)
+      .map((r) => r.talk_seconds as number);
+    if (tt.length === 0) return 240;     // sensible default: 4 minutes
+    const avg = tt.reduce((a, b) => a + b, 0) / tt.length;
+    return Math.max(30, Math.round(avg));
+  }, [rows, ahtOverrideSeconds]);
 
   // Bucket calls into 168 day-of-week × hour slots.
   const slots = useMemo<SlotStat[][]>(() => {
@@ -146,7 +167,23 @@ export default function OpsStaffing() {
         const weeks = Math.max(c.weeks.size, 1);
         const avg = c.count / weeks;
         const missedRate = c.count > 0 ? (c.missed / c.count) * 100 : 0;
-        const recommended = Math.max(0, Math.ceil(avg / callsPerSpecialistPerHour));
+        let recommended: number;
+        if (useErlang && avg > 0) {
+          // Erlang C: avg calls/wk / 1 = calls/hour for this slot (each
+          // (day,hour) bucket is one hour). Shrinkage is applied at the
+          // schedule layer, not here, so the heatmap shows productive
+          // headcount needed (agents on calls), not scheduled headcount.
+          const r = erlangCStaff({
+            callsPerHour: avg,
+            ahtSeconds,
+            slaTarget: slaTargetPct / 100,
+            slaSeconds,
+            shrinkage: 0,
+          });
+          recommended = r.minAgents;
+        } else {
+          recommended = Math.max(0, Math.ceil(avg / callsPerSpecialistPerHour));
+        }
         row.push({
           day: d,
           hour: h,
@@ -160,7 +197,7 @@ export default function OpsStaffing() {
       out.push(row);
     }
     return out;
-  }, [rows, callsPerSpecialistPerHour]);
+  }, [rows, callsPerSpecialistPerHour, useErlang, ahtSeconds, slaTargetPct, slaSeconds]);
 
   // Totals across the grid for the summary tiles.
   const summary = useMemo(() => {
@@ -305,10 +342,11 @@ export default function OpsStaffing() {
   }, [slots, headcount, shiftHours, daysPerWeek, lunchHours, earliestStart, latestEnd]);
 
   // Min-headcount-for-full-coverage: total demand-hours/week ÷ per-person
-  // hours, floored by peak concurrent demand. Independent of the assigned
-  // schedule — answers "if I want to cover 100% of expected calls within
-  // the operating window with these per-person constraints, what's my
-  // floor headcount?"
+  // productive hours, floored by peak concurrent demand, then grossed up
+  // for shrinkage (breaks/training/meetings = hours scheduled but not on
+  // the phone) when Erlang mode is active. Answers "if I want to hit my
+  // SLA target across the operating window with these per-person
+  // constraints, what's my scheduled headcount?"
   const minHeadcountFullCoverage = useMemo(() => {
     if (slots.length === 0) return null;
     let totalDemandHours = 0;
@@ -323,8 +361,11 @@ export default function OpsStaffing() {
     const perPersonHours = (shiftHours - lunchHours) * daysPerWeek;
     if (perPersonHours <= 0) return null;
     const fromTotal = Math.ceil(totalDemandHours / perPersonHours);
-    return Math.max(peakConcurrent, fromTotal);
-  }, [slots, earliestStart, latestEnd, shiftHours, lunchHours, daysPerWeek]);
+    const productiveFloor = Math.max(peakConcurrent, fromTotal);
+    if (!useErlang || shrinkagePct <= 0) return productiveFloor;
+    // Gross up for shrinkage: scheduled = productive / (1 - shrinkage).
+    return Math.ceil(productiveFloor / Math.max(0.01, 1 - shrinkagePct / 100));
+  }, [slots, earliestStart, latestEnd, shiftHours, lunchHours, daysPerWeek, useErlang, shrinkagePct]);
 
   // Coloring: deeper = more calls. Cap at peakAvg for the gradient.
   function cellClass(avg: number): string {
@@ -455,14 +496,77 @@ export default function OpsStaffing() {
         </CardContent></Card>
       )}
 
+      {/* Staffing model controls */}
+      {!loading && rows.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center justify-between gap-3 flex-wrap">
+              <span>Staffing model</span>
+              <div className="flex items-center gap-1 text-xs">
+                <Button size="sm" variant={useErlang ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setUseErlang(true)}>
+                  Erlang C (recommended)
+                </Button>
+                <Button size="sm" variant={!useErlang ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setUseErlang(false)}>
+                  Simple
+                </Button>
+              </div>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {useErlang
+                ? "Industry-standard queueing model. Accounts for random call arrivals, target service level, and shrinkage."
+                : "Flat assumption: avg calls / (calls per specialist per hour). Faster but ignores call clustering and queueing."}
+            </p>
+          </CardHeader>
+          {useErlang && (
+            <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-0">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Service level target</label>
+                <div className="flex items-center gap-1">
+                  <input type="number" min={50} max={99} value={slaTargetPct} onChange={(e) => setSlaTargetPct(Math.max(50, Math.min(99, Number(e.target.value) || 80)))} className="w-16 h-9 px-2 border rounded-md bg-background text-sm tabular-nums" />
+                  <span className="text-xs text-muted-foreground">% within</span>
+                  <input type="number" min={5} max={120} value={slaSeconds} onChange={(e) => setSlaSeconds(Math.max(5, Math.min(120, Number(e.target.value) || 20)))} className="w-14 h-9 px-2 border rounded-md bg-background text-sm tabular-nums" />
+                  <span className="text-xs text-muted-foreground">s</span>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Shrinkage</label>
+                <div className="flex items-center gap-1">
+                  <input type="number" min={0} max={60} value={shrinkagePct} onChange={(e) => setShrinkagePct(Math.max(0, Math.min(60, Number(e.target.value) || 30)))} className="w-16 h-9 px-2 border rounded-md bg-background text-sm tabular-nums" />
+                  <span className="text-xs text-muted-foreground">% off-phone</span>
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">breaks, training, meetings</div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Avg handle time</label>
+                <div className="flex items-center gap-1">
+                  <input type="number" min={30} max={1800} value={ahtSeconds} onChange={(e) => setAhtOverrideSeconds(Math.max(30, Math.min(1800, Number(e.target.value) || ahtSeconds)))} className="w-20 h-9 px-2 border rounded-md bg-background text-sm tabular-nums" />
+                  <span className="text-xs text-muted-foreground">sec ({Math.floor(ahtSeconds / 60)}m {ahtSeconds % 60}s)</span>
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {ahtOverrideSeconds == null ? "auto-derived from data" : (
+                    <button onClick={() => setAhtOverrideSeconds(null)} className="hover:underline">reset to auto</button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Traffic right now</label>
+                <div className="text-sm font-medium tabular-nums">{(summary.totalCalls / Math.max(1, slots[0]?.[0]?.weeks || 1)).toFixed(0)} calls/wk</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">in window, inbound</div>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
       {/* Heatmap */}
       {!loading && rows.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Recommended staff per hour</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Each cell shows recommended specialist headcount for that day/hour, derived as
-              ceil(avg-inbound-calls-per-week / {callsPerSpecialistPerHour}). Color reflects relative call volume.
+              {useErlang
+                ? `Each cell shows the productive headcount needed (agents on calls) to hit ${slaTargetPct}% answered within ${slaSeconds}s at this slot's call rate, given a ${Math.floor(ahtSeconds / 60)}m ${ahtSeconds % 60}s avg handle time. Schedule below grosses up for ${shrinkagePct}% shrinkage.`
+                : `Each cell shows recommended specialist headcount, derived as ceil(avg-inbound-calls-per-week / ${callsPerSpecialistPerHour}). Color reflects relative call volume.`}
             </p>
           </CardHeader>
           <CardContent>
