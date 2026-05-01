@@ -148,8 +148,8 @@ export default function CTMCalls() {
   const [enriching, setEnriching] = useState(false);
   const limit = 50;
 
-  const fetchCalls = useCallback(async () => {
-    setLoading(true);
+  const fetchCalls = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
       if (dirFilter !== "all") params.set("direction", dirFilter);
@@ -167,7 +167,7 @@ export default function CTMCalls() {
       }
     } catch {
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [offset, dirFilter, dateRange]);
 
@@ -180,6 +180,18 @@ export default function CTMCalls() {
 
   useEffect(() => { fetchCalls(); }, [fetchCalls]);
   useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  // Poll every 30s so the call log stays live without a manual Refresh.
+  // Pause polling when the user has paginated past the first page so they
+  // don't get bumped while reviewing older calls.
+  useEffect(() => {
+    if (offset !== 0) return;
+    const id = setInterval(() => {
+      fetchCalls(true);
+      fetchStats();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [offset, fetchCalls, fetchStats]);
 
   const toggleExpand = async (id: string) => {
     if (expandedId === id) {
