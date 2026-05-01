@@ -13,6 +13,7 @@ import { StatusIndicator, type SystemState } from "@/components/status-indicator
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { GlobalSearch } from "@/components/global-search";
 
 const modeLabels: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
   "pre-call": { label: "Pre-Call", icon: <PhoneIncoming className="w-3.5 h-3.5" />, color: "bg-blue-500" },
@@ -28,7 +29,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { logout } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const isMobile = useIsMobile();
+
+  // Cmd+K / Ctrl+K opens the global search palette from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -89,11 +103,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const navContent = (
     <>
-      <div className="px-4 py-3 border-b border-sidebar-border/60">
+      <div className="px-4 py-3 border-b border-sidebar-border/60 space-y-2">
         <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-sidebar-accent/40">
           <div className={`w-2 h-2 rounded-full ${modeInfo.color} ${mode === "live-call" ? "animate-pulse" : ""}`} />
           <span className="text-xs font-medium text-sidebar-foreground/70">{modeInfo.label} Mode</span>
         </div>
+        <button
+          onClick={() => setSearchOpen(true)}
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg bg-sidebar-accent/30 hover:bg-sidebar-accent/60 transition-colors text-left text-xs text-sidebar-foreground/70"
+        >
+          <Search className="w-3.5 h-3.5" />
+          <span className="flex-1">Search…</span>
+          <kbd className="text-[10px] font-mono bg-sidebar-accent/60 px-1.5 py-0.5 rounded">⌘K</kbd>
+        </button>
       </div>
 
       <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
@@ -168,6 +190,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 
   return (
+    <>
+    <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
     <div className="min-h-screen flex bg-background w-full">
       <aside className="w-[15.5rem] bg-sidebar text-sidebar-foreground border-r border-sidebar-border/60 flex-col hidden md:flex shrink-0" role="navigation" aria-label="Main navigation">
         <div className="h-14 flex items-center px-5 font-semibold border-b border-sidebar-border/60 text-sidebar-primary-foreground tracking-tight gap-2.5">
@@ -236,5 +260,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </main>
     </div>
+    </>
   );
 }
