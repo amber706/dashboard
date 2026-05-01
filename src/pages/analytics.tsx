@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "wouter";
 import { apiFetch } from "@/lib/api-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -191,11 +192,21 @@ export default function Analytics() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <MetricCard label="Total Calls" value={data.summary.total_calls} icon={<Phone className="w-4 h-4" />} />
-        <MetricCard label="Answered" value={data.summary.total_answered} change={`${data.summary.answer_rate}% rate`} changeType="positive" icon={<Phone className="w-4 h-4" />} />
-        <MetricCard label="Missed" value={data.summary.total_missed} icon={<PhoneMissed className="w-4 h-4" />} />
-        <MetricCard label="Active Agents" value={data.summary.active_agents} icon={<Users className="w-4 h-4" />} />
-        <MetricCard label="Unassigned" value={data.summary.unassigned_calls} change="Calls without agent" icon={<Phone className="w-4 h-4" />} />
+        <Link href="/ctm-calls" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+          <MetricCard label="Total Calls" value={data.summary.total_calls} icon={<Phone className="w-4 h-4" />} />
+        </Link>
+        <Link href="/ctm-calls" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+          <MetricCard label="Answered" value={data.summary.total_answered} change={`${data.summary.answer_rate}% rate`} changeType="positive" icon={<Phone className="w-4 h-4" />} />
+        </Link>
+        <Link href="/ctm-calls" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+          <MetricCard label="Missed" value={data.summary.total_missed} icon={<PhoneMissed className="w-4 h-4" />} />
+        </Link>
+        <Link href="/ctm-agents" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+          <MetricCard label="Active Agents" value={data.summary.active_agents} icon={<Users className="w-4 h-4" />} />
+        </Link>
+        <Link href="/ctm-calls" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+          <MetricCard label="Unassigned" value={data.summary.unassigned_calls} change="Calls without agent" icon={<Phone className="w-4 h-4" />} />
+        </Link>
       </div>
 
       <Tabs defaultValue="reps" className="space-y-4">

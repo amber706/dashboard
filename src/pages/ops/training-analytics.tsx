@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { BarChart3, Loader2, TrendingUp, Target, GraduationCap, Award } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -207,11 +208,11 @@ export default function TrainingAnalytics() {
 
       {company && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard icon={<GraduationCap className="w-4 h-4" />} label="Scenarios published" value={company.scenarios_published} />
-          <StatCard icon={<Target className="w-4 h-4" />} label="Pending review" value={company.scenarios_pending_review} accent={company.scenarios_pending_review > 0 ? "amber" : undefined} />
-          <StatCard icon={<Award className="w-4 h-4" />} label="Sessions this week" value={company.sessions_this_week}
+          <StatCard href="/training" icon={<GraduationCap className="w-4 h-4" />} label="Scenarios published" value={company.scenarios_published} />
+          <StatCard href="/ops/scenario-review" icon={<Target className="w-4 h-4" />} label="Pending review" value={company.scenarios_pending_review} accent={company.scenarios_pending_review > 0 ? "amber" : undefined} />
+          <StatCard href="/ops/training-assignments" icon={<Award className="w-4 h-4" />} label="Sessions this week" value={company.sessions_this_week}
             sub={company.avg_session_score_this_week != null ? `avg score ${company.avg_session_score_this_week}` : undefined} />
-          <StatCard icon={<TrendingUp className="w-4 h-4" />} label="Real-call avg (30d)" value={company.real_call_avg_composite ?? "—"}
+          <StatCard href="/ops/qa-review" icon={<TrendingUp className="w-4 h-4" />} label="Real-call avg (30d)" value={company.real_call_avg_composite ?? "—"}
             sub={`${company.real_call_count_30d} calls scored`} />
         </div>
       )}
@@ -293,10 +294,10 @@ export default function TrainingAnalytics() {
   );
 }
 
-function StatCard({ icon, label, value, sub, accent }: { icon: React.ReactNode; label: string; value: any; sub?: string; accent?: "amber" }) {
+function StatCard({ icon, label, value, sub, accent, href }: { icon: React.ReactNode; label: string; value: any; sub?: string; accent?: "amber"; href?: string }) {
   const accentClass = accent === "amber" ? "border-amber-500/30 bg-amber-50/30 dark:bg-amber-950/10" : "";
-  return (
-    <Card className={accentClass}>
+  const card = (
+    <Card className={`${accentClass} ${href ? "hover:bg-accent/50 transition-colors cursor-pointer" : ""}`}>
       <CardContent className="pt-4 pb-4">
         <div className="text-xs text-muted-foreground flex items-center gap-1.5">{icon} {label}</div>
         <div className="text-2xl font-semibold mt-1 tabular-nums">{value}</div>
@@ -304,4 +305,5 @@ function StatCard({ icon, label, value, sub, accent }: { icon: React.ReactNode; 
       </CardContent>
     </Card>
   );
+  return href ? <Link href={href} className="block">{card}</Link> : card;
 }

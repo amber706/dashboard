@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,7 @@ function formatDateLabel(dateStr: string): string {
 }
 
 function OpsWorkloadContent() {
+  const [, navigate] = useLocation();
   const [selectedDate, setSelectedDate] = useState<string>("");
   const isToday = !selectedDate || selectedDate === todayStr();
   const { data, loading, error, refetch } = useRepWorkload({
@@ -118,10 +120,10 @@ function OpsWorkloadContent() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label={isToday ? "Active Reps" : "Reps"} value={reps.length} icon={<Users className="w-4 h-4 text-blue-400" />} loading={loading && !data} />
-        <StatCard label={isToday ? "Total Calls Today" : "Total Calls"} value={totalCalls} icon={<Phone className="w-4 h-4 text-emerald-400" />} loading={loading && !data} />
-        <StatCard label="Total Missed" value={totalMissed} icon={<PhoneMissed className="w-4 h-4 text-red-400" />} changeType={totalMissed > 5 ? "negative" : "neutral"} loading={loading && !data} />
-        <StatCard label="Overloaded Reps" value={overloaded} icon={<AlertTriangle className="w-4 h-4 text-orange-400" />} changeType={overloaded > 0 ? "negative" : "neutral"} loading={loading && !data} />
+        <StatCard label={isToday ? "Active Reps" : "Reps"} value={reps.length} icon={<Users className="w-4 h-4 text-blue-400" />} loading={loading && !data} onClick={() => navigate("/ctm-agents")} />
+        <StatCard label={isToday ? "Total Calls Today" : "Total Calls"} value={totalCalls} icon={<Phone className="w-4 h-4 text-emerald-400" />} loading={loading && !data} onClick={() => navigate("/ctm-calls")} />
+        <StatCard label="Total Missed" value={totalMissed} icon={<PhoneMissed className="w-4 h-4 text-red-400" />} changeType={totalMissed > 5 ? "negative" : "neutral"} loading={loading && !data} onClick={() => navigate("/ctm-calls")} />
+        <StatCard label="Overloaded Reps" value={overloaded} icon={<AlertTriangle className="w-4 h-4 text-orange-400" />} changeType={overloaded > 0 ? "negative" : "neutral"} loading={loading && !data} onClick={() => navigate("/ops/overview")} />
       </div>
 
       {loading && !data ? (

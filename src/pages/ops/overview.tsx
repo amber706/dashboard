@@ -738,13 +738,13 @@ function CallLossSummary() {
       <CardContent>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {segments.map((seg) => (
-            <div key={seg.label} className="flex items-center gap-2.5">
+            <Link key={seg.label} href="/ops/abandoned-calls" className="flex items-center gap-2.5 rounded-md p-1.5 -m-1.5 hover:bg-accent/40 transition-colors cursor-pointer">
               <div className={`w-3 h-3 rounded-full ${seg.color} flex-shrink-0`} />
               <div>
                 <div className={`text-lg font-semibold ${seg.textColor}`}>{seg.value}</div>
                 <div className="text-[11px] text-muted-foreground leading-tight">{seg.label}</div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </CardContent>
