@@ -3,12 +3,15 @@ import { Link } from "wouter";
 import {
   AlertTriangle, ShieldAlert, BookOpen, GraduationCap, Phone, Inbox,
   TrendingUp, Loader2, Clock, Sparkles, Headphones, Zap, ChevronRight, Activity,
-  PhoneCall, Radio,
+  PhoneCall, Radio, Pin, X,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useRole } from "@/lib/role-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 interface SinceLastVisit {
   since: string | null;             // ISO timestamp (null = first visit)
@@ -66,6 +69,8 @@ interface ActiveCall {
 
 export default function HomeV2() {
   const { user } = useAuth();
+  const { role } = useRole();
+  const canPin = role === "manager" || role === "admin";
   const [data, setData] = useState<HomeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -314,6 +319,8 @@ export default function HomeV2() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <PinnedMessageBanner canPin={canPin} userId={user?.id ?? null} />
+
       {/* Active-call banner — shows when current specialist has a ringing or in-progress call */}
       {activeCalls.length > 0 && (
         <div className="space-y-2">
@@ -539,6 +546,109 @@ export default function HomeV2() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function PinnedMessageBanner({ canPin, userId }: { canPin: boolean; userId: string | null }) {
+  interface Pin { id: string; body: string; created_at: string; posted_by_profile: { full_name: string | null; email: string | null } | null }
+  const [msg, setMsg] = useState<Pin | null>(null);
+  const [composing, setComposing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  async function load() {
+    const { data } = await supabase
+      .from("pinned_messages")
+      .select(`id, body, created_at, posted_by_profile:profiles!pinned_messages_posted_by_fkey(full_name, email)`)
+      .eq("active", true)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setMsg(data as unknown as Pin | null);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function post() {
+    const body = draft.trim();
+    if (!body) return;
+    setPosting(true);
+    // Unpin any prior message — keeps the noise floor at one active pin.
+    await supabase.from("pinned_messages").update({ active: false }).eq("active", true);
+    await supabase.from("pinned_messages").insert({ body, posted_by: userId, active: true });
+    setPosting(false);
+    setDraft("");
+    setComposing(false);
+    load();
+  }
+
+  async function unpin() {
+    if (!msg) return;
+    await supabase.from("pinned_messages").update({ active: false }).eq("id", msg.id);
+    load();
+  }
+
+  if (!msg && !canPin) return null;
+  if (!msg && canPin && !composing) {
+    return (
+      <button
+        onClick={() => setComposing(true)}
+        className="w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors rounded-md px-3 py-1.5 flex items-center gap-1.5 border border-dashed"
+      >
+        <Pin className="w-3 h-3" /> Pin a message for the team…
+      </button>
+    );
+  }
+
+  if (composing) {
+    return (
+      <Card className="border-l-4 border-l-blue-500">
+        <CardContent className="pt-4 pb-4 space-y-2">
+          <div className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-1.5">
+            <Pin className="w-3 h-3" /> New pinned message
+          </div>
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="e.g. New AHCCCS verification script in the KB — please review before tomorrow's calls."
+            className="min-h-[70px] text-sm"
+            autoFocus
+          />
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { setComposing(false); setDraft(""); }} disabled={posting}>Cancel</Button>
+            <Button size="sm" onClick={post} disabled={!draft.trim() || posting}>
+              {posting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pin className="w-3.5 h-3.5" />}
+              Pin to team
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!msg) return null;
+  return (
+    <Card className="border-l-4 border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/15">
+      <CardContent className="pt-3 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2 flex-1 min-w-0">
+            <Pin className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <div className="text-sm whitespace-pre-wrap">{msg.body}</div>
+              <div className="text-[11px] text-muted-foreground mt-1">
+                Pinned {new Date(msg.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                {msg.posted_by_profile && ` by ${msg.posted_by_profile.full_name ?? msg.posted_by_profile.email}`}
+              </div>
+            </div>
+          </div>
+          {canPin && (
+            <Button size="sm" variant="ghost" onClick={unpin} className="shrink-0 h-7 px-2" title="Unpin">
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
