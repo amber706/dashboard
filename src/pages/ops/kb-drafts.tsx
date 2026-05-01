@@ -28,6 +28,9 @@ interface Draft {
   reviewed_by: string | null;
   reviewed_at: string | null;
   resulting_kb_document_id: string | null;
+  requested_by: string | null;
+  requested_query: string | null;
+  requester: { full_name: string | null; email: string | null } | null;
   created_at: string;
 }
 
@@ -55,7 +58,7 @@ export default function KBDraftsReview() {
     setLoading(true); setError(null);
     let q = supabase
       .from("kb_drafts")
-      .select("*")
+      .select("*, requester:profiles!kb_drafts_requested_by_fkey(full_name, email)")
       .order("created_at", { ascending: false })
       .limit(100);
     if (filter !== "all") q = q.eq("status", filter);
@@ -204,8 +207,16 @@ function DraftRow({
                   <Phone className="w-3 h-3" /> {draft.source_call_ids.length} source call{draft.source_call_ids.length > 1 ? "s" : ""}
                 </span>
               )}
+              {draft.requested_by && (
+                <Badge variant="outline" className="text-[10px]">
+                  requested by {draft.requester?.full_name ?? draft.requester?.email ?? "specialist"}
+                </Badge>
+              )}
             </div>
             <div className="font-medium">{draft.problem_statement}</div>
+            {draft.requested_query && draft.requested_query !== draft.problem_statement && (
+              <div className="text-xs text-muted-foreground italic">searched: "{draft.requested_query}"</div>
+            )}
           </div>
         </div>
       </CardHeader>
