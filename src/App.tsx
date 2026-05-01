@@ -44,6 +44,7 @@ import AdminLeads from "@/pages/admin/leads";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
 import OpsAIBotFeedback from "@/pages/ops/ai-bot-feedback";
 import OpsOutcomes from "@/pages/ops/outcomes";
+import MyCoaching from "@/pages/me";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -92,6 +93,7 @@ function AppRoutes() {
         <Route path="/ops/abandoned-calls" component={OpsAbandonedCalls} />
         <Route path="/ops/ai-bot-feedback" component={OpsAIBotFeedback} />
         <Route path="/ops/outcomes" component={OpsOutcomes} />
+        <Route path="/me" component={MyCoaching} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
