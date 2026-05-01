@@ -81,6 +81,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/kb", label: "Knowledge Base", icon: <Search className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/training", label: "Training", icon: <GraduationCap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
+    { href: "/ops/team", label: "Team", icon: <Users className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/attribution", label: "Attribution", icon: <Activity className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
