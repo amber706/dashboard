@@ -47,6 +47,16 @@ interface TrainingScoreRow {
   session: { scenario: { title: string } | null } | null;
 }
 
+interface AttributedLead {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  primary_phone_normalized: string | null;
+  outcome_category: "won" | "lost" | "in_progress" | null;
+  outcome_set_at: string | null;
+  stage: string | null;
+}
+
 const RUBRIC_CATEGORIES: Array<{ key: keyof CallScoreRow; label: string }> = [
   { key: "qualification_completeness", label: "Qualification" },
   { key: "rapport_and_empathy", label: "Rapport" },
@@ -79,6 +89,8 @@ export default function MyCoaching() {
   const [scores, setScores] = useState<CallScoreRow[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [trainingScores, setTrainingScores] = useState<TrainingScoreRow[]>([]);
+  const [attributedLeads, setAttributedLeads] = useState<AttributedLead[]>([]);
+  const [teamConversionRate, setTeamConversionRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,6 +135,36 @@ export default function MyCoaching() {
     setScores((scoresRes.data ?? []) as unknown as CallScoreRow[]);
     setAssignments((assignmentsRes.data ?? []) as unknown as AssignmentRow[]);
     setTrainingScores((trainingScoresRes.data ?? []) as unknown as TrainingScoreRow[]);
+
+    // Outcome attribution: pull leads where THIS specialist's calls are
+    // the last-touch credited call. We have to two-step: first get this
+    // user's call IDs, then leads pointing to them.
+    const userCallIds = ((scoresRes.data ?? []) as any[])
+      .map((r) => r.call?.id)
+      .filter(Boolean) as string[];
+    if (userCallIds.length > 0) {
+      const { data: leads } = await supabase
+        .from("leads")
+        .select("id, first_name, last_name, primary_phone_normalized, outcome_category, outcome_set_at, stage")
+        .in("last_touch_call_id", userCallIds)
+        .order("outcome_set_at", { ascending: false, nullsFirst: false })
+        .limit(100);
+      setAttributedLeads((leads ?? []) as AttributedLead[]);
+    } else {
+      setAttributedLeads([]);
+    }
+
+    // Team-wide conversion rate (last 30d) for benchmarking.
+    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const [{ count: teamWon }, { count: teamLost }] = await Promise.all([
+      supabase.from("leads").select("id", { count: "exact", head: true })
+        .eq("outcome_category", "won").gte("outcome_set_at", since30),
+      supabase.from("leads").select("id", { count: "exact", head: true })
+        .eq("outcome_category", "lost").gte("outcome_set_at", since30),
+    ]);
+    const tWon = teamWon ?? 0, tLost = teamLost ?? 0;
+    setTeamConversionRate((tWon + tLost) > 0 ? Math.round((tWon / (tWon + tLost)) * 100) : null);
+
     setLoading(false);
   }, [user?.id]);
 
@@ -174,6 +216,17 @@ export default function MyCoaching() {
       .sort((a, b) => (b.composite_score ?? 0) - (a.composite_score ?? 0))
       .slice(0, 5);
 
+    // Personal outcome stats (rolling 30d).
+    const since30 = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const recentLeads = attributedLeads.filter((l) =>
+      l.outcome_set_at && new Date(l.outcome_set_at).getTime() > since30
+    );
+    const myWon = recentLeads.filter((l) => l.outcome_category === "won").length;
+    const myLost = recentLeads.filter((l) => l.outcome_category === "lost").length;
+    const myInProgress = recentLeads.filter((l) => l.outcome_category === "in_progress").length;
+    const myConversionRate = (myWon + myLost) > 0 ? Math.round((myWon / (myWon + myLost)) * 100) : null;
+    const recentWins = attributedLeads.filter((l) => l.outcome_category === "won").slice(0, 5);
+
     return {
       callsCount30: last30.length,
       callsCount7: last7.length,
@@ -185,8 +238,9 @@ export default function MyCoaching() {
       flagged,
       trendData,
       wins,
+      myWon, myLost, myInProgress, myConversionRate, recentWins,
     };
-  }, [scores]);
+  }, [scores, attributedLeads]);
 
   if (!user) {
     return <div className="max-w-5xl mx-auto p-6"><Card><CardContent className="pt-6 text-sm text-muted-foreground">Please log in.</CardContent></Card></div>;
@@ -241,6 +295,60 @@ export default function MyCoaching() {
               valueClass="text-rose-700 dark:text-rose-400 text-base"
             />
           </div>
+
+          {/* My outcomes (last-touch attribution) */}
+          {(stats.myWon + stats.myLost + stats.myInProgress) > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-amber-500" /> Your closes (30d)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <StatTile
+                    label="Admitted"
+                    value={stats.myWon}
+                    valueClass="text-emerald-700 dark:text-emerald-400"
+                  />
+                  <StatTile
+                    label="Churned"
+                    value={stats.myLost}
+                    valueClass="text-rose-700 dark:text-rose-400"
+                  />
+                  <StatTile label="Still in progress" value={stats.myInProgress} />
+                  <StatTile
+                    label="Your conversion"
+                    value={stats.myConversionRate == null ? "—" : `${stats.myConversionRate}%`}
+                    sub={teamConversionRate != null
+                      ? `team ${teamConversionRate}%`
+                      : undefined}
+                    trend={stats.myConversionRate != null && teamConversionRate != null
+                      ? (stats.myConversionRate >= teamConversionRate ? "up" : "down")
+                      : undefined}
+                  />
+                </div>
+                {stats.recentWins.length > 0 && (
+                  <div className="mt-4 pt-3 border-t">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground mb-2">Recent wins</div>
+                    <div className="space-y-1.5">
+                      {stats.recentWins.map((w) => (
+                        <Link key={w.id} href={`/leads/${w.id}`} className="block">
+                          <div className="text-sm hover:bg-accent/50 transition-colors rounded px-2 py-1 -mx-2 flex items-center gap-2">
+                            <Trophy className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span className="flex-1 truncate">
+                              {[w.first_name, w.last_name].filter(Boolean).join(" ") || w.primary_phone_normalized || "Unknown"}
+                            </span>
+                            <span className="text-xs text-muted-foreground">{fmtDate(w.outcome_set_at)}</span>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Trend chart */}
           {stats.trendData.length > 1 && (
