@@ -80,7 +80,11 @@ export default function OpsCallbacks() {
         lead:leads!call_sessions_lead_id_fkey(id, outcome_category, first_name, last_name),
         callback_completed_by_profile:profiles!call_sessions_callback_completed_by_fkey(full_name, email)
       `)
-      .in("status", ["missed", "abandoned", "voicemail"])
+      // Include both:
+      //  - missed/abandoned/voicemail calls (auto-flagged for callback)
+      //  - answered calls the specialist explicitly dispositioned as needs_callback
+      // The trigger from migration 030 sets callback_status=pending on the latter.
+      .or("status.in.(missed,abandoned,voicemail),specialist_disposition.eq.needs_callback")
       .order("started_at", { ascending: false, nullsFirst: false })
       .limit(200);
     if (filter !== "all") q = q.eq("callback_status", filter);
@@ -107,17 +111,17 @@ export default function OpsCallbacks() {
       const breachedCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // pending > 1h
       const [pending, completedToday, breached, total] = await Promise.all([
         supabase.from("call_sessions").select("id", { count: "exact", head: true })
-          .in("status", ["missed", "abandoned", "voicemail"])
+          .or("status.in.(missed,abandoned,voicemail),specialist_disposition.eq.needs_callback")
           .eq("callback_status", "pending"),
         supabase.from("call_sessions").select("id", { count: "exact", head: true })
           .eq("callback_status", "completed")
           .gte("callback_completed_at", startOfDay.toISOString()),
         supabase.from("call_sessions").select("id", { count: "exact", head: true })
-          .in("status", ["missed", "abandoned", "voicemail"])
+          .or("status.in.(missed,abandoned,voicemail),specialist_disposition.eq.needs_callback")
           .eq("callback_status", "pending")
           .lt("started_at", breachedCutoff),
         supabase.from("call_sessions").select("id", { count: "exact", head: true })
-          .in("status", ["missed", "abandoned", "voicemail"]),
+          .or("status.in.(missed,abandoned,voicemail),specialist_disposition.eq.needs_callback"),
       ]);
       setCounts({
         pending: pending.count ?? 0,

@@ -196,7 +196,7 @@ export default function MyCoaching() {
         .from("call_sessions")
         .select(baseCallbackSel)
         .eq("specialist_id", user.id)
-        .in("status", ["missed", "abandoned", "voicemail"])
+        .or("status.in.(missed,abandoned,voicemail),specialist_disposition.eq.needs_callback")
         .eq("callback_status", "pending")
         .order("started_at", { ascending: false, nullsFirst: false })
         .limit(50),
