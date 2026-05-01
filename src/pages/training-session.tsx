@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRoute, Link } from "wouter";
-import { ArrowLeft, Loader2, Send, AlertTriangle, Shield, Square, CheckCircle2, XCircle, Inbox } from "lucide-react";
+import { ArrowLeft, Loader2, Send, AlertTriangle, Shield, Square, CheckCircle2, XCircle, Inbox, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,6 +68,87 @@ export default function TrainingSession() {
   // session start, in_progress -> completed when they end + score).
   const [assignmentId, setAssignmentId] = useState<string | null>(null);
   const [assignmentNote, setAssignmentNote] = useState<string | null>(null);
+
+  // Voice mode: browser-native Web Speech API for STT + TTS. No server-side
+  // audio infra needed. Specialist holds Mic to dictate; the caller's
+  // response is auto-spoken aloud via SpeechSynthesis when voice mode is on.
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  function ensureRecognition() {
+    if (recognitionRef.current) return recognitionRef.current;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceError("Voice input not supported in this browser. Use Chrome or Safari.");
+      return null;
+    }
+    const rec = new SpeechRecognition();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    rec.onresult = (e: any) => {
+      let transcript = "";
+      for (let i = 0; i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript;
+      }
+      setDraft(transcript);
+    };
+    rec.onerror = (e: any) => {
+      setVoiceError(`Mic error: ${e.error}`);
+      setListening(false);
+    };
+    rec.onend = () => setListening(false);
+    recognitionRef.current = rec;
+    return rec;
+  }
+
+  function startListening() {
+    setVoiceError(null);
+    const rec = ensureRecognition();
+    if (!rec) return;
+    setDraft("");
+    try {
+      rec.start();
+      setListening(true);
+    } catch (e) {
+      setVoiceError(e instanceof Error ? e.message : "Failed to start mic");
+    }
+  }
+
+  function stopListening() {
+    if (recognitionRef.current && listening) {
+      try { recognitionRef.current.stop(); } catch {/* already stopped */}
+    }
+    setListening(false);
+  }
+
+  function speakCaller(text: string) {
+    if (!voiceMode || typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text.replace(/\*[^*]+\*/g, "")); // strip *stage directions*
+    utter.rate = 0.95;
+    utter.pitch = 1.0;
+    // Pick a more natural voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find((v) => v.name.includes("Samantha") || v.name.includes("Karen") || v.name.includes("Daniel") || v.name.includes("Google US"));
+    if (preferred) utter.voice = preferred;
+    window.speechSynthesis.speak(utter);
+  }
+
+  function stopSpeaking() {
+    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopListening();
+      stopSpeaking();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // On mount: find any pending assignment for this specialist + scenario,
   // and flip it to in_progress. Best-effort; failures don't block the UI.
@@ -167,6 +248,7 @@ export default function TrainingSession() {
       if (!data?.ok) throw new Error(data?.error ?? "roleplay-turn failed");
       const callerMessage = String(data.caller_message ?? "");
       setMessages((m) => [...m, { role: "caller", content: callerMessage }]);
+      speakCaller(callerMessage);
     } catch (e) {
       setTurnError(e instanceof Error ? e.message : String(e));
       // Roll back the optimistic specialist add so they can retry
@@ -227,7 +309,7 @@ export default function TrainingSession() {
                 <p className="text-sm text-muted-foreground mt-1">{scenario.description}</p>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 items-center">
               <Badge variant="secondary">{scenario.difficulty}</Badge>
               {scenario.is_crisis_tagged && (
                 <Badge variant="outline" className="gap-1"><AlertTriangle className="w-3 h-3" /> crisis</Badge>
@@ -235,6 +317,17 @@ export default function TrainingSession() {
               {scenario.involves_minors && (
                 <Badge variant="outline" className="gap-1"><Shield className="w-3 h-3" /> minor</Badge>
               )}
+              <Button
+                size="sm"
+                variant={voiceMode ? "default" : "outline"}
+                onClick={() => {
+                  if (voiceMode) { stopSpeaking(); stopListening(); }
+                  setVoiceMode(!voiceMode);
+                }}
+              >
+                {voiceMode ? <Volume2 className="w-3 h-3 mr-1.5" /> : <VolumeX className="w-3 h-3 mr-1.5" />}
+                Voice mode {voiceMode ? "on" : "off"}
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -287,15 +380,26 @@ export default function TrainingSession() {
                       sendTurn();
                     }
                   }}
-                  placeholder="Type what you'd say to the caller — Cmd+Enter to send"
+                  placeholder={listening ? "Listening… speak now" : voiceMode ? "Tap the mic to speak — or type" : "Type what you'd say to the caller — Cmd+Enter to send"}
                   rows={3}
                   className="flex-1 resize-none"
                   disabled={thinking || scoring}
                 />
+                {voiceMode && (
+                  <Button
+                    variant={listening ? "default" : "outline"}
+                    onClick={listening ? stopListening : startListening}
+                    disabled={thinking || scoring}
+                    title={listening ? "Stop recording" : "Start recording"}
+                  >
+                    {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </Button>
+                )}
                 <Button onClick={sendTurn} disabled={thinking || scoring || !draft.trim()}>
                   {thinking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </Button>
               </div>
+              {voiceError && <div className="mt-2 text-xs text-destructive">{voiceError}</div>}
               {messages.length >= 2 && (
                 <div className="mt-3 flex justify-end">
                   <Button
