@@ -320,15 +320,15 @@ export default function HomeV2() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <Link href="/ctm-calls" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
+            <Link href="/ctm-calls?date=today" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
               <div className="text-xs text-muted-foreground">Calls today</div>
               <div className="text-2xl font-semibold tabular-nums">{data.calls_today}</div>
             </Link>
-            <Link href="/ctm-calls" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
+            <Link href="/ctm-calls?date=24h" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
               <div className="text-xs text-muted-foreground">Calls last 24h</div>
               <div className="text-2xl font-semibold tabular-nums">{data.calls_24h}</div>
             </Link>
-            <Link href="/ctm-calls" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
+            <Link href="/ctm-calls?date=24h&has_transcript=true" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
               <div className="text-xs text-muted-foreground">With transcript</div>
               <div className="text-2xl font-semibold tabular-nums">{data.calls_with_transcript}</div>
             </Link>

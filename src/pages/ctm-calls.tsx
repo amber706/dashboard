@@ -134,14 +134,57 @@ function formatDuration(seconds: number | null) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+// Parse the URL query string for filter presets. Used once on mount so
+// drill-through links from the dashboards (e.g. /ctm-calls?status=missed
+// &date=today) land with the right filters already applied.
+function readInitialFiltersFromUrl(): {
+  direction: string;
+  status: string;
+  hasTranscript: boolean;
+  dateRange: DateRange | null;
+} {
+  if (typeof window === "undefined") {
+    return { direction: "all", status: "all", hasTranscript: false, dateRange: getDefaultDateRange() };
+  }
+  const p = new URLSearchParams(window.location.search);
+  const direction = p.get("direction") ?? "all";
+  const status = p.get("status") ?? "all";
+  const hasTranscript = p.get("has_transcript") === "true";
+
+  let dateRange: DateRange | null = getDefaultDateRange();
+  const datePreset = p.get("date");
+  const startParam = p.get("start_date");
+  const endParam = p.get("end_date");
+  if (datePreset === "today") {
+    const now = new Date();
+    const start = new Date(now); start.setHours(0, 0, 0, 0);
+    const end = new Date(now); end.setHours(23, 59, 59, 999);
+    dateRange = { startDate: start, endDate: end };
+  } else if (datePreset === "24h") {
+    const end = new Date();
+    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+    dateRange = { startDate: start, endDate: end };
+  } else if (datePreset === "all") {
+    dateRange = null;
+  } else if (startParam && endParam) {
+    dateRange = { startDate: new Date(startParam), endDate: new Date(endParam) };
+  }
+  return { direction, status, hasTranscript, dateRange };
+}
+
 export default function CTMCalls() {
   const [calls, setCalls] = useState<CTMCall[]>([]);
   const [stats, setStats] = useState<CTMStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [dirFilter, setDirFilter] = useState<string>("all");
-  const [dateRange, setDateRange] = useState<DateRange | null>(getDefaultDateRange());
+  // Initial filter values can be seeded from the URL so dashboard
+  // drill-throughs land pre-filtered (e.g. /ctm-calls?status=missed&date=today).
+  const initialUrlFilters = readInitialFiltersFromUrl();
+  const [dirFilter, setDirFilter] = useState<string>(initialUrlFilters.direction);
+  const [statusFilter, setStatusFilter] = useState<string>(initialUrlFilters.status);
+  const [hasTranscriptFilter, setHasTranscriptFilter] = useState<boolean>(initialUrlFilters.hasTranscript);
+  const [dateRange, setDateRange] = useState<DateRange | null>(initialUrlFilters.dateRange);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [callDetail, setCallDetail] = useState<any>(null);
   const [backfilling, setBackfilling] = useState(false);
@@ -153,6 +196,8 @@ export default function CTMCalls() {
     try {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
       if (dirFilter !== "all") params.set("direction", dirFilter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (hasTranscriptFilter) params.set("has_transcript", "true");
       if (dateRange) {
         params.set("start_date", formatDateParam(dateRange.startDate));
         params.set("end_date", formatDateParam(dateRange.endDate));
@@ -169,7 +214,7 @@ export default function CTMCalls() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [offset, dirFilter, dateRange]);
+  }, [offset, dirFilter, statusFilter, hasTranscriptFilter, dateRange]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -319,6 +364,24 @@ export default function CTMCalls() {
             <SelectItem value="msg_inbound">SMS In</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setOffset(0); }}>
+          <SelectTrigger className="w-40 h-11 md:h-8">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="missed">Missed / Abandoned</SelectItem>
+            <SelectItem value="ringing">Ringing</SelectItem>
+            <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="voicemail">Voicemail</SelectItem>
+          </SelectContent>
+        </Select>
+        {hasTranscriptFilter && (
+          <Button variant="secondary" size="sm" className="h-11 md:h-8 gap-1" onClick={() => { setHasTranscriptFilter(false); setOffset(0); }}>
+            transcript only ×
+          </Button>
+        )}
         <span className="text-xs text-muted-foreground">
           Showing {offset + 1}–{Math.min(offset + limit, total)} of {total}
         </span>

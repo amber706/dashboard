@@ -849,6 +849,11 @@ async function getCTMCalls(queryString: string): Promise<Response> {
   const direction = params.get("direction");
   const startDate = params.get("start_date");
   const endDate = params.get("end_date");
+  // status filter: "missed" (missed/abandoned), "completed", "ringing",
+  // "in_progress", or comma-list. Drives drill-throughs from dashboards.
+  const status = params.get("status");
+  // has_transcript=true filters to calls where the CTM payload has transcription_text.
+  const hasTranscript = params.get("has_transcript");
 
   let q = supabase
     .from("call_sessions")
@@ -862,6 +867,12 @@ async function getCTMCalls(queryString: string): Promise<Response> {
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
   if (direction && direction !== "all") q = q.eq("direction", direction);
+  if (status && status !== "all") {
+    if (status === "missed") q = q.in("status", ["missed", "abandoned"]);
+    else if (status.includes(",")) q = q.in("status", status.split(",").map((s) => s.trim()).filter(Boolean));
+    else q = q.eq("status", status);
+  }
+  if (hasTranscript === "true") q = q.not("ctm_raw_payload->>transcription_text", "is", null);
   if (startDate) q = q.gte("started_at", startDate);
   if (endDate) {
     // Frontend sends "yyyy-MM-dd" date strings; append end-of-day so calls

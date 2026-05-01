@@ -121,8 +121,8 @@ function OpsWorkloadContent() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label={isToday ? "Active Reps" : "Reps"} value={reps.length} icon={<Users className="w-4 h-4 text-blue-400" />} loading={loading && !data} onClick={() => navigate("/ctm-agents")} />
-        <StatCard label={isToday ? "Total Calls Today" : "Total Calls"} value={totalCalls} icon={<Phone className="w-4 h-4 text-emerald-400" />} loading={loading && !data} onClick={() => navigate("/ctm-calls")} />
-        <StatCard label="Total Missed" value={totalMissed} icon={<PhoneMissed className="w-4 h-4 text-red-400" />} changeType={totalMissed > 5 ? "negative" : "neutral"} loading={loading && !data} onClick={() => navigate("/ctm-calls")} />
+        <StatCard label={isToday ? "Total Calls Today" : "Total Calls"} value={totalCalls} icon={<Phone className="w-4 h-4 text-emerald-400" />} loading={loading && !data} onClick={() => navigate(isToday ? "/ctm-calls?date=today" : "/ctm-calls")} />
+        <StatCard label="Total Missed" value={totalMissed} icon={<PhoneMissed className="w-4 h-4 text-red-400" />} changeType={totalMissed > 5 ? "negative" : "neutral"} loading={loading && !data} onClick={() => navigate(isToday ? "/ctm-calls?date=today&status=missed" : "/ctm-calls?status=missed")} />
         <StatCard label="Overloaded Reps" value={overloaded} icon={<AlertTriangle className="w-4 h-4 text-orange-400" />} changeType={overloaded > 0 ? "negative" : "neutral"} loading={loading && !data} onClick={() => navigate("/ops/overview")} />
       </div>
 

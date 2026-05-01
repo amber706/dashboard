@@ -76,6 +76,20 @@ const TIER_COLORS: Record<string, string> = {
 
 type SortKey = "total_calls" | "answered" | "missed" | "answer_rate" | "avg_talk_seconds" | "recordings" | "avg_lead_score";
 
+// Build a /ctm-calls deep link that respects the analytics page's date
+// range so the drill-through lands with matching window applied.
+function analyticsCallsLink(range: DateRange | null, extras: Record<string, string> = {}): string {
+  const params = new URLSearchParams();
+  if (range) {
+    params.set("start_date", formatDateParam(range.startDate));
+    params.set("end_date", formatDateParam(range.endDate));
+  } else {
+    params.set("date", "all");
+  }
+  for (const [k, v] of Object.entries(extras)) params.set(k, v);
+  return `/ctm-calls?${params.toString()}`;
+}
+
 function formatTalkTime(seconds: number) {
   if (!seconds) return "0s";
   if (seconds < 60) return `${seconds}s`;
@@ -192,19 +206,19 @@ export default function Analytics() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Link href="/ctm-calls" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+        <Link href={analyticsCallsLink(dateRange)} className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
           <MetricCard label="Total Calls" value={data.summary.total_calls} icon={<Phone className="w-4 h-4" />} />
         </Link>
-        <Link href="/ctm-calls" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+        <Link href={analyticsCallsLink(dateRange, { status: "completed" })} className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
           <MetricCard label="Answered" value={data.summary.total_answered} change={`${data.summary.answer_rate}% rate`} changeType="positive" icon={<Phone className="w-4 h-4" />} />
         </Link>
-        <Link href="/ctm-calls" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+        <Link href={analyticsCallsLink(dateRange, { status: "missed" })} className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
           <MetricCard label="Missed" value={data.summary.total_missed} icon={<PhoneMissed className="w-4 h-4" />} />
         </Link>
         <Link href="/ctm-agents" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
           <MetricCard label="Active Agents" value={data.summary.active_agents} icon={<Users className="w-4 h-4" />} />
         </Link>
-        <Link href="/ctm-calls" className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
+        <Link href={analyticsCallsLink(dateRange)} className="block transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer">
           <MetricCard label="Unassigned" value={data.summary.unassigned_calls} change="Calls without agent" icon={<Phone className="w-4 h-4" />} />
         </Link>
       </div>
