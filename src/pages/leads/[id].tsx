@@ -8,6 +8,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { LEAD_STATUS_PICKLIST, LEAD_SCORE_RATING_PICKLIST } from "@/lib/zoho-picklists";
 import { supabase } from "@/lib/supabase";
 import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,8 +37,7 @@ interface Lead {
   first_touch_campaign: string | null;
   notes: string | null;
   is_active: boolean | null;
-  lead_score: number | null;
-  lead_interaction_status: string | null;
+  lead_score: string | null;
   created_at: string;
   updated_at: string;
   owner: { full_name: string | null; email: string | null } | null;
@@ -424,21 +424,13 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
     program_interest: (lead.program_interest ?? []).join(", "),
     stage: lead.stage ?? "",
     notes: lead.notes ?? "",
-    lead_score: lead.lead_score == null ? "" : String(lead.lead_score),
-    lead_interaction_status: lead.lead_interaction_status ?? "",
+    lead_score: lead.lead_score ?? "",
   });
   const [form, setForm] = useState(initial);
   function reset() { setForm(initial()); }
 
   async function save() {
     setSaving(true);
-    const trimmedScore = form.lead_score.trim();
-    const numScore = trimmedScore === "" ? null : Number(trimmedScore);
-    if (numScore != null && (Number.isNaN(numScore) || numScore < 0 || numScore > 100)) {
-      toast({ title: "Lead score must be 0-100", variant: "destructive" });
-      setSaving(false);
-      return;
-    }
     const patch: Record<string, unknown> = {
       first_name: form.first_name.trim() || null,
       last_name: form.last_name.trim() || null,
@@ -451,10 +443,9 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
       program_interest: form.program_interest.trim()
         ? form.program_interest.split(",").map((s) => s.trim()).filter(Boolean)
         : null,
-      stage: form.stage.trim() || null,
+      stage: form.stage || null,
       notes: form.notes.trim() || null,
-      lead_score: numScore,
-      lead_interaction_status: form.lead_interaction_status.trim() || null,
+      lead_score: form.lead_score || null,
       updated_at: new Date().toISOString(),
     };
     const { data, error } = await supabase
@@ -549,14 +540,19 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
             <FieldPair label="Program interest (comma-sep)">
               <Input value={form.program_interest} onChange={(e) => setForm({ ...form, program_interest: e.target.value })} placeholder="e.g. inpatient, iop" className="h-8 text-sm" />
             </FieldPair>
-            <FieldPair label="Zoho stage">
-              <Input value={form.stage} onChange={(e) => setForm({ ...form, stage: e.target.value })} placeholder="exact Zoho Lead_Status text" className="h-8 text-sm" />
+            <FieldPair label="Interaction status (→ Zoho Lead_Status)">
+              <PicklistSelect
+                value={form.stage}
+                options={LEAD_STATUS_PICKLIST}
+                onChange={(v) => setForm({ ...form, stage: v })}
+              />
             </FieldPair>
-            <FieldPair label="Lead score (0-100, → Zoho Lead_Score)">
-              <Input type="number" min={0} max={100} value={form.lead_score} onChange={(e) => setForm({ ...form, lead_score: e.target.value })} placeholder="—" className="h-8 text-sm" />
-            </FieldPair>
-            <FieldPair label="Lead interaction status (→ Zoho)">
-              <Input value={form.lead_interaction_status} onChange={(e) => setForm({ ...form, lead_interaction_status: e.target.value })} placeholder="e.g. Contacted, Voicemail, Scheduled" className="h-8 text-sm" />
+            <FieldPair label="Lead score (→ Zoho Lead_Score_Rating)">
+              <PicklistSelect
+                value={form.lead_score}
+                options={LEAD_SCORE_RATING_PICKLIST}
+                onChange={(v) => setForm({ ...form, lead_score: v })}
+              />
             </FieldPair>
             <div>
               <div className="text-xs text-muted-foreground mb-1">Notes</div>
@@ -574,9 +570,8 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
             <FactRow label="Relationship to patient" value={lead.relationship_to_patient ?? "—"} />
             <FactRow label="Callback preference" value={lead.callback_preference ?? "—"} />
             <FactRow label="Program interest" value={lead.program_interest && lead.program_interest.length > 0 ? lead.program_interest.join(", ") : "—"} />
-            <FactRow label="Zoho stage" value={lead.stage ?? "—"} />
-            <FactRow label="Lead score" value={lead.lead_score == null ? "—" : String(lead.lead_score)} />
-            <FactRow label="Interaction status" value={lead.lead_interaction_status ?? "—"} />
+            <FactRow label="Interaction status" value={lead.stage ?? "—"} />
+            <FactRow label="Lead score rating" value={lead.lead_score ?? "—"} />
             {lead.notes && (
               <div className="pt-2 border-t">
                 <div className="text-xs text-muted-foreground mb-1">Notes</div>
@@ -596,5 +591,28 @@ function FieldPair({ label, children }: { label: string; children: React.ReactNo
       <div className="text-xs text-muted-foreground mb-1">{label}</div>
       {children}
     </div>
+  );
+}
+
+// Renders a Zoho-picklist dropdown. If the current value isn't in the
+// canonical picklist (legacy data, manual entry, etc), it's shown as
+// the selected option with a "(legacy)" suffix so it stays preserved
+// until the manager actively picks a canonical value.
+function PicklistSelect({ value, options, onChange }: {
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+}) {
+  const isLegacy = !!value && !options.includes(value);
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-8 px-2 rounded-md border bg-background text-sm w-full"
+    >
+      <option value="">— None —</option>
+      {isLegacy && <option value={value}>{value} (current — not in Zoho picklist)</option>}
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
   );
 }
