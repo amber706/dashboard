@@ -9,7 +9,8 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { RoleProvider } from "@/lib/role-context";
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 
-import Home from "@/pages/home";
+import Home from "@/pages/home-v2";
+import LegacyHome from "@/pages/home";
 import LiveCall from "@/pages/live-call-v2";
 import Admin from "@/pages/admin";
 import PreCall from "@/pages/pre-call";
@@ -56,6 +57,7 @@ function AppRoutes() {
     <Layout>
       <Switch>
         <Route path="/" component={Home} />
+        <Route path="/legacy-home" component={LegacyHome} />
         <Route path="/pre-call/:id" component={PreCall} />
         <Route path="/live/:id" component={LiveCall} />
         <Route path="/wrap-up/:id" component={WrapUp} />
