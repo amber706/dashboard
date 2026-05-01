@@ -3,9 +3,11 @@ import { useParams, Link } from "wouter";
 import {
   User as UserIcon, Phone, Loader2, ChevronRight, Clock, History,
   Sparkles, Activity, Trophy, XCircle, ArrowLeft, ExternalLink,
-  CheckCircle2, AlertTriangle, Send,
+  CheckCircle2, AlertTriangle, Send, Edit3, Save, X as XIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -341,29 +343,25 @@ export default function LeadDetail() {
           )}
         </div>
 
-        {/* Right: facts + extractions + notes */}
+        {/* Right: facts (editable) + extractions + notes */}
         <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Facts on file</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <FactRow label="Insurance" value={lead.insurance_provider ?? "—"} />
-              <FactRow label="Insurance qualified" value={lead.insurance_qualified == null ? "—" : (lead.insurance_qualified ? "Yes" : "No")} />
-              <FactRow label="Urgency" value={lead.urgency ?? "—"} />
-              <FactRow label="Relationship to patient" value={lead.relationship_to_patient ?? "—"} />
-              <FactRow label="Callback preference" value={lead.callback_preference ?? "—"} />
-              {lead.program_interest && lead.program_interest.length > 0 && (
-                <FactRow label="Program interest" value={lead.program_interest.join(", ")} />
-              )}
-              {lead.first_touch_source_category && (
-                <FactRow label="First touch" value={`${lead.first_touch_source_category}${lead.first_touch_medium ? ` / ${lead.first_touch_medium}` : ""}`} />
-              )}
-              {lead.first_touch_campaign && (
-                <FactRow label="Campaign" value={lead.first_touch_campaign} />
-              )}
-            </CardContent>
-          </Card>
+          <EditableLeadFacts lead={lead} onSaved={(updated) => setLead(updated)} />
+
+          {(lead.first_touch_source_category || lead.first_touch_campaign) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Marketing attribution</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {lead.first_touch_source_category && (
+                  <FactRow label="First touch" value={`${lead.first_touch_source_category}${lead.first_touch_medium ? ` / ${lead.first_touch_medium}` : ""}`} />
+                )}
+                {lead.first_touch_campaign && (
+                  <FactRow label="Campaign" value={lead.first_touch_campaign} />
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {extractions.length > 0 && (
             <Card>
@@ -388,14 +386,6 @@ export default function LeadDetail() {
             </Card>
           )}
 
-          {lead.notes && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Notes</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm whitespace-pre-wrap">{lead.notes}</CardContent>
-            </Card>
-          )}
         </div>
       </div>
     </div>
@@ -407,6 +397,197 @@ function FactRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-start justify-between gap-2 text-sm">
       <span className="text-muted-foreground text-xs">{label}</span>
       <span className="font-medium text-right">{value}</span>
+    </div>
+  );
+}
+
+const EDITABLE_URGENCY = ["", "high", "medium", "low"];
+const EDITABLE_RELATIONSHIP = ["", "self", "parent", "spouse", "child", "sibling", "friend", "other"];
+const EDITABLE_CALLBACK = ["", "morning", "afternoon", "evening", "anytime", "do_not_call"];
+
+function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead) => void }) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Local form state — initialized from the lead prop, reset on cancel.
+  const [form, setForm] = useState({
+    first_name: lead.first_name ?? "",
+    last_name: lead.last_name ?? "",
+    email: lead.email ?? "",
+    insurance_provider: lead.insurance_provider ?? "",
+    insurance_qualified: lead.insurance_qualified,
+    urgency: lead.urgency ?? "",
+    relationship_to_patient: lead.relationship_to_patient ?? "",
+    callback_preference: lead.callback_preference ?? "",
+    program_interest: (lead.program_interest ?? []).join(", "),
+    stage: lead.stage ?? "",
+    notes: lead.notes ?? "",
+  });
+
+  function reset() {
+    setForm({
+      first_name: lead.first_name ?? "",
+      last_name: lead.last_name ?? "",
+      email: lead.email ?? "",
+      insurance_provider: lead.insurance_provider ?? "",
+      insurance_qualified: lead.insurance_qualified,
+      urgency: lead.urgency ?? "",
+      relationship_to_patient: lead.relationship_to_patient ?? "",
+      callback_preference: lead.callback_preference ?? "",
+      program_interest: (lead.program_interest ?? []).join(", "),
+      stage: lead.stage ?? "",
+      notes: lead.notes ?? "",
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    const patch: Record<string, unknown> = {
+      first_name: form.first_name.trim() || null,
+      last_name: form.last_name.trim() || null,
+      email: form.email.trim() || null,
+      insurance_provider: form.insurance_provider.trim() || null,
+      insurance_qualified: form.insurance_qualified,
+      urgency: form.urgency || null,
+      relationship_to_patient: form.relationship_to_patient || null,
+      callback_preference: form.callback_preference || null,
+      program_interest: form.program_interest.trim()
+        ? form.program_interest.split(",").map((s) => s.trim()).filter(Boolean)
+        : null,
+      stage: form.stage.trim() || null,
+      notes: form.notes.trim() || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await supabase
+      .from("leads")
+      .update(patch)
+      .eq("id", lead.id)
+      .select(`*, owner:profiles!leads_owner_id_fkey(full_name, email)`)
+      .single();
+    setSaving(false);
+    if (error) {
+      toast({ title: "Save failed", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Saved", description: "Lead fields updated. Use 'Update Zoho' to push." });
+    onSaved(data as unknown as Lead);
+    setEditing(false);
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center justify-between">
+          <span>Facts on file</span>
+          {!editing
+            ? <Button size="sm" variant="ghost" className="h-7 px-2 gap-1" onClick={() => { reset(); setEditing(true); }}>
+                <Edit3 className="w-3.5 h-3.5" /> Edit
+              </Button>
+            : <div className="flex gap-1">
+                <Button size="sm" variant="ghost" className="h-7 px-2 gap-1" onClick={() => { reset(); setEditing(false); }} disabled={saving}>
+                  <XIcon className="w-3.5 h-3.5" /> Cancel
+                </Button>
+                <Button size="sm" className="h-7 px-2 gap-1" onClick={save} disabled={saving}>
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  Save
+                </Button>
+              </div>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {editing ? (
+          <>
+            <FieldPair label="First name">
+              <Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="h-8 text-sm" />
+            </FieldPair>
+            <FieldPair label="Last name">
+              <Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="h-8 text-sm" />
+            </FieldPair>
+            <FieldPair label="Email">
+              <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-8 text-sm" />
+            </FieldPair>
+            <FieldPair label="Insurance provider">
+              <Input value={form.insurance_provider} onChange={(e) => setForm({ ...form, insurance_provider: e.target.value })} className="h-8 text-sm" />
+            </FieldPair>
+            <FieldPair label="Insurance qualified">
+              <select
+                value={form.insurance_qualified == null ? "" : String(form.insurance_qualified)}
+                onChange={(e) => setForm({ ...form, insurance_qualified: e.target.value === "" ? null : e.target.value === "true" })}
+                className="h-8 px-2 rounded-md border bg-background text-sm w-full"
+              >
+                <option value="">Unknown</option>
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </FieldPair>
+            <FieldPair label="Urgency">
+              <select
+                value={form.urgency}
+                onChange={(e) => setForm({ ...form, urgency: e.target.value })}
+                className="h-8 px-2 rounded-md border bg-background text-sm w-full"
+              >
+                {EDITABLE_URGENCY.map((u) => <option key={u} value={u}>{u || "—"}</option>)}
+              </select>
+            </FieldPair>
+            <FieldPair label="Relationship to patient">
+              <select
+                value={form.relationship_to_patient}
+                onChange={(e) => setForm({ ...form, relationship_to_patient: e.target.value })}
+                className="h-8 px-2 rounded-md border bg-background text-sm w-full"
+              >
+                {EDITABLE_RELATIONSHIP.map((r) => <option key={r} value={r}>{r || "—"}</option>)}
+              </select>
+            </FieldPair>
+            <FieldPair label="Callback preference">
+              <select
+                value={form.callback_preference}
+                onChange={(e) => setForm({ ...form, callback_preference: e.target.value })}
+                className="h-8 px-2 rounded-md border bg-background text-sm w-full"
+              >
+                {EDITABLE_CALLBACK.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ") || "—"}</option>)}
+              </select>
+            </FieldPair>
+            <FieldPair label="Program interest (comma-sep)">
+              <Input value={form.program_interest} onChange={(e) => setForm({ ...form, program_interest: e.target.value })} placeholder="e.g. inpatient, iop" className="h-8 text-sm" />
+            </FieldPair>
+            <FieldPair label="Zoho stage">
+              <Input value={form.stage} onChange={(e) => setForm({ ...form, stage: e.target.value })} placeholder="exact Zoho Lead_Status text" className="h-8 text-sm" />
+            </FieldPair>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Notes</div>
+              <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="text-sm min-h-[70px]" />
+            </div>
+          </>
+        ) : (
+          <>
+            <FactRow label="First name" value={lead.first_name ?? "—"} />
+            <FactRow label="Last name" value={lead.last_name ?? "—"} />
+            <FactRow label="Email" value={lead.email ?? "—"} />
+            <FactRow label="Insurance provider" value={lead.insurance_provider ?? "—"} />
+            <FactRow label="Insurance qualified" value={lead.insurance_qualified == null ? "—" : (lead.insurance_qualified ? "Yes" : "No")} />
+            <FactRow label="Urgency" value={lead.urgency ?? "—"} />
+            <FactRow label="Relationship to patient" value={lead.relationship_to_patient ?? "—"} />
+            <FactRow label="Callback preference" value={lead.callback_preference ?? "—"} />
+            <FactRow label="Program interest" value={lead.program_interest && lead.program_interest.length > 0 ? lead.program_interest.join(", ") : "—"} />
+            <FactRow label="Zoho stage" value={lead.stage ?? "—"} />
+            {lead.notes && (
+              <div className="pt-2 border-t">
+                <div className="text-xs text-muted-foreground mb-1">Notes</div>
+                <div className="text-sm whitespace-pre-wrap">{lead.notes}</div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FieldPair({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground mb-1">{label}</div>
+      {children}
     </div>
   );
 }
