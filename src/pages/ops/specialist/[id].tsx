@@ -107,6 +107,8 @@ export default function SpecialistDeepDive() {
   const [scores, setScores] = useState<ScoredCall[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [outcomes, setOutcomes] = useState<AttributedLead[]>([]);
+  const [dispositions, setDispositions] = useState<Array<{ disposition: string; count: number }>>([]);
+  const [undispositionedCount, setUndispositionedCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -158,6 +160,32 @@ export default function SpecialistDeepDive() {
         ...a,
         scenario: Array.isArray(a.scenario) ? a.scenario[0] : a.scenario,
       })) as AssignmentRow[]);
+
+      // Disposition mix (30d) — how this specialist wraps up calls.
+      const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const [dispRes, undispRes] = await Promise.all([
+        supabase
+          .from("call_sessions")
+          .select("specialist_disposition")
+          .eq("specialist_id", specialistId)
+          .not("specialist_disposition", "is", null)
+          .gte("disposition_set_at", since30),
+        supabase
+          .from("call_sessions")
+          .select("id", { count: "exact", head: true })
+          .eq("specialist_id", specialistId)
+          .eq("status", "answered")
+          .is("specialist_disposition", null)
+          .gte("started_at", since30),
+      ]);
+      const dispCounts = new Map<string, number>();
+      for (const r of (dispRes.data ?? []) as any[]) {
+        dispCounts.set(r.specialist_disposition, (dispCounts.get(r.specialist_disposition) ?? 0) + 1);
+      }
+      if (!cancelled) {
+        setDispositions([...dispCounts.entries()].map(([disposition, count]) => ({ disposition, count })).sort((a, b) => b.count - a.count));
+        setUndispositionedCount(undispRes.count ?? 0);
+      }
 
       // Outcomes attributed to this specialist (last_touch_call_id is one of their calls)
       const callIds = scoreRows.map((s) => s.call?.id).filter(Boolean) as string[];
@@ -425,6 +453,83 @@ export default function SpecialistDeepDive() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Disposition mix (30d) */}
+      {(dispositions.length > 0 || undispositionedCount > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Disposition mix (30d)</span>
+              {undispositionedCount > 0 && (
+                <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">
+                  {undispositionedCount} unwrapped
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {dispositions.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2">No dispositions set in the last 30 days.</p>
+            ) : (() => {
+              const total = dispositions.reduce((s, d) => s + d.count, 0);
+              const tones: Record<string, string> = {
+                interested_followup: "bg-emerald-500",
+                booked_intake: "bg-emerald-500",
+                transferred: "bg-emerald-500",
+                qualified_pending_vob: "bg-blue-500",
+                voicemail_left: "bg-blue-500",
+                no_answer: "bg-blue-500",
+                needs_callback: "bg-amber-500",
+                not_qualified: "bg-rose-500",
+                wrong_number: "bg-rose-500",
+                do_not_call: "bg-rose-500",
+                other: "bg-slate-500",
+              };
+              const labels: Record<string, string> = {
+                interested_followup: "Interested",
+                booked_intake: "Booked",
+                transferred: "Transferred",
+                qualified_pending_vob: "Pending VOB",
+                voicemail_left: "VM left",
+                no_answer: "No answer",
+                needs_callback: "Needs cb",
+                not_qualified: "Not qualified",
+                wrong_number: "Wrong #",
+                do_not_call: "DNC",
+                other: "Other",
+              };
+              return (
+                <>
+                  <div className="flex h-6 rounded overflow-hidden border">
+                    {dispositions.map((d) => {
+                      const pct = (d.count / total) * 100;
+                      return (
+                        <div
+                          key={d.disposition}
+                          className={`${tones[d.disposition] ?? "bg-slate-500"} text-white text-[10px] flex items-center justify-center overflow-hidden whitespace-nowrap`}
+                          style={{ width: `${pct}%` }}
+                          title={`${labels[d.disposition] ?? d.disposition}: ${d.count} (${pct.toFixed(1)}%)`}
+                        >
+                          {pct >= 10 ? `${labels[d.disposition] ?? d.disposition}` : ""}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 mt-3 text-xs">
+                    {dispositions.map((d) => (
+                      <div key={d.disposition} className="flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full ${tones[d.disposition] ?? "bg-slate-500"}`} />
+                        <span className="flex-1 truncate">{labels[d.disposition] ?? d.disposition}</span>
+                        <span className="tabular-nums text-muted-foreground">{d.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-4">
         {/* Flagged calls */}
