@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { Link } from "wouter";
 import {
   Bot, Loader2, Phone, Clock, Timer, Headphones, ChevronDown, ChevronRight,
-  AlertTriangle, CheckCircle2, X, FileText, Wrench, RefreshCw,
+  AlertTriangle, CheckCircle2, X, FileText, Wrench, RefreshCw, Download,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
@@ -168,14 +168,26 @@ export default function AIBotFeedback() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Bot className="w-6 h-6" /> AI bot feedback
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Auto-flagged issues from bot-handled calls. Each item is actionable feedback for the bot owner.
-          Mark resolved when addressed; dismiss if not actually a problem.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
+            <Bot className="w-6 h-6" /> AI bot feedback
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Auto-flagged issues from bot-handled calls. Each item is actionable feedback for the bot owner.
+            Mark resolved when addressed; dismiss if not actually a problem.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={items.length === 0}
+          onClick={() => downloadJsonl(items)}
+          className="gap-1.5 shrink-0"
+          title="Download as JSONL — hand to the bot owner for retraining"
+        >
+          <Download className="w-4 h-4" /> Export for retraining
+        </Button>
       </div>
 
       {/* Monthly rollup */}
@@ -415,4 +427,34 @@ function RollupTile({ label, value, accent, active, onClick }: {
       )}
     </Wrapper>
   );
+}
+
+// Export currently-loaded feedback items as JSONL for the bot owner's
+// retraining pipeline. One JSON object per line, with the call context,
+// issue category/severity, transcript excerpt, and suggested fix.
+function downloadJsonl(items: FeedbackItem[]) {
+  const lines = items.map((it) => JSON.stringify({
+    call_session_id: it.call_session_id,
+    ctm_call_id: it.call?.ctm_call_id ?? null,
+    call_started_at: it.call?.started_at ?? null,
+    bot_name: it.bot?.full_name ?? null,
+    severity: it.severity,
+    category: it.category,
+    title: it.title,
+    description: it.description,
+    transcript_excerpt: it.transcript_excerpt,
+    suggested_fix: it.suggested_fix,
+    status: it.status,
+    flagged_at: it.created_at,
+    analyzer_version: it.graded_by_service_version,
+  }));
+  const blob = new Blob([lines.join("\n")], { type: "application/jsonl;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `bot-feedback-${new Date().toISOString().slice(0, 10)}.jsonl`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
