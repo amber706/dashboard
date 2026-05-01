@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   AlertTriangle, ShieldAlert, BookOpen, GraduationCap, Phone, Inbox,
   TrendingUp, Loader2, Clock, Sparkles, Headphones, Zap, ChevronRight, Activity,
-  PhoneCall, Radio, Pin, X, PhoneOff, Voicemail,
+  PhoneCall, Radio, Pin, X, PhoneOff, Voicemail, CheckCircle2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
@@ -36,6 +36,7 @@ interface HomeData {
   my_assignments: Array<{ id: string; scenario_id: string; scenario_title: string; due_at: string | null; manager_note: string | null }>;
   my_callbacks: Array<{ id: string; lead_id: string | null; caller_label: string; phone: string | null; status: string; started_at: string | null; ownership: "lead_owner" | "original_specialist" }>;
   my_outreach_owed: number;
+  my_undispositioned: Array<{ id: string; caller_label: string; started_at: string | null }>;
   recent_calls: Array<{ id: string; ctm_call_id: string; caller_name: string | null; caller_phone: string | null; status: string; talk_seconds: number | null; started_at: string | null; composite_score: number | null; agent_name: string | null }>;
 }
 
@@ -297,6 +298,26 @@ export default function HomeV2() {
           );
         }
 
+        // Undispositioned calls — answered calls I took but haven't wrapped up.
+        let myUndispositioned: HomeData["my_undispositioned"] = [];
+        if (user?.id) {
+          const sevenDaysAgoISO = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+          const { data: undisp } = await supabase
+            .from("call_sessions")
+            .select("id, caller_name, caller_phone_normalized, started_at")
+            .eq("specialist_id", user.id)
+            .eq("status", "answered")
+            .is("specialist_disposition", null)
+            .gte("started_at", sevenDaysAgoISO)
+            .order("started_at", { ascending: false, nullsFirst: false })
+            .limit(10);
+          myUndispositioned = ((undisp ?? []) as any[]).map((c) => ({
+            id: c.id,
+            caller_label: c.caller_name ?? c.caller_phone_normalized ?? "Unknown",
+            started_at: c.started_at,
+          }));
+        }
+
         // Outreach owed count (just count — full list lives on /me).
         let myOutreachOwed = 0;
         if (user?.id) {
@@ -373,6 +394,7 @@ export default function HomeV2() {
             my_assignments: myAssignments,
             my_callbacks: myCallbacks,
             my_outreach_owed: myOutreachOwed,
+            my_undispositioned: myUndispositioned,
             recent_calls: recentCalls,
           });
         }
@@ -571,6 +593,37 @@ export default function HomeV2() {
                   </div>
                 </Link>
               ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Calls awaiting disposition — quick wrap-up reminder */}
+        {data.my_undispositioned.length > 0 && (
+          <Card className="border-l-4 border-l-amber-500">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-amber-600" /> Wrap up these calls</span>
+                <Badge variant="outline" className="text-[10px]">{data.my_undispositioned.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {data.my_undispositioned.slice(0, 5).map((c) => (
+                <Link key={c.id} href={`/live/${c.id}`} className="block">
+                  <div className="border rounded-md p-2 text-sm hover:bg-accent/50 transition-colors flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{c.caller_label}</div>
+                      <div className="text-xs text-muted-foreground">{c.started_at ? new Date(c.started_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                  </div>
+                </Link>
+              ))}
+              {data.my_undispositioned.length > 5 && (
+                <div className="text-xs text-muted-foreground text-center pt-1">
+                  +{data.my_undispositioned.length - 5} more
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
