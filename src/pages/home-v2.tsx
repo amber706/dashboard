@@ -10,6 +10,14 @@ import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
+interface SinceLastVisit {
+  since: string | null;             // ISO timestamp (null = first visit)
+  new_alerts: number;
+  new_suggestions: number;
+  new_bot_feedback: number;
+  new_flagged_qa: number;
+}
+
 interface HomeData {
   alerts_pending: number;
   alerts_critical: Array<{ id: string; alert_type: string; trigger_excerpt: string; call_id: string }>;
@@ -61,6 +69,7 @@ export default function HomeV2() {
   const [data, setData] = useState<HomeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sinceLastVisit, setSinceLastVisit] = useState<SinceLastVisit | null>(null);
 
   // Active-call watch: when ANY in-progress call is assigned to this user,
   // surface a top-of-page banner so they can jump straight to coaching.
@@ -107,6 +116,47 @@ export default function HomeV2() {
       cancelled = true;
       supabase.removeChannel(channel);
     };
+  }, [user?.id]);
+
+  // "Since you last visited" — read prior last_seen_at, count what's new
+  // since then, then bump it forward to now. Skips counting if this is the
+  // very first visit (no prior timestamp) so we don't show "247 new" on
+  // day one.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("last_seen_at")
+        .eq("id", user.id)
+        .maybeSingle();
+      const prior = prof?.last_seen_at ?? null;
+
+      if (prior) {
+        const [alertsR, suggR, botR, qaR] = await Promise.all([
+          supabase.from("high_priority_alerts").select("id", { count: "exact", head: true }).gte("classified_at", prior),
+          supabase.from("suggestions").select("id", { count: "exact", head: true }).gte("created_at", prior).eq("status", "open"),
+          supabase.from("ai_bot_feedback_items").select("id", { count: "exact", head: true }).gte("created_at", prior).eq("status", "open"),
+          supabase.from("call_scores").select("id", { count: "exact", head: true }).gte("created_at", prior).eq("needs_supervisor_review", true).is("supervisor_signoff_at", null),
+        ]);
+        if (!cancelled) {
+          setSinceLastVisit({
+            since: prior,
+            new_alerts: alertsR.count ?? 0,
+            new_suggestions: suggR.count ?? 0,
+            new_bot_feedback: botR.count ?? 0,
+            new_flagged_qa: qaR.count ?? 0,
+          });
+        }
+      } else if (!cancelled) {
+        setSinceLastVisit({ since: null, new_alerts: 0, new_suggestions: 0, new_bot_feedback: 0, new_flagged_qa: 0 });
+      }
+
+      // Bump last_seen_at forward.
+      await supabase.from("profiles").update({ last_seen_at: new Date().toISOString() }).eq("id", user.id);
+    })();
+    return () => { cancelled = true; };
   }, [user?.id]);
 
   useEffect(() => {
@@ -268,7 +318,9 @@ export default function HomeV2() {
       {activeCalls.length > 0 && (
         <div className="space-y-2">
           {activeCalls.map((c) => (
-            <Link key={c.id} href={`/live/${c.id}`}>
+            // Ringing → pre-call brief (caller hasn't been picked up yet, prep first).
+            // In-progress → live coaching view.
+            <Link key={c.id} href={c.status === "ringing" ? `/pre-call/${c.id}` : `/live/${c.id}`}>
               <Card className="border-l-4 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors cursor-pointer">
                 <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -288,7 +340,7 @@ export default function HomeV2() {
                     </div>
                   </div>
                   <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                    Open coaching view <ChevronRight className="w-4 h-4" />
+                    {c.status === "ringing" ? "Open pre-call brief" : "Open coaching view"} <ChevronRight className="w-4 h-4" />
                   </span>
                 </CardContent>
               </Card>
@@ -301,6 +353,41 @@ export default function HomeV2() {
         <h1 className="text-2xl font-semibold">{greeting}{user?.display_name ? `, ${user.display_name.split(" ")[0]}` : ""}.</h1>
         <p className="text-sm text-muted-foreground mt-1">Here's what needs attention today at Cornerstone Healing Center.</p>
       </div>
+
+      {/* Since you last visited — quietly hidden when nothing has changed */}
+      {sinceLastVisit && sinceLastVisit.since && (
+        sinceLastVisit.new_alerts + sinceLastVisit.new_suggestions + sinceLastVisit.new_bot_feedback + sinceLastVisit.new_flagged_qa > 0
+      ) && (
+        <Card className="border-l-4 border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/15">
+          <CardContent className="pt-3 pb-3">
+            <div className="text-xs text-muted-foreground mb-1.5">
+              Since you last visited <span className="italic">({new Date(sinceLastVisit.since).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })})</span>
+            </div>
+            <div className="flex flex-wrap gap-3 text-sm">
+              {sinceLastVisit.new_alerts > 0 && (
+                <Link href="/ops/alerts" className="hover:underline text-rose-700 dark:text-rose-400 font-medium flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" /> {sinceLastVisit.new_alerts} new alert{sinceLastVisit.new_alerts > 1 ? "s" : ""}
+                </Link>
+              )}
+              {sinceLastVisit.new_suggestions > 0 && (
+                <Link href="/ops/suggestions" className="hover:underline font-medium flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5" /> {sinceLastVisit.new_suggestions} new suggestion{sinceLastVisit.new_suggestions > 1 ? "s" : ""}
+                </Link>
+              )}
+              {sinceLastVisit.new_bot_feedback > 0 && (
+                <Link href="/ops/ai-bot-feedback" className="hover:underline font-medium flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5" /> {sinceLastVisit.new_bot_feedback} new bot issue{sinceLastVisit.new_bot_feedback > 1 ? "s" : ""}
+                </Link>
+              )}
+              {sinceLastVisit.new_flagged_qa > 0 && (
+                <Link href="/ops/qa-review" className="hover:underline text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5" /> {sinceLastVisit.new_flagged_qa} flagged for review
+                </Link>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top stat row */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
