@@ -3,8 +3,9 @@ import { useParams, Link } from "wouter";
 import {
   User as UserIcon, Phone, Loader2, ChevronRight, Clock, History,
   Sparkles, Activity, Trophy, XCircle, ArrowLeft, ExternalLink,
-  CheckCircle2, AlertTriangle,
+  CheckCircle2, AlertTriangle, Send,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -109,6 +110,28 @@ export default function LeadDetail() {
   const [extractions, setExtractions] = useState<ExtractionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const { toast } = useToast();
+
+  async function pushToZoho() {
+    if (!lead) return;
+    setPushing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("zoho-writeback", {
+        body: { lead_id: lead.id },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.ok) throw new Error(data?.error ?? "zoho-writeback failed");
+      toast({ title: "Pushed to Zoho", description: `${data.action ?? "synced"}: ${data.zoho_lead_id ?? lead.id}` });
+      // Re-fetch the lead so the new zoho_lead_id (if any) shows up.
+      const { data: refreshed } = await supabase.from("leads").select(`*, owner:profiles!leads_owner_id_fkey(full_name, email)`).eq("id", lead.id).maybeSingle();
+      if (refreshed) setLead(refreshed as unknown as Lead);
+    } catch (e) {
+      toast({ title: "Push failed", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setPushing(false);
+    }
+  }
 
   useEffect(() => {
     if (!leadId) return;
@@ -214,18 +237,24 @@ export default function LeadDetail() {
                 <span>created {fmtDate(lead.created_at)}</span>
               </div>
             </div>
-            {lead.zoho_lead_id && (
-              <a
-                href={`https://crm.zoho.com/crm/tab/Leads/${lead.zoho_lead_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex"
-              >
-                <Button variant="outline" size="sm" className="gap-1">
-                  Open in Zoho <ExternalLink className="w-3 h-3" />
-                </Button>
-              </a>
-            )}
+            <div className="flex gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={pushToZoho} disabled={pushing} className="gap-1.5" title={lead.zoho_lead_id ? "Update existing Zoho lead with current data" : "Create a new Zoho lead from this record"}>
+                {pushing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                {lead.zoho_lead_id ? "Update Zoho" : "Push to Zoho"}
+              </Button>
+              {lead.zoho_lead_id && (
+                <a
+                  href={`https://crm.zoho.com/crm/tab/Leads/${lead.zoho_lead_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex"
+                >
+                  <Button variant="outline" size="sm" className="gap-1">
+                    Open in Zoho <ExternalLink className="w-3 h-3" />
+                  </Button>
+                </a>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
