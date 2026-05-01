@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api-client";
+import { logAudit } from "@/lib/audit";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -229,6 +230,12 @@ export default function CTMCalls() {
 
   useEffect(() => { fetchCalls(); }, [fetchCalls]);
   useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  // Log a "view" once per filter combination — captures who looked at
+  // which slice of the call log without spamming on every poll tick.
+  useEffect(() => {
+    logAudit("view", "calls", null, { dirFilter, statusFilter, hasTranscriptFilter, surface: "ctm_call_log" });
+  }, [dirFilter, statusFilter, hasTranscriptFilter]);
 
   // Poll every 30s so the call log stays live without a manual Refresh.
   // Pause polling when the user has paginated past the first page so they

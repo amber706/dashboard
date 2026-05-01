@@ -93,6 +93,11 @@ export default function OpsCallbacks() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Audit: viewing the callback queue exposes caller PHI.
+  useEffect(() => {
+    logAudit("view", "callbacks", null, { filter, surface: "callback_queue" });
+  }, [filter]);
+
   // Top-line counts (across all statuses, not the current filter, so the
   // tile counts stay stable as the filter changes).
   const [counts, setCounts] = useState({ pending: 0, completed_today: 0, breached: 0, total: 0 });

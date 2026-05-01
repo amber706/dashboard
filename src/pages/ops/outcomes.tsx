@@ -86,6 +86,11 @@ export default function OpsOutcomes() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Audit: viewing the outcomes lead list exposes lead PHI + stage info.
+  useEffect(() => {
+    logAudit("view", "outcomes", null, { window_days: windowDays, filter, surface: "ops_outcomes" });
+  }, [windowDays, filter]);
+
   // Rollups across the loaded leads.
   const { totals, conversionPct, bySpecialist, bySource } = useMemo(() => {
     const t: Record<Category, number> = { won: 0, lost: 0, in_progress: 0 };

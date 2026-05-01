@@ -103,6 +103,12 @@ export default function LeadsView() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Log a list-view event keyed to the active filter so the audit
+  // trail captures which slices got browsed.
+  useEffect(() => {
+    logAudit("view", "leads", null, { search: search || null, outcome_filter: outcomeFilter, surface: "admin_leads" });
+  }, [search, outcomeFilter]);
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div>
