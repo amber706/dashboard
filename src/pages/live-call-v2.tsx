@@ -26,6 +26,10 @@ interface Call {
   lead_id: string | null;
   manager_notes: string | null;
   manual_score: number | null;
+  specialist_disposition: string | null;
+  disposition_set_at: string | null;
+  disposition_set_by: string | null;
+  disposition_notes: string | null;
 }
 
 interface Chunk {
@@ -389,7 +393,8 @@ export default function LiveCallView() {
             </Card>
           )}
 
-          {/* Manager-entered notes + manual score */}
+          {/* Specialist disposition + manager notes */}
+          {call && <DispositionPicker call={call} onSaved={(c) => setCall(c)} />}
           {call && <ManagerCallEditor call={call} onSaved={(c) => setCall(c)} />}
         </div>
 
@@ -772,6 +777,118 @@ function CallSnapshot({ extractions, score, alerts, call }: {
             )}
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// === Specialist disposition picker ===
+// Specialist marks the business outcome of the call after wrap-up. Distinct
+// from CTM technical status (answered/missed/voicemail).
+const DISPOSITION_OPTIONS: Array<{ value: string; label: string; tone: "positive" | "neutral" | "negative" | "warning" }> = [
+  { value: "interested_followup", label: "Interested — follow up", tone: "positive" },
+  { value: "booked_intake", label: "Booked intake", tone: "positive" },
+  { value: "transferred", label: "Transferred to clinical", tone: "positive" },
+  { value: "qualified_pending_vob", label: "Qualified — pending VOB", tone: "neutral" },
+  { value: "needs_callback", label: "Needs callback", tone: "warning" },
+  { value: "voicemail_left", label: "Voicemail left", tone: "neutral" },
+  { value: "no_answer", label: "No answer", tone: "neutral" },
+  { value: "not_qualified", label: "Not qualified", tone: "negative" },
+  { value: "wrong_number", label: "Wrong number", tone: "negative" },
+  { value: "do_not_call", label: "Do not call", tone: "negative" },
+  { value: "other", label: "Other", tone: "neutral" },
+];
+
+const DISPOSITION_TONE_CLASS: Record<string, string> = {
+  positive: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10",
+  neutral: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
+  warning: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
+  negative: "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10",
+};
+
+function DispositionPicker({ call, onSaved }: { call: Call; onSaved: (c: Call) => void }) {
+  const [selected, setSelected] = useState<string | null>(call.specialist_disposition);
+  const [notes, setNotes] = useState(call.disposition_notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const dirty = selected !== call.specialist_disposition || notes.trim() !== (call.disposition_notes ?? "").trim();
+
+  async function save() {
+    if (!selected) return;
+    setSaving(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    const patch: Record<string, unknown> = {
+      specialist_disposition: selected,
+      disposition_set_at: new Date().toISOString(),
+      disposition_set_by: user?.id ?? null,
+      disposition_notes: notes.trim() || null,
+    };
+    const { data, error } = await supabase
+      .from("call_sessions")
+      .update(patch)
+      .eq("id", call.id)
+      .select("*")
+      .single();
+    setSaving(false);
+    if (!error && data) onSaved(data as Call);
+  }
+
+  const currentTone = DISPOSITION_OPTIONS.find((o) => o.value === call.specialist_disposition)?.tone;
+  const currentLabel = DISPOSITION_OPTIONS.find((o) => o.value === call.specialist_disposition)?.label;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center justify-between">
+          <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Wrap-up disposition</span>
+          {call.specialist_disposition && currentTone && (
+            <Badge variant="outline" className={`text-[10px] ${DISPOSITION_TONE_CLASS[currentTone]}`}>{currentLabel}</Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+          {DISPOSITION_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setSelected(selected === opt.value ? null : opt.value)}
+              className={`text-xs text-left px-2.5 py-2 rounded-md border transition-colors ${
+                selected === opt.value
+                  ? DISPOSITION_TONE_CLASS[opt.tone] + " font-medium"
+                  : "border-border hover:bg-accent/50"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {selected && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Notes (optional)</div>
+            <Input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything specific the manager should know?"
+              className="text-sm"
+            />
+          </div>
+        )}
+        {dirty && (
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { setSelected(call.specialist_disposition); setNotes(call.disposition_notes ?? ""); }}>
+              Cancel
+            </Button>
+            <Button size="sm" disabled={saving || !selected} onClick={save} className="gap-1">
+              {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+              {call.specialist_disposition ? "Update" : "Save disposition"}
+            </Button>
+          </div>
+        )}
+        {call.specialist_disposition && call.disposition_set_at && !dirty && (
+          <div className="text-[10px] text-muted-foreground">
+            Set {new Date(call.disposition_set_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            {call.disposition_notes && <> · "{call.disposition_notes}"</>}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

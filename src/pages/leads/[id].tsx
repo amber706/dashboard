@@ -57,6 +57,7 @@ interface CallRow {
   callback_completed_at: string | null;
   callback_notes: string | null;
   manager_notes: string | null;
+  specialist_disposition: string | null;
   score: { composite_score: number | null; needs_supervisor_review: boolean } | null;
 }
 
@@ -171,6 +172,7 @@ export default function LeadDetail() {
           .from("call_sessions")
           .select(`id, ctm_call_id, status, started_at, talk_seconds, ctm_raw_payload,
             callback_status, callback_completed_at, callback_notes, manager_notes,
+            specialist_disposition,
             score:call_scores(composite_score, needs_supervisor_review)`)
           .eq("lead_id", leadId)
           .order("started_at", { ascending: false, nullsFirst: false })
@@ -453,6 +455,11 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium">Call</span>
                 <Badge variant="outline" className="text-[10px]">{c.status}</Badge>
+                {c.specialist_disposition && (
+                  <Badge variant="outline" className="text-[10px] capitalize">
+                    {c.specialist_disposition.replace(/_/g, " ")}
+                  </Badge>
+                )}
                 {c.score?.needs_supervisor_review && (
                   <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1">
                     <AlertTriangle className="w-3 h-3" /> needs review
