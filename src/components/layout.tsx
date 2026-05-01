@@ -95,6 +95,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/training-analytics", label: "Training Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
     { href: "/admin", label: "Admin Panel", icon: <Settings className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
+    { href: "/admin/health", label: "System Health", icon: <Activity className="w-4 h-4" />, section: "Management", roles: ["admin"] as const },
     { href: "/settings", label: "Settings", icon: <Wrench className="w-4 h-4" />, section: "Management", roles: ["admin"] as const },
   ];
 
