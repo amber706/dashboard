@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import {
   Settings as SettingsIcon, Mail, Loader2, CheckCircle2, AlertCircle,
-  Send, Calendar, Database, Activity, ExternalLink,
+  Send, Calendar, Database, Activity, ExternalLink, Sparkles,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,7 @@ export default function AdminSettings() {
 
       <NotificationsCard />
       <DailyDigestCard />
+      <AutoSummarizeCard />
       <IntegrationsStatusCard />
 
       <Card className="border-muted">
@@ -244,5 +245,80 @@ function IntegrationRow({ label, desc, healthLink }: { label: string; desc: stri
         </a>
       )}
     </div>
+  );
+}
+
+function AutoSummarizeCard() {
+  const [state, setState] = useState<TestState>("idle");
+  const [detail, setDetail] = useState<string>("");
+  const [dryRun, setDryRun] = useState<boolean>(true);
+
+  async function fire() {
+    setState("running");
+    setDetail("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-summarize-sweep`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ dry_run: dryRun }),
+      });
+      const body = await res.json();
+      if (!body.ok) {
+        setState("error");
+        setDetail(body.error ?? `status ${res.status}`);
+        return;
+      }
+      if (body.dry_run) {
+        setState("ok");
+        setDetail(`Dry run: ${body.candidate_count} candidate call${body.candidate_count === 1 ? "" : "s"} would be summarized. Uncheck dry run and re-run to actually generate.`);
+      } else {
+        setState("ok");
+        setDetail(`Processed ${body.processed}: ${body.succeeded} succeeded, ${body.failed} failed.${body.failed > 0 ? " Errors: " + JSON.stringify(body.errors).slice(0, 300) : ""}`);
+      }
+    } catch (e) {
+      setState("error");
+      setDetail(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-amber-500" /> Auto-summarize sweep
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Generates AI summaries for high-value calls in the last 48h that don't have one yet:
+          worst calls (score &lt; 50), best (≥ 85), calls with alerts, booked intakes, and supervisor-review queue.
+          Caps at 30 per run, sleeps 8s between calls. Schedule via Supabase pg_cron for daily auto-run.
+        </p>
+
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
+          Dry run (count candidates, don't actually generate)
+        </label>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button onClick={fire} disabled={state === "running"} variant="outline" className="gap-1.5">
+            {state === "running"
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Sparkles className="w-3.5 h-3.5" />}
+            {dryRun ? "Preview candidates" : "Run sweep now"}
+          </Button>
+          {state === "ok" && <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 gap-1"><CheckCircle2 className="w-3 h-3" /> Done</Badge>}
+          {state === "error" && <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 gap-1"><AlertCircle className="w-3 h-3" /> Error</Badge>}
+        </div>
+        {detail && (
+          <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2 break-words">{detail}</div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
