@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "wouter";
 import {
   PhoneOff, Loader2, Phone, Clock, CheckCircle2, X, Voicemail,
-  AlertTriangle, ChevronDown, ChevronRight, Activity, MessageSquare,
+  AlertTriangle, ChevronDown, ChevronRight, Activity, MessageSquare, Download,
 } from "lucide-react";
+import { downloadCsv } from "@/lib/csv-export";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -157,12 +158,32 @@ export default function OpsCallbacks() {
         <Tile label="Total this window" value={counts.total} />
       </div>
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center">
         {(["pending", "completed", "skipped", "unreachable", "all"] as const).map((f) => (
           <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} onClick={() => setFilter(f)}>
             {f === "all" ? "All" : STATUS_LABEL[f]}
           </Button>
         ))}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={rows.length === 0}
+          className="ml-auto gap-1.5"
+          onClick={() => downloadCsv(`callbacks-${new Date().toISOString().slice(0, 10)}.csv`, rows, [
+            { key: "caller_name", label: "Caller name" },
+            { key: "caller_phone_normalized", label: "Phone" },
+            { key: "started_at", label: "Call time", format: (v) => v ? new Date(v).toISOString() : "" },
+            { key: "status", label: "Call status" },
+            { key: "callback_status", label: "Callback status" },
+            { key: "callback_completed_at", label: "Completed at", format: (v) => v ? new Date(v).toISOString() : "" },
+            { key: "callback_completed_by_profile", label: "Completed by", format: (v) => v?.full_name ?? v?.email ?? "" },
+            { key: "callback_notes", label: "Notes" },
+            { key: "ctm_raw_payload", label: "Tracking", format: (v) => v?.tracking_label ?? "" },
+            { key: "lead", label: "Outcome", format: (v) => v?.outcome_category ?? "" },
+          ])}
+        >
+          <Download className="w-3.5 h-3.5" /> Export CSV
+        </Button>
       </div>
 
       {loading && (

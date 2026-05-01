@@ -3,8 +3,9 @@ import { Link } from "wouter";
 import {
   TrendingUp, Loader2, Trophy, XCircle, Clock,
   Users, Activity, ChevronDown, ChevronRight, Phone, Calendar,
-  Settings, Plus, Trash2, Save, AlertTriangle,
+  Settings, Plus, Trash2, Save, AlertTriangle, Download,
 } from "lucide-react";
+import { downloadCsv } from "@/lib/csv-export";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -189,9 +190,31 @@ export default function OpsOutcomes() {
         <CardHeader>
           <CardTitle className="text-base flex items-center justify-between">
             <span>Leads {filter !== "all" && <Badge className={`${CATEGORY_CLASS[filter as Category]} ml-2 text-[10px]`} variant="outline">filter: {CATEGORY_LABEL[filter as Category]}</Badge>}</span>
-            {filter !== "all" && (
-              <Button size="sm" variant="ghost" onClick={() => setFilter("all")}>Clear</Button>
-            )}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={leads.length === 0}
+                onClick={() => downloadCsv(`outcomes-${new Date().toISOString().slice(0, 10)}.csv`, leads, [
+                  { key: "first_name", label: "First name" },
+                  { key: "last_name", label: "Last name" },
+                  { key: "primary_phone_normalized", label: "Phone" },
+                  { key: "stage", label: "Zoho stage" },
+                  { key: "outcome_category", label: "Outcome" },
+                  { key: "outcome_set_at", label: "Outcome set at", format: (v) => v ? new Date(v).toISOString() : "" },
+                  { key: "first_touch_source_category", label: "Source" },
+                  { key: "owner", label: "Owner", format: (v) => v?.full_name ?? v?.email ?? "" },
+                  { key: "last_touch_call", label: "Last-touch agent", format: (v) => v?.ctm_raw_payload?.agent?.name ?? v?.ctm_raw_payload?.agent?.email ?? "" },
+                  { key: "created_at", label: "Created", format: (v) => v ? new Date(v).toISOString() : "" },
+                ])}
+                className="gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5" /> Export CSV
+              </Button>
+              {filter !== "all" && (
+                <Button size="sm" variant="ghost" onClick={() => setFilter("all")}>Clear</Button>
+              )}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
