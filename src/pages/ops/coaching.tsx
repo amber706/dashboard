@@ -27,6 +27,7 @@ interface ScoredCall {
     started_at: string | null;
     talk_seconds: number | null;
     manager_notes: string | null;
+    ai_summary: string | null;
     specialist: { id: string; full_name: string | null; email: string | null } | null;
   } | null;
 }
@@ -79,7 +80,7 @@ export default function OpsCoaching() {
         id, call_session_id, composite_score, needs_supervisor_review,
         compliance_flags, coaching_takeaways, created_at,
         call:call_sessions!inner(
-          id, caller_name, caller_phone_normalized, started_at, talk_seconds, manager_notes,
+          id, caller_name, caller_phone_normalized, started_at, talk_seconds, manager_notes, ai_summary,
           specialist:profiles!call_sessions_specialist_id_fkey(id, full_name, email)
         )
       `)
@@ -327,6 +328,15 @@ function CoachingRow({ score, highlightFlags, onSaved }: {
         <div className="text-xs text-muted-foreground italic">
           AI suggests: {score.coaching_takeaways.what_to_try[0]}
         </div>
+      )}
+
+      {c.ai_summary && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+            AI summary
+          </summary>
+          <div className="mt-1.5 bg-muted/40 border rounded p-2 whitespace-pre-wrap leading-relaxed">{c.ai_summary}</div>
+        </details>
       )}
 
       <ManagerNoteEditor callId={c.id} initial={c.manager_notes} onSaved={onSaved} />
