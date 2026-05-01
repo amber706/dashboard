@@ -228,27 +228,36 @@ function CreateAssignmentForm({
   onCancel: () => void;
   onCreated: () => void;
 }) {
-  const [specialistId, setSpecialistId] = useState("");
+  const [specialistIds, setSpecialistIds] = useState<Set<string>>(new Set());
   const [scenarioId, setScenarioId] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function toggleSpecialist(id: string) {
+    setSpecialistIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!specialistId || !scenarioId) return;
+    if (specialistIds.size === 0 || !scenarioId) return;
     setSubmitting(true);
     setError(null);
-    const { error } = await supabase.from("training_assignments").insert({
-      specialist_id: specialistId,
+    const rows = [...specialistIds].map((sid) => ({
+      specialist_id: sid,
       scenario_id: scenarioId,
       assigned_by: assignedBy,
       due_at: dueAt ? new Date(dueAt).toISOString() : null,
       notes: notes.trim() || null,
       source: "manual",
       status: "assigned",
-    });
+    }));
+    const { error } = await supabase.from("training_assignments").insert(rows);
     setSubmitting(false);
     if (error) setError(error.message);
     else onCreated();
@@ -264,39 +273,56 @@ function CreateAssignmentForm({
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground">Specialist</label>
-              <select
-                value={specialistId}
-                onChange={(e) => setSpecialistId(e.target.value)}
-                required
-                className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm"
-              >
-                <option value="">Select…</option>
-                {specialists.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name ?? s.email ?? s.id} ({s.role})
-                  </option>
-                ))}
-              </select>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-muted-foreground">
+                Specialists ({specialistIds.size} selected)
+              </label>
+              <div className="flex gap-2 text-[11px]">
+                <button type="button" onClick={() => setSpecialistIds(new Set(specialists.map((s) => s.id)))} className="text-primary hover:underline">All</button>
+                <button type="button" onClick={() => setSpecialistIds(new Set())} className="text-muted-foreground hover:underline">None</button>
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground">Scenario</label>
-              <select
-                value={scenarioId}
-                onChange={(e) => setScenarioId(e.target.value)}
-                required
-                className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm"
-              >
-                <option value="">Select…</option>
-                {scenarios.map((sc) => (
-                  <option key={sc.id} value={sc.id}>
-                    [{sc.difficulty}] {sc.title}{sc.is_crisis_tagged ? " (crisis)" : ""}{sc.involves_minors ? " (minor)" : ""}
-                  </option>
-                ))}
-              </select>
+            <div className="border rounded-md max-h-48 overflow-y-auto">
+              {specialists.length === 0 ? (
+                <div className="text-xs text-muted-foreground p-3">No specialists found.</div>
+              ) : (
+                specialists.map((s) => {
+                  const checked = specialistIds.has(s.id);
+                  return (
+                    <label key={s.id} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent/40 cursor-pointer border-b last:border-b-0">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSpecialist(s.id)}
+                        className="accent-primary"
+                      />
+                      <span className="flex-1 truncate">{s.full_name ?? s.email ?? s.id}</span>
+                      <span className="text-[11px] text-muted-foreground">{s.role}</span>
+                    </label>
+                  );
+                })
+              )}
             </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Assign one scenario to multiple specialists at once. One row per specialist will be created.
+            </p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground">Scenario</label>
+            <select
+              value={scenarioId}
+              onChange={(e) => setScenarioId(e.target.value)}
+              required
+              className="mt-1 w-full h-9 px-3 rounded-md border bg-background text-sm"
+            >
+              <option value="">Select…</option>
+              {scenarios.map((sc) => (
+                <option key={sc.id} value={sc.id}>
+                  [{sc.difficulty}] {sc.title}{sc.is_crisis_tagged ? " (crisis)" : ""}{sc.involves_minors ? " (minor)" : ""}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="grid md:grid-cols-2 gap-4">
             <div>
@@ -321,9 +347,9 @@ function CreateAssignmentForm({
           {error && <div className="text-xs text-destructive">{error}</div>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-            <Button type="submit" disabled={submitting || !specialistId || !scenarioId}>
+            <Button type="submit" disabled={submitting || specialistIds.size === 0 || !scenarioId}>
               {submitting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Plus className="w-4 h-4 mr-1.5" />}
-              Assign
+              Assign to {specialistIds.size || "—"}
             </Button>
           </div>
         </form>
