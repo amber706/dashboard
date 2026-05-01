@@ -567,28 +567,90 @@ async function actOnSuggestion(id: string, action: string): Promise<Response> {
 }
 
 async function getRepWorkload(): Promise<Response> {
-  const { data, error } = await supabase
+  const { data: profiles, error } = await supabase
     .from("profiles")
     .select("id, full_name, email")
-    .eq("role", "specialist")
+    .in("role", ["specialist", "manager"])
     .eq("is_active", true)
     .order("full_name");
   if (error) return jsonResponse({ error: error.message }, 500);
 
-  const reps: RepWorkloadData[] = (data ?? []).map((p) => ({
-    rep_id: p.id,
-    rep_name: p.full_name ?? p.email ?? "Unknown",
-    calls_today: 0,
-    missed_calls: 0,
-    open_leads: 0,
-    overdue_callbacks: 0,
-    capacity_status: "idle",
-    capacity_score: 0,
-    first_contact_sla_backlog: 0,
-    qa_trend: null,
-    avg_callback_speed_minutes: null,
-    suggested_actions: [],
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const startOfDayISO = startOfDay.toISOString();
+  const sevenDaysAgoISO = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const fortyEightHoursAgoISO = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  const reps: RepWorkloadData[] = await Promise.all((profiles ?? []).map(async (p) => {
+    const [
+      { count: callsToday },
+      { count: missedToday },
+      { count: missedBacklog },
+      qaScoresRes,
+      recentCallsRes,
+    ] = await Promise.all([
+      supabase
+        .from("call_sessions")
+        .select("id", { count: "exact", head: true })
+        .eq("specialist_id", p.id)
+        .gte("started_at", startOfDayISO),
+      supabase
+        .from("call_sessions")
+        .select("id", { count: "exact", head: true })
+        .eq("specialist_id", p.id)
+        .in("status", ["missed", "abandoned"])
+        .gte("started_at", startOfDayISO),
+      supabase
+        .from("call_sessions")
+        .select("id", { count: "exact", head: true })
+        .eq("specialist_id", p.id)
+        .in("status", ["missed", "abandoned"])
+        .gte("started_at", fortyEightHoursAgoISO),
+      // QA trend: avg composite over last 7d
+      supabase
+        .from("call_scores")
+        .select("composite_score, call:call_sessions!inner(specialist_id, started_at)")
+        .eq("call.specialist_id", p.id)
+        .gte("call.started_at", sevenDaysAgoISO),
+      // Recent calls to estimate open leads (distinct lead_ids touched in last 7d)
+      supabase
+        .from("call_sessions")
+        .select("lead_id")
+        .eq("specialist_id", p.id)
+        .not("lead_id", "is", null)
+        .gte("started_at", sevenDaysAgoISO),
+    ]);
+
+    const qaVals = ((qaScoresRes.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
+    const qaTrend = qaVals.length > 0 ? Math.round(qaVals.reduce((a, b) => a + b, 0) / qaVals.length) : null;
+
+    const distinctLeads = new Set(((recentCallsRes.data ?? []) as any[]).map((r) => r.lead_id).filter(Boolean));
+
+    // Capacity heuristic: 0 calls = idle, 1-15 = active, 16-30 = busy, 31+ = overloaded
+    const todayCount = callsToday ?? 0;
+    const capacity_status = todayCount === 0 ? "idle" : todayCount < 16 ? "active" : todayCount < 31 ? "busy" : "overloaded";
+    const capacity_score = Math.min(100, Math.round((todayCount / 30) * 100));
+
+    const suggested_actions: string[] = [];
+    if ((missedBacklog ?? 0) > 0) suggested_actions.push(`Return ${missedBacklog} missed call${missedBacklog === 1 ? "" : "s"} from last 48h`);
+    if (qaTrend != null && qaTrend < 50) suggested_actions.push(`QA trend (${qaTrend}) below threshold — review with manager`);
+    if (capacity_status === "overloaded") suggested_actions.push("Capacity overloaded — consider re-routing");
+
+    return {
+      rep_id: p.id,
+      rep_name: p.full_name ?? p.email ?? "Unknown",
+      calls_today: todayCount,
+      missed_calls: missedToday ?? 0,
+      open_leads: distinctLeads.size,
+      overdue_callbacks: missedBacklog ?? 0,
+      capacity_status,
+      capacity_score,
+      first_contact_sla_backlog: missedBacklog ?? 0,
+      qa_trend: qaTrend,
+      avg_callback_speed_minutes: null,
+      suggested_actions,
+    };
   }));
+
   return jsonResponse({ reps });
 }
 
