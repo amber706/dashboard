@@ -861,7 +861,8 @@ async function getCTMCalls(queryString: string): Promise<Response> {
       id, ctm_call_id, direction, status, caller_phone_normalized, caller_name,
       ctm_tracking_number, started_at, ended_at, talk_seconds, ring_seconds,
       ctm_raw_payload, lead_id,
-      score:call_scores(composite_score, needs_supervisor_review)
+      score:call_scores(composite_score, needs_supervisor_review),
+      lead:leads(id, outcome_category, last_touch_call_id, first_touch_call_id)
     `, { count: "exact" })
     .order("started_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
@@ -887,6 +888,7 @@ async function getCTMCalls(queryString: string): Promise<Response> {
 
   const calls = (data ?? []).map((c: any) => {
     const score = Array.isArray(c.score) ? c.score[0] : c.score;
+    const lead = Array.isArray(c.lead) ? c.lead[0] : c.lead;
     const audio = c.ctm_raw_payload?.audio;
     const transcript = c.ctm_raw_payload?.transcription_text;
     return {
@@ -917,6 +919,12 @@ async function getCTMCalls(queryString: string): Promise<Response> {
       qa_status: score?.needs_supervisor_review ? "review" : (score?.composite_score != null ? "pass" : null),
       conversion_probability: null,
       hot_lead_flag: null,
+      // Outcome attribution: link this call to the lead's eventual outcome
+      // and flag whether this call was the first/last touch credited.
+      outcome_lead_id: lead?.id ?? null,
+      outcome_category: lead?.outcome_category ?? null,
+      is_last_touch: lead?.last_touch_call_id === c.id,
+      is_first_touch: lead?.first_touch_call_id === c.id,
     };
   });
 

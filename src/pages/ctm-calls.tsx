@@ -73,6 +73,10 @@ interface CTMCall {
   qa_status: string | null;
   conversion_probability: number | null;
   hot_lead_flag: boolean | null;
+  outcome_lead_id: string | null;
+  outcome_category: "won" | "lost" | "in_progress" | null;
+  is_last_touch: boolean;
+  is_first_touch: boolean;
 }
 
 interface CTMStats {
@@ -424,7 +428,22 @@ export default function CTMCalls() {
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">{call.tracking_label || "—"}</div>
-                      <div>{statusBadge(call.call_status, call.missed_call_flag)}</div>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {statusBadge(call.call_status, call.missed_call_flag)}
+                        {call.outcome_category && call.outcome_category !== "in_progress" && (
+                          <span
+                            title={call.is_last_touch ? "Last-touch credit for this outcome" : call.is_first_touch ? "First-touch credit for this outcome" : "Lead outcome"}
+                            className={`text-[9px] uppercase font-medium px-1.5 py-0.5 rounded border ${
+                              call.outcome_category === "won"
+                                ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
+                                : "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10"
+                            }`}
+                          >
+                            {call.outcome_category === "won" ? "→ admit" : "→ lost"}
+                            {call.is_last_touch && "*"}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-muted-foreground flex items-center gap-1">
                         <Clock className="w-3 h-3" /> {formatDuration(call.total_duration_seconds)}
                       </div>
