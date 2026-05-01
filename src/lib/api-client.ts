@@ -335,16 +335,20 @@ async function getOpsOverview(): Promise<Response> {
       .select("id", { count: "exact", head: true })
       .gte("started_at", startOfDayISO)
       .eq("direction", "inbound"),
+    // Answered = call was picked up by a human. Whitelist the answered
+    // statuses rather than blacklisting misses (the enum doesn't have
+    // no_answer; previous code returned 0 because PostgREST errored on
+    // the unknown enum value). Voicemail counts as missed, not answered.
     supabase
       .from("call_sessions")
       .select("id", { count: "exact", head: true })
       .gte("started_at", startOfDayISO)
-      .not("status", "in", "(missed,abandoned,no_answer)"),
+      .in("status", ["completed", "in_progress", "transferred"]),
     supabase
       .from("call_sessions")
       .select("id", { count: "exact", head: true })
       .gte("started_at", startOfDayISO)
-      .in("status", ["missed", "abandoned"]),
+      .in("status", ["missed", "abandoned", "voicemail"]),
     // Lightweight overloaded-rep count: specialists with >30 calls today.
     // Matches the same heuristic used in getRepWorkload's capacity_status.
     supabase
@@ -522,7 +526,7 @@ async function getOpsOverviewInbound(queryString: string): Promise<Response> {
     .gte("started_at", startOfDayISO)
     .order("started_at", { ascending: false })
     .range(offset, offset + limit - 1);
-  if (statusFilter === "answered") q = q.not("status", "in", "(missed,abandoned,no_answer)");
+  if (statusFilter === "answered") q = q.in("status", ["completed", "in_progress", "transferred"]);
 
   const { data, count, error } = await q;
   if (error) return jsonResponse({ error: error.message }, 500);
