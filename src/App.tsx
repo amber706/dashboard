@@ -41,6 +41,10 @@ import OpsScenarioReview from "@/pages/ops/scenario-review";
 import OpsTrainingAnalytics from "@/pages/ops/training-analytics";
 import OpsTrainingAssignments from "@/pages/ops/training-assignments";
 import OpsQAReview from "@/pages/ops/qa-review";
+import OpsCoaching from "@/pages/ops/coaching";
+import OpsOutreach from "@/pages/ops/outreach";
+import OpsStuckLeads from "@/pages/ops/stuck-leads";
+import SpecialistDeepDive from "@/pages/ops/specialist/[id]";
 import AdminLeads from "@/pages/admin/leads";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
 import OpsAIBotFeedback from "@/pages/ops/ai-bot-feedback";
@@ -52,6 +56,7 @@ import HealthPage from "@/pages/admin/health";
 import OpsTeam from "@/pages/ops/team";
 import AuditPage from "@/pages/admin/audit";
 import OpsStaffing from "@/pages/ops/staffing";
+import AdminSettings from "@/pages/admin/settings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -97,6 +102,10 @@ function AppRoutes() {
         <Route path="/ops/training-analytics" component={OpsTrainingAnalytics} />
         <Route path="/ops/training-assignments" component={OpsTrainingAssignments} />
         <Route path="/ops/qa-review" component={OpsQAReview} />
+        <Route path="/ops/coaching" component={OpsCoaching} />
+        <Route path="/ops/outreach" component={OpsOutreach} />
+        <Route path="/ops/stuck-leads" component={OpsStuckLeads} />
+        <Route path="/ops/specialist/:id" component={SpecialistDeepDive} />
         <Route path="/admin/leads" component={AdminLeads} />
         <Route path="/ops/abandoned-calls" component={OpsAbandonedCalls} />
         <Route path="/ops/ai-bot-feedback" component={OpsAIBotFeedback} />
@@ -108,6 +117,7 @@ function AppRoutes() {
         <Route path="/ops/team" component={OpsTeam} />
         <Route path="/admin/audit" component={AuditPage} />
         <Route path="/ops/staffing" component={OpsStaffing} />
+        <Route path="/admin/settings" component={AdminSettings} />
         <Route component={NotFound} />
       </Switch>
       </ErrorBoundary>

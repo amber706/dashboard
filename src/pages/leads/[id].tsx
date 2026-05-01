@@ -4,6 +4,7 @@ import {
   User as UserIcon, Phone, Loader2, ChevronRight, Clock, History,
   Sparkles, Activity, Trophy, XCircle, ArrowLeft, ExternalLink,
   CheckCircle2, AlertTriangle, Send, Edit3, Save, X as XIcon,
+  PhoneOff, ShieldAlert, Voicemail, Headphones,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -52,7 +53,21 @@ interface CallRow {
   started_at: string | null;
   talk_seconds: number | null;
   ctm_raw_payload: any;
+  callback_status: string | null;
+  callback_completed_at: string | null;
+  callback_notes: string | null;
+  manager_notes: string | null;
   score: { composite_score: number | null; needs_supervisor_review: boolean } | null;
+}
+
+interface AlertRow {
+  id: string;
+  call_session_id: string;
+  alert_type: string;
+  severity: string;
+  status: string;
+  trigger_excerpt: string;
+  classified_at: string;
 }
 
 interface OutcomeEvent {
@@ -114,6 +129,7 @@ export default function LeadDetail() {
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [events, setEvents] = useState<OutcomeEvent[]>([]);
   const [extractions, setExtractions] = useState<ExtractionRow[]>([]);
+  const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pushing, setPushing] = useState(false);
@@ -154,6 +170,7 @@ export default function LeadDetail() {
         supabase
           .from("call_sessions")
           .select(`id, ctm_call_id, status, started_at, talk_seconds, ctm_raw_payload,
+            callback_status, callback_completed_at, callback_notes, manager_notes,
             score:call_scores(composite_score, needs_supervisor_review)`)
           .eq("lead_id", leadId)
           .order("started_at", { ascending: false, nullsFirst: false })
@@ -178,9 +195,22 @@ export default function LeadDetail() {
         return;
       }
       setLead(leadRes.data as unknown as Lead);
-      setCalls(((callsRes.data ?? []) as any[]).map((c) => ({ ...c, score: Array.isArray(c.score) ? c.score[0] : c.score })));
+      const callRows = ((callsRes.data ?? []) as any[]).map((c) => ({ ...c, score: Array.isArray(c.score) ? c.score[0] : c.score })) as CallRow[];
+      setCalls(callRows);
       setEvents((eventsRes.data ?? []) as OutcomeEvent[]);
       setExtractions((extRes.data ?? []) as ExtractionRow[]);
+
+      // Fetch alerts for any call belonging to this lead. Done after calls load
+      // so we have the call IDs to filter on.
+      const callIds = callRows.map((c) => c.id);
+      if (callIds.length > 0) {
+        const { data: alertRows } = await supabase
+          .from("high_priority_alerts")
+          .select("id, call_session_id, alert_type, severity, status, trigger_excerpt, classified_at")
+          .in("call_session_id", callIds)
+          .order("classified_at", { ascending: false });
+        if (!cancelled) setAlerts((alertRows ?? []) as AlertRow[]);
+      }
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -212,6 +242,7 @@ export default function LeadDetail() {
   const displayName = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.primary_phone_normalized || "Unknown lead";
   const cat = lead.outcome_category ?? "in_progress";
   const stageEvents = events.filter((e) => e.from_stage !== e.to_stage);
+  const timeline = buildTimeline(calls, alerts, extractions, stageEvents);
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
@@ -266,85 +297,23 @@ export default function LeadDetail() {
       </Card>
 
       <div className="grid lg:grid-cols-3 gap-4">
-        {/* Left: call timeline */}
+        {/* Left: unified timeline */}
         <div className="lg:col-span-2 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <History className="w-4 h-4" /> Calls ({calls.length})
+                <History className="w-4 h-4" /> Timeline
+                <Badge variant="outline" className="text-[10px] ml-1">{timeline.length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {calls.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">No calls linked to this lead.</p>
+              {timeline.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">No activity recorded for this lead yet.</p>
               ) : (
-                <div className="space-y-1.5">
-                  {calls.map((c) => {
-                    const agent = c.ctm_raw_payload?.agent;
-                    const agentName = agent?.name ?? agent?.email ?? null;
-                    return (
-                      <Link key={c.id} href={`/live/${c.id}`} className="block">
-                        <div className="border-b py-2 text-sm hover:bg-accent/50 transition-colors flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium">{fmtTime(c.started_at)}</span>
-                              <Badge variant="outline" className="text-[10px]">{c.status}</Badge>
-                              {c.score?.needs_supervisor_review && (
-                                <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1">
-                                  <AlertTriangle className="w-3 h-3" /> needs review
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="text-xs text-muted-foreground flex items-center gap-2">
-                              <Clock className="w-3 h-3" /> {fmtDur(c.talk_seconds)}
-                              {agentName && <span>· {agentName}</span>}
-                            </div>
-                          </div>
-                          {c.score?.composite_score != null && (
-                            <span className={`text-sm font-semibold ${scoreColor(c.score.composite_score)}`}>{c.score.composite_score}</span>
-                          )}
-                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
+                <Timeline events={timeline} />
               )}
             </CardContent>
           </Card>
-
-          {/* Outcome event timeline */}
-          {stageEvents.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Activity className="w-4 h-4" /> Stage history
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {stageEvents.map((e) => (
-                    <div key={e.id} className="flex items-start gap-3 text-sm">
-                      <div className="pt-0.5">
-                        {e.to_category === "won" ? <Trophy className="w-3.5 h-3.5 text-emerald-500" /> :
-                         e.to_category === "lost" ? <XCircle className="w-3.5 h-3.5 text-rose-500" /> :
-                         <Clock className="w-3.5 h-3.5 text-blue-500" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm">
-                          {e.from_stage ? <><span className="text-muted-foreground">{e.from_stage}</span> → </> : null}
-                          <span className="font-medium">{e.to_stage ?? "—"}</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {fmtTime(e.transitioned_at)} · via {e.source}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
 
         {/* Right: facts (editable) + extractions + notes */}
@@ -394,6 +363,214 @@ export default function LeadDetail() {
       </div>
     </div>
   );
+}
+
+type TimelineEventType = "call" | "alert" | "extraction_burst" | "stage_change" | "callback";
+
+interface TimelineEvent {
+  id: string;
+  type: TimelineEventType;
+  ts: string;
+  // Render payload (kept loose since each type is a different shape)
+  payload: any;
+}
+
+function buildTimeline(
+  calls: CallRow[],
+  alerts: AlertRow[],
+  extractions: ExtractionRow[],
+  stageEvents: OutcomeEvent[],
+): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+
+  for (const c of calls) {
+    if (c.started_at) {
+      events.push({ id: `call-${c.id}`, type: "call", ts: c.started_at, payload: c });
+    }
+    if (c.callback_completed_at && c.callback_status) {
+      events.push({
+        id: `cb-${c.id}`,
+        type: "callback",
+        ts: c.callback_completed_at,
+        payload: { call: c, status: c.callback_status, notes: c.callback_notes },
+      });
+    }
+  }
+
+  for (const a of alerts) {
+    events.push({ id: `alert-${a.id}`, type: "alert", ts: a.classified_at, payload: a });
+  }
+
+  for (const e of stageEvents) {
+    events.push({ id: `stage-${e.id}`, type: "stage_change", ts: e.transitioned_at, payload: e });
+  }
+
+  // Group field extractions by day so we don't flood the feed with one row per
+  // captured field (extractions land in batches when score-call processes a transcript).
+  const byDay = new Map<string, ExtractionRow[]>();
+  for (const f of extractions) {
+    const day = (f.updated_at ?? "").slice(0, 10);
+    if (!day) continue;
+    const arr = byDay.get(day) ?? [];
+    arr.push(f);
+    byDay.set(day, arr);
+  }
+  for (const [day, fields] of byDay.entries()) {
+    // Use the latest updated_at within the day as the event timestamp.
+    const latest = fields.reduce((acc, f) => f.updated_at > acc ? f.updated_at : acc, fields[0].updated_at);
+    events.push({
+      id: `ext-${day}`,
+      type: "extraction_burst",
+      ts: latest,
+      payload: { day, fields },
+    });
+  }
+
+  return events.sort((a, b) => (a.ts < b.ts ? 1 : -1));
+}
+
+function Timeline({ events }: { events: TimelineEvent[] }) {
+  return (
+    <div className="space-y-3">
+      {events.map((e) => <TimelineRow key={e.id} event={e} />)}
+    </div>
+  );
+}
+
+function TimelineRow({ event }: { event: TimelineEvent }) {
+  if (event.type === "call") {
+    const c = event.payload as CallRow;
+    const agent = c.ctm_raw_payload?.agent;
+    const agentName = agent?.name ?? agent?.email ?? null;
+    const Icon = c.status === "voicemail" ? Voicemail : c.status === "missed" || c.status === "abandoned" ? PhoneOff : Headphones;
+    const iconColor = c.status === "voicemail" ? "text-blue-500" : c.status === "missed" || c.status === "abandoned" ? "text-rose-500" : "text-emerald-500";
+    return (
+      <div className="space-y-1">
+        <Link href={`/live/${c.id}`} className="block">
+          <div className="flex items-start gap-3 text-sm hover:bg-accent/50 transition-colors rounded px-2 -mx-2 py-1.5">
+            <Icon className={`w-4 h-4 ${iconColor} shrink-0 mt-0.5`} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium">Call</span>
+                <Badge variant="outline" className="text-[10px]">{c.status}</Badge>
+                {c.score?.needs_supervisor_review && (
+                  <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1">
+                    <AlertTriangle className="w-3 h-3" /> needs review
+                  </Badge>
+                )}
+                {c.score?.composite_score != null && (
+                  <span className={`text-xs font-semibold tabular-nums ${scoreColor(c.score.composite_score)}`}>{c.score.composite_score}</span>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                {fmtTime(c.started_at)}
+                <span>· <Clock className="w-3 h-3 inline-block" /> {fmtDur(c.talk_seconds)}</span>
+                {agentName && <span>· {agentName}</span>}
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+          </div>
+        </Link>
+        {c.manager_notes && (
+          <div className="ml-7 text-xs bg-amber-500/10 border border-amber-500/30 rounded p-2 text-amber-900 dark:text-amber-200">
+            <span className="font-semibold uppercase text-[10px] tracking-wide">Coaching note · </span>
+            {c.manager_notes}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (event.type === "alert") {
+    const a = event.payload as AlertRow;
+    return (
+      <div className="flex items-start gap-3 text-sm px-2 -mx-2 py-1.5">
+        <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium">Alert</span>
+            <Badge variant="outline" className="text-[10px] border-rose-500/40 text-rose-700 dark:text-rose-400">
+              {a.alert_type.replace(/_/g, " ")}
+            </Badge>
+            <Badge variant="outline" className="text-[10px]">{a.severity}</Badge>
+            <Badge variant="outline" className="text-[10px] capitalize">{a.status}</Badge>
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">{fmtTime(a.classified_at)}</div>
+          <p className="text-xs italic text-muted-foreground mt-1 line-clamp-2">"{a.trigger_excerpt}"</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (event.type === "callback") {
+    const { call, status, notes } = event.payload as { call: CallRow; status: string; notes: string | null };
+    const ok = status === "completed";
+    return (
+      <div className="flex items-start gap-3 text-sm px-2 -mx-2 py-1.5">
+        {ok
+          ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+          : <XCircle className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium">Callback</span>
+            <Badge variant="outline" className="text-[10px] capitalize">{status}</Badge>
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {fmtTime(call.callback_completed_at)} (re: <Link href={`/live/${call.id}`} className="text-primary hover:underline">{fmtTime(call.started_at)}</Link>)
+          </div>
+          {notes && <p className="text-xs italic text-muted-foreground mt-1">"{notes}"</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (event.type === "stage_change") {
+    const e = event.payload as OutcomeEvent;
+    const Icon = e.to_category === "won" ? Trophy : e.to_category === "lost" ? XCircle : Activity;
+    const iconColor = e.to_category === "won" ? "text-emerald-500" : e.to_category === "lost" ? "text-rose-500" : "text-blue-500";
+    return (
+      <div className="flex items-start gap-3 text-sm px-2 -mx-2 py-1.5">
+        <Icon className={`w-4 h-4 ${iconColor} shrink-0 mt-0.5`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium">Stage</span>
+            {e.from_stage && <span className="text-xs text-muted-foreground">{e.from_stage} →</span>}
+            <span className="text-sm font-medium">{e.to_stage ?? "—"}</span>
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {fmtTime(e.transitioned_at)} · via {e.source}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (event.type === "extraction_burst") {
+    const { fields } = event.payload as { day: string; fields: ExtractionRow[] };
+    return (
+      <div className="flex items-start gap-3 text-sm px-2 -mx-2 py-1.5">
+        <Sparkles className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium">Captured from call</span>
+            <Badge variant="outline" className="text-[10px]">{fields.length} field{fields.length === 1 ? "" : "s"}</Badge>
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">{fmtTime(event.ts)}</div>
+          <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+            {fields.slice(0, 6).map((f, i) => (
+              <span key={`${f.field_name}-${i}`} className="capitalize">
+                <span className="opacity-70">{f.field_name.replace(/_/g, " ")}:</span>{" "}
+                <span className="text-foreground">{f.extracted_value}</span>
+              </span>
+            ))}
+            {fields.length > 6 && <span className="opacity-60">+{fields.length - 6} more</span>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function FactRow({ label, value }: { label: string; value: string }) {

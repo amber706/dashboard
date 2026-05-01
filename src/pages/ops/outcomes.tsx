@@ -26,6 +26,7 @@ interface LeadRow {
   outcome_category: Category | null;
   outcome_set_at: string | null;
   first_touch_source_category: string | null;
+  insurance_provider: string | null;
   last_touch_call_id: string | null;
   first_touch_call_id: string | null;
   owner_id: string | null;
@@ -57,7 +58,7 @@ export default function OpsOutcomes() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Category | "all">("all");
   const [windowDays, setWindowDays] = useState<number>(30);
-  const [expandedSection, setExpandedSection] = useState<"specialist" | "source" | null>("specialist");
+  const [expandedSection, setExpandedSection] = useState<"specialist" | "source" | "insurance" | null>("specialist");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,7 +69,7 @@ export default function OpsOutcomes() {
       .from("leads")
       .select(`
         id, first_name, last_name, primary_phone_normalized, stage,
-        outcome_category, outcome_set_at, first_touch_source_category,
+        outcome_category, outcome_set_at, first_touch_source_category, insurance_provider,
         last_touch_call_id, first_touch_call_id, owner_id, created_at,
         last_touch_call:call_sessions!leads_last_touch_call_id_fkey(id, ctm_call_id, started_at, ctm_raw_payload, specialist_id),
         owner:profiles!leads_owner_id_fkey(id, full_name, email)
@@ -92,10 +93,11 @@ export default function OpsOutcomes() {
   }, [windowDays, filter]);
 
   // Rollups across the loaded leads.
-  const { totals, conversionPct, bySpecialist, bySource } = useMemo(() => {
+  const { totals, conversionPct, bySpecialist, bySource, byInsurance } = useMemo(() => {
     const t: Record<Category, number> = { won: 0, lost: 0, in_progress: 0 };
     const spec = new Map<string, { name: string; won: number; lost: number; in_progress: number }>();
     const src = new Map<string, { won: number; lost: number; in_progress: number }>();
+    const ins = new Map<string, { won: number; lost: number; in_progress: number }>();
 
     for (const l of leads) {
       const cat = l.outcome_category ?? "in_progress";
@@ -117,6 +119,11 @@ export default function OpsOutcomes() {
       const sCur = src.get(source) ?? { won: 0, lost: 0, in_progress: 0 };
       sCur[cat]++;
       src.set(source, sCur);
+
+      const insurance = l.insurance_provider?.trim() || "Unknown";
+      const iCur = ins.get(insurance) ?? { won: 0, lost: 0, in_progress: 0 };
+      iCur[cat]++;
+      ins.set(insurance, iCur);
     }
 
     const closed = t.won + t.lost;
@@ -126,6 +133,7 @@ export default function OpsOutcomes() {
       conversionPct: pct,
       bySpecialist: [...spec.entries()].map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.won + b.lost) - (a.won + a.lost)),
       bySource: [...src.entries()].map(([source, v]) => ({ source, ...v })).sort((a, b) => (b.won + b.lost) - (a.won + a.lost)),
+      byInsurance: [...ins.entries()].map(([insurance, v]) => ({ insurance, ...v })).sort((a, b) => (b.won + b.lost) - (a.won + a.lost)),
     };
   }, [leads]);
 
@@ -170,8 +178,8 @@ export default function OpsOutcomes() {
         </CardContent>
       </Card>
 
-      {/* Per-specialist + per-source breakdowns */}
-      <div className="grid lg:grid-cols-2 gap-4">
+      {/* Per-specialist + per-source + per-insurance breakdowns */}
+      <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
         <BreakdownCard
           title="By specialist (last-touch credit)"
           icon={<Users className="w-4 h-4" />}
@@ -185,6 +193,13 @@ export default function OpsOutcomes() {
           rows={bySource.map((r) => ({ id: r.source, label: r.source, ...r }))}
           expanded={expandedSection === "source"}
           onToggle={() => setExpandedSection(expandedSection === "source" ? null : "source")}
+        />
+        <BreakdownCard
+          title="By insurance provider"
+          icon={<Activity className="w-4 h-4" />}
+          rows={byInsurance.map((r) => ({ id: r.insurance, label: r.insurance, ...r }))}
+          expanded={expandedSection === "insurance"}
+          onToggle={() => setExpandedSection(expandedSection === "insurance" ? null : "insurance")}
         />
       </div>
 
@@ -315,7 +330,8 @@ function BreakdownCard({ title, icon, rows, expanded, onToggle }: {
         {rows.length === 0 ? (
           <div className="text-sm text-muted-foreground py-2">No data in window.</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-2 px-2">
+          <table className="w-full text-sm min-w-[480px]">
             <thead className="text-xs text-muted-foreground uppercase tracking-wide">
               <tr>
                 <th className="text-left py-1.5 pr-2">Name</th>
@@ -341,6 +357,7 @@ function BreakdownCard({ title, icon, rows, expanded, onToggle }: {
               })}
             </tbody>
           </table>
+          </div>
         )}
         {!expanded && rows.length > 5 && (
           <div className="text-[11px] text-muted-foreground mt-2 text-center">+{rows.length - 5} more — click to expand</div>
@@ -484,8 +501,8 @@ function StageMappingEditor({ onChanged }: { onChanged: () => void }) {
           )}
 
           {!loading && (
-            <div className="border rounded-md overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-md overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
                 <thead className="bg-muted/40 text-xs text-muted-foreground uppercase tracking-wide">
                   <tr>
                     <th className="text-left py-2 px-3">Stage label</th>

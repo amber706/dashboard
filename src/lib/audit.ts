@@ -15,7 +15,8 @@ export type AuditAction = "view" | "edit" | "export" | "delete" | "search" | "ap
 export type AuditResource =
   | "lead" | "call_session" | "transcript" | "kb_document" | "kb_draft"
   | "training_assignment" | "training_session" | "audit_log"
-  | "leads" | "calls" | "callbacks" | "outcomes" | "ai_bot_feedback";
+  | "leads" | "calls" | "callbacks" | "outcomes" | "ai_bot_feedback"
+  | "coaching_feed" | "specialist";
 
 export async function logAudit(
   action: AuditAction,

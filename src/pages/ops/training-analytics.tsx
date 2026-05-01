@@ -23,6 +23,10 @@ interface ScenarioStat {
   total_assignments: number;
   completed_assignments: number;
   avg_session_score: number | null;
+  // Real-call lift: avg composite score of assignees on real calls 14d AFTER
+  // completion minus 14d BEFORE. Null when there isn't enough before/after data.
+  real_call_lift: number | null;
+  lift_sample_n: number;
 }
 
 interface CompanyStats {
@@ -160,16 +164,58 @@ export default function TrainingAnalytics() {
 
         const scenarioStats: ScenarioStat[] = await Promise.all(
           (pubScenarios ?? []).map(async (sc) => {
-            const [allAssignments, completedAssignments, sessionScoresForScenario] = await Promise.all([
+            const [allAssignments, completedAssignments, sessionScoresForScenario, completedAssignmentsDetail] = await Promise.all([
               supabase.from("training_assignments").select("id", { count: "exact", head: true }).eq("scenario_id", sc.id),
               supabase.from("training_assignments").select("id", { count: "exact", head: true }).eq("scenario_id", sc.id).eq("status", "completed"),
               supabase
                 .from("training_session_scores")
                 .select("composite_score, session:training_sessions!inner(scenario_id)")
                 .eq("session.scenario_id", sc.id),
+              // For lift: who completed this scenario, and when?
+              supabase
+                .from("training_assignments")
+                .select("specialist_id, completed_at")
+                .eq("scenario_id", sc.id)
+                .eq("status", "completed")
+                .not("completed_at", "is", null),
             ]);
             const vals = ((sessionScoresForScenario.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
             const avg = vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+
+            // Real-call lift: for each assignee, average score 14d before completion
+            // vs 14d after. Then average per-assignee deltas. Need both windows non-empty.
+            const WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+            const perAssigneeDeltas: number[] = [];
+            for (const a of (completedAssignmentsDetail.data ?? []) as any[]) {
+              if (!a.specialist_id || !a.completed_at) continue;
+              const cutoff = new Date(a.completed_at).getTime();
+              const beforeISO = new Date(cutoff - WINDOW_MS).toISOString();
+              const afterISO = new Date(cutoff + WINDOW_MS).toISOString();
+              const completedISO = new Date(cutoff).toISOString();
+              const [beforeRes, afterRes] = await Promise.all([
+                supabase
+                  .from("call_scores")
+                  .select("composite_score, call:call_sessions!inner(specialist_id, started_at)")
+                  .eq("call.specialist_id", a.specialist_id)
+                  .gte("call.started_at", beforeISO)
+                  .lt("call.started_at", completedISO),
+                supabase
+                  .from("call_scores")
+                  .select("composite_score, call:call_sessions!inner(specialist_id, started_at)")
+                  .eq("call.specialist_id", a.specialist_id)
+                  .gte("call.started_at", completedISO)
+                  .lt("call.started_at", afterISO),
+              ]);
+              const beforeVals = ((beforeRes.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
+              const afterVals = ((afterRes.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
+              if (beforeVals.length === 0 || afterVals.length === 0) continue;
+              const beforeAvg = beforeVals.reduce((x, y) => x + y, 0) / beforeVals.length;
+              const afterAvg = afterVals.reduce((x, y) => x + y, 0) / afterVals.length;
+              perAssigneeDeltas.push(afterAvg - beforeAvg);
+            }
+            const lift = perAssigneeDeltas.length > 0
+              ? Math.round(perAssigneeDeltas.reduce((x, y) => x + y, 0) / perAssigneeDeltas.length)
+              : null;
 
             return {
               id: sc.id,
@@ -178,6 +224,8 @@ export default function TrainingAnalytics() {
               total_assignments: allAssignments.count ?? 0,
               completed_assignments: completedAssignments.count ?? 0,
               avg_session_score: avg,
+              real_call_lift: lift,
+              lift_sample_n: perAssigneeDeltas.length,
             };
           }),
         );
@@ -239,7 +287,7 @@ export default function TrainingAnalytics() {
                   {specialists.map((s) => (
                     <tr key={s.id} className="border-t">
                       <td className="py-2 pr-3">
-                        <div className="font-medium">{s.full_name ?? s.email ?? s.id}</div>
+                        <Link href={`/ops/specialist/${s.id}`} className="font-medium hover:underline">{s.full_name ?? s.email ?? s.id}</Link>
                         {s.email && s.full_name && <div className="text-xs text-muted-foreground">{s.email}</div>}
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">{s.sessions_completed}</td>
@@ -257,14 +305,16 @@ export default function TrainingAnalytics() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Per-scenario</CardTitle>
-          <p className="text-xs text-muted-foreground">Lift correlation against real-call rubric scores will appear here once specialists have completed sessions AND have real-call scores before/after.</p>
+          <p className="text-xs text-muted-foreground">
+            Real-call lift = avg composite score on calls 14d AFTER completion minus 14d BEFORE, averaged across assignees who have data on both sides. Negative lift suggests the scenario isn't moving the needle (or might even be miscalibrated).
+          </p>
         </CardHeader>
         <CardContent>
           {scenarios.length === 0 ? (
             <p className="text-sm text-muted-foreground">No published scenarios yet.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm min-w-[640px]">
                 <thead className="text-xs text-muted-foreground uppercase tracking-wide">
                   <tr>
                     <th className="text-left py-2 pr-3">Scenario</th>
@@ -272,18 +322,33 @@ export default function TrainingAnalytics() {
                     <th className="text-right py-2 pr-3">Assignments</th>
                     <th className="text-right py-2 pr-3">Completed</th>
                     <th className="text-right py-2 pr-3">Avg session score</th>
+                    <th className="text-right py-2 pr-3">Real-call lift</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {scenarios.map((sc) => (
-                    <tr key={sc.id} className="border-t">
-                      <td className="py-2 pr-3 font-medium">{sc.title}</td>
-                      <td className="py-2 pr-3"><Badge variant="secondary" className="text-xs">{sc.difficulty}</Badge></td>
-                      <td className="py-2 pr-3 text-right tabular-nums">{sc.total_assignments}</td>
-                      <td className="py-2 pr-3 text-right tabular-nums">{sc.completed_assignments}</td>
-                      <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(sc.avg_session_score)}`}>{sc.avg_session_score ?? "—"}</td>
-                    </tr>
-                  ))}
+                  {scenarios.map((sc) => {
+                    const liftColor = sc.real_call_lift == null ? "text-muted-foreground"
+                      : sc.real_call_lift >= 5 ? "text-emerald-700 dark:text-emerald-400"
+                      : sc.real_call_lift >= 0 ? "text-amber-700 dark:text-amber-400"
+                      : "text-rose-700 dark:text-rose-400";
+                    return (
+                      <tr key={sc.id} className="border-t">
+                        <td className="py-2 pr-3 font-medium">{sc.title}</td>
+                        <td className="py-2 pr-3"><Badge variant="secondary" className="text-xs">{sc.difficulty}</Badge></td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{sc.total_assignments}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{sc.completed_assignments}</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(sc.avg_session_score)}`}>{sc.avg_session_score ?? "—"}</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${liftColor}`}>
+                          {sc.real_call_lift == null ? <span className="text-xs italic">insufficient data</span> : (
+                            <>
+                              {sc.real_call_lift > 0 ? "+" : ""}{sc.real_call_lift}
+                              <span className="text-[10px] text-muted-foreground ml-1">n={sc.lift_sample_n}</span>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -24,6 +24,7 @@ interface Specialist {
   open_assignments: number;
   completed_assignments_30d: number;
   last_call_at: string | null;
+  avg_days_to_admit: number | null;
 }
 
 type SortKey = "calls" | "score" | "conversion" | "training" | "name";
@@ -77,8 +78,12 @@ export default function TeamPage() {
           .eq("call.specialist_id", p.id)
           .gte("call.started_at", since),
         // Closed leads attributed via last_touch_call_id to this specialist.
+        // Also pull first_touch_call.started_at + outcome_set_at so we can
+        // compute speed-to-admit in the same pass.
         supabase.from("leads")
-          .select("outcome_category, last_touch_call:call_sessions!leads_last_touch_call_id_fkey(specialist_id)")
+          .select(`outcome_category, outcome_set_at,
+            last_touch_call:call_sessions!leads_last_touch_call_id_fkey(specialist_id),
+            first_touch_call:call_sessions!leads_first_touch_call_id_fkey(started_at)`)
           .in("outcome_category", ["won", "lost"])
           .gte("outcome_set_at", since),
         supabase.from("training_assignments").select("id", { count: "exact", head: true })
@@ -93,16 +98,28 @@ export default function TeamPage() {
       const avg = scoreVals.length > 0 ? Math.round(scoreVals.reduce((a, b) => a + b, 0) / scoreVals.length) : null;
 
       // Filter the closed-leads result by last_touch_call.specialist_id.
+      // Same loop also collects days-to-admit for won leads with both timestamps.
       let won = 0, lost = 0;
+      const daysToAdmit: number[] = [];
       for (const l of (leadsRes.data ?? []) as any[]) {
         const ltc = Array.isArray(l.last_touch_call) ? l.last_touch_call[0] : l.last_touch_call;
-        if (ltc?.specialist_id === p.id) {
-          if (l.outcome_category === "won") won++;
-          else if (l.outcome_category === "lost") lost++;
+        if (ltc?.specialist_id !== p.id) continue;
+        if (l.outcome_category === "won") {
+          won++;
+          const ftc = Array.isArray(l.first_touch_call) ? l.first_touch_call[0] : l.first_touch_call;
+          if (l.outcome_set_at && ftc?.started_at) {
+            const d = (new Date(l.outcome_set_at).getTime() - new Date(ftc.started_at).getTime()) / (1000 * 60 * 60 * 24);
+            if (d >= 0) daysToAdmit.push(d);
+          }
+        } else if (l.outcome_category === "lost") {
+          lost++;
         }
       }
       const closed = won + lost;
       const conv = closed > 0 ? Math.round((won / closed) * 100) : null;
+      const avgDaysToAdmit = daysToAdmit.length > 0
+        ? Math.round(daysToAdmit.reduce((a, b) => a + b, 0) / daysToAdmit.length * 10) / 10
+        : null;
 
       return {
         id: p.id,
@@ -118,6 +135,7 @@ export default function TeamPage() {
         open_assignments: openAssignRes.count ?? 0,
         completed_assignments_30d: completedAssignRes.count ?? 0,
         last_call_at: (lastCallRes.data as any)?.started_at ?? null,
+        avg_days_to_admit: avgDaysToAdmit,
       };
     }));
 
@@ -213,6 +231,7 @@ export default function TeamPage() {
                     <SortHeader label="Avg score" k="score" />
                     <SortHeader label="Conversion" k="conversion" />
                     <th className="p-2 text-right text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Wins / Losses</th>
+                    <th className="p-2 text-right text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Days to admit</th>
                     <SortHeader label="Open training" k="training" />
                     <th className="p-2 text-right text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Last call</th>
                   </tr>
@@ -227,7 +246,9 @@ export default function TeamPage() {
                           <div className="flex items-center gap-2">
                             {r.is_ai_agent && <Bot className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
                             <div className="min-w-0">
-                              <div className="text-sm font-medium truncate">{r.full_name ?? r.email ?? "Unknown"}</div>
+                              <Link href={`/ops/specialist/${r.id}`} className="text-sm font-medium truncate hover:underline block">
+                                {r.full_name ?? r.email ?? "Unknown"}
+                              </Link>
                               <div className="text-[11px] text-muted-foreground capitalize">{r.role}</div>
                             </div>
                           </div>
@@ -246,6 +267,9 @@ export default function TeamPage() {
                           <span> / </span>
                           <span className="text-rose-700 dark:text-rose-400">{r.lost_30d}</span>
                         </td>
+                        <td className="p-2 text-right tabular-nums text-xs text-muted-foreground">
+                          {r.avg_days_to_admit == null ? "—" : `${r.avg_days_to_admit}d`}
+                        </td>
                         <td className="p-2 text-right">
                           {r.open_assignments > 0
                             ? <Badge variant="outline" className="gap-1 text-[10px]">
@@ -253,7 +277,10 @@ export default function TeamPage() {
                               </Badge>
                             : <span className="text-xs text-muted-foreground">—</span>}
                         </td>
-                        <td className="p-2 text-right text-xs text-muted-foreground">{fmtTime(r.last_call_at)}</td>
+                        <td className="p-2 text-right text-xs">
+                          <ActivityBadge lastCallAt={r.last_call_at} />
+                          <div className="text-[10px] text-muted-foreground mt-0.5">{fmtTime(r.last_call_at)}</div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -268,4 +295,27 @@ export default function TeamPage() {
       )}
     </div>
   );
+}
+
+// Surfaces call-activity recency as a colored dot.
+// active = last call <1h ago, idle short = 1-4h, idle long = 4-24h, cold = >24h or never
+function ActivityBadge({ lastCallAt }: { lastCallAt: string | null }) {
+  if (!lastCallAt) {
+    return <Badge variant="outline" className="text-[10px] border-slate-500/40 text-slate-600 dark:text-slate-400">never called</Badge>;
+  }
+  const ageMs = Date.now() - new Date(lastCallAt).getTime();
+  const hours = ageMs / (1000 * 60 * 60);
+  if (hours < 1) {
+    return <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400 gap-1">
+      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> active
+    </Badge>;
+  }
+  if (hours < 4) {
+    return <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">idle {Math.floor(hours)}h</Badge>;
+  }
+  if (hours < 24) {
+    return <Badge variant="outline" className="text-[10px] border-slate-500/40 text-slate-600 dark:text-slate-400">idle {Math.floor(hours)}h</Badge>;
+  }
+  const days = Math.floor(hours / 24);
+  return <Badge variant="outline" className="text-[10px] border-rose-500/40 text-rose-700 dark:text-rose-400">cold {days}d</Badge>;
 }

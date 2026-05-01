@@ -254,7 +254,7 @@ export default function LiveCallView() {
                 <Badge variant="secondary">{call.direction}</Badge>
                 <Badge variant="outline">{call.status}</Badge>
                 {call.lead_id && (
-                  <Link href={`/admin/leads`} className="text-xs text-primary hover:underline">View lead profile →</Link>
+                  <Link href={`/leads/${call.lead_id}`} className="text-xs text-primary hover:underline">View lead profile →</Link>
                 )}
               </div>
               <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
@@ -295,6 +295,9 @@ export default function LiveCallView() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Post-call snapshot — synthesizes what's known into a quick wrap-up brief */}
+      {chunks.length > 0 && <CallSnapshot extractions={extractions} score={score} alerts={alerts} call={call} />}
 
       {/* Alerts banner */}
       {alerts.length > 0 && (
@@ -694,6 +697,81 @@ function KbSearchPanel() {
             )}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// === Post-call snapshot ===
+// Synthesizes the call into a 30-second wrap-up brief: caller intent
+// (from extractions), how it went (from score), suggested next-action
+// (rule-based fallback to AI coaching takeaway).
+function CallSnapshot({ extractions, score, alerts, call }: {
+  extractions: Extraction[];
+  score: Score | null;
+  alerts: Alert[];
+  call: Call;
+}) {
+  const get = (name: string) => extractions.find((e) => e.field_name === name)?.extracted_value ?? null;
+  const insurance = get("insurance_provider");
+  const urgency = get("urgency");
+  const presenting = get("presenting_substance") ?? get("presenting_mental_health");
+  const loc = get("level_of_care_requested");
+  const intentParts: string[] = [];
+  if (urgency) intentParts.push(`urgency: ${urgency}`);
+  if (presenting) intentParts.push(presenting);
+  if (insurance) intentParts.push(`insurance: ${insurance}`);
+  if (loc) intentParts.push(`LOC: ${loc}`);
+
+  const nextActions: string[] = [];
+  if (alerts.length > 0) nextActions.push("Manager should review high-priority alerts before next contact");
+  if (score?.needs_supervisor_review) nextActions.push("Flagged for supervisor review");
+  if (!insurance && call.direction === "inbound") nextActions.push("Verify insurance — not captured on this call");
+  if (urgency === "high") nextActions.push("High-urgency caller — schedule intake within 24h");
+  if (call.status === "missed" || call.status === "voicemail" || call.status === "abandoned") {
+    nextActions.push("Add to callback queue");
+  }
+  if (nextActions.length === 0 && score?.coaching_takeaways?.what_to_try?.[0]) {
+    nextActions.push(score.coaching_takeaways.what_to_try[0]);
+  }
+
+  const composite = score?.composite_score ?? null;
+  const verdict = composite == null ? null
+    : composite >= 80 ? "Strong call"
+    : composite >= 60 ? "Solid; minor gaps"
+    : "Below bar — coachable";
+
+  if (intentParts.length === 0 && nextActions.length === 0 && verdict == null) return null;
+
+  return (
+    <Card className="border-l-4 border-l-primary">
+      <CardContent className="pt-4 pb-4">
+        <div className="text-xs font-semibold uppercase text-muted-foreground mb-2 tracking-wide">Snapshot</div>
+        <div className="grid md:grid-cols-3 gap-4 text-sm">
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Caller intent</div>
+            <div>{intentParts.length > 0 ? intentParts.join(" · ") : <span className="text-muted-foreground italic">Not yet captured</span>}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">How it went</div>
+            <div className="flex items-center gap-2">
+              {composite != null && (
+                <span className={`text-base font-semibold tabular-nums ${scoreColor(composite)}`}>{composite}</span>
+              )}
+              <span>{verdict ?? <span className="text-muted-foreground italic">Not scored yet</span>}</span>
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Suggested next</div>
+            {nextActions.length === 0 ? (
+              <span className="text-muted-foreground italic">No specific action — review and disposition</span>
+            ) : (
+              <ul className="space-y-0.5 list-disc list-inside">
+                {nextActions.slice(0, 3).map((a, i) => <li key={i}>{a}</li>)}
+              </ul>
+            )}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

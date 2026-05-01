@@ -419,54 +419,91 @@ export default function CTMCalls() {
                       {expandedId === call.ctm_call_id ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
                     </div>
                     <div className="shrink-0">{directionIcon(call.direction)}</div>
-                    <div className="flex-1 min-w-0 grid grid-cols-8 gap-2 items-center">
-                      <div>
-                        <div className="text-sm font-medium truncate">{call.caller_name || "Unknown"}</div>
-                        <div className="text-[11px] text-muted-foreground">{call.caller_phone}</div>
-                      </div>
-                      <div className="truncate">
-                        {call.agent_name ? (
-                          <div className="flex items-center gap-1">
-                            <User className="w-3 h-3 text-muted-foreground shrink-0" />
-                            <span className="text-xs truncate">{call.agent_name}</span>
+                    <div className="flex-1 min-w-0">
+                      {/* Mobile: stacked layout. Desktop: 8-col grid. */}
+                      <div className="md:hidden">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">{call.caller_name || "Unknown"}</div>
+                            <div className="text-[11px] text-muted-foreground truncate">{call.caller_phone}</div>
                           </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate">{call.tracking_label || "—"}</div>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {statusBadge(call.call_status, call.missed_call_flag)}
-                        {call.outcome_category && call.outcome_category !== "in_progress" && (
-                          <span
-                            title={call.is_last_touch ? "Last-touch credit for this outcome" : call.is_first_touch ? "First-touch credit for this outcome" : "Lead outcome"}
-                            className={`text-[9px] uppercase font-medium px-1.5 py-0.5 rounded border ${
+                          <div className="text-[11px] text-muted-foreground text-right shrink-0">
+                            {call.start_time ? format(new Date(call.start_time), "MMM d, h:mm a") : "—"}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                          {statusBadge(call.call_status, call.missed_call_flag)}
+                          {call.outcome_category && call.outcome_category !== "in_progress" && (
+                            <span className={`text-[9px] uppercase font-medium px-1.5 py-0.5 rounded border ${
                               call.outcome_category === "won"
                                 ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
                                 : "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10"
-                            }`}
-                          >
-                            {call.outcome_category === "won" ? "→ admit" : "→ lost"}
-                            {call.is_last_touch && "*"}
+                            }`}>
+                              {call.outcome_category === "won" ? "→ admit" : "→ lost"}
+                              {call.is_last_touch && "*"}
+                            </span>
+                          )}
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {formatDuration(call.total_duration_seconds)}
                           </span>
-                        )}
+                          {call.agent_name && (
+                            <span className="text-xs text-muted-foreground flex items-center gap-1 truncate">
+                              <User className="w-3 h-3 shrink-0" /> <span className="truncate">{call.agent_name}</span>
+                            </span>
+                          )}
+                          {call.has_recording && <Mic className="w-3 h-3 text-cyan-400 shrink-0" />}
+                          {call.has_transcript && <FileText className="w-3 h-3 text-violet-400 shrink-0" />}
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> {formatDuration(call.total_duration_seconds)}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {call.lead_quality_tier && tierBadge(call.lead_quality_tier)}
-                        {call.lead_score != null && (
-                          <span className="text-[10px] text-muted-foreground">{call.lead_score}</span>
-                        )}
-                        {call.hot_lead_flag && <Flame className="w-3 h-3 text-orange-400" />}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {call.has_recording && <span title="Has recording"><Mic className="w-3.5 h-3.5 text-cyan-400" /></span>}
-                        {call.has_transcript && <span title="Has transcript"><FileText className="w-3.5 h-3.5 text-violet-400" /></span>}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground text-right">
-                        {call.start_time ? format(new Date(call.start_time), "MMM d, h:mm a") : "—"}
+                      <div className="hidden md:grid grid-cols-8 gap-2 items-center">
+                        <div>
+                          <div className="text-sm font-medium truncate">{call.caller_name || "Unknown"}</div>
+                          <div className="text-[11px] text-muted-foreground">{call.caller_phone}</div>
+                        </div>
+                        <div className="truncate">
+                          {call.agent_name ? (
+                            <div className="flex items-center gap-1">
+                              <User className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span className="text-xs truncate">{call.agent_name}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">{call.tracking_label || "—"}</div>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {statusBadge(call.call_status, call.missed_call_flag)}
+                          {call.outcome_category && call.outcome_category !== "in_progress" && (
+                            <span
+                              title={call.is_last_touch ? "Last-touch credit for this outcome" : call.is_first_touch ? "First-touch credit for this outcome" : "Lead outcome"}
+                              className={`text-[9px] uppercase font-medium px-1.5 py-0.5 rounded border ${
+                                call.outcome_category === "won"
+                                  ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
+                                  : "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10"
+                              }`}
+                            >
+                              {call.outcome_category === "won" ? "→ admit" : "→ lost"}
+                              {call.is_last_touch && "*"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {formatDuration(call.total_duration_seconds)}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {call.lead_quality_tier && tierBadge(call.lead_quality_tier)}
+                          {call.lead_score != null && (
+                            <span className="text-[10px] text-muted-foreground">{call.lead_score}</span>
+                          )}
+                          {call.hot_lead_flag && <Flame className="w-3 h-3 text-orange-400" />}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {call.has_recording && <span title="Has recording"><Mic className="w-3.5 h-3.5 text-cyan-400" /></span>}
+                          {call.has_transcript && <span title="Has transcript"><FileText className="w-3.5 h-3.5 text-violet-400" /></span>}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground text-right">
+                          {call.start_time ? format(new Date(call.start_time), "MMM d, h:mm a") : "—"}
+                        </div>
                       </div>
                     </div>
                   </button>

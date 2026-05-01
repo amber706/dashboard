@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   AlertTriangle, ShieldAlert, BookOpen, GraduationCap, Phone, Inbox,
   TrendingUp, Loader2, Clock, Sparkles, Headphones, Zap, ChevronRight, Activity,
-  PhoneCall, Radio, Pin, X,
+  PhoneCall, Radio, Pin, X, PhoneOff, Voicemail,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
@@ -34,6 +34,8 @@ interface HomeData {
   kb_drafts_pending: number;
   scenarios_pending_review: number;
   my_assignments: Array<{ id: string; scenario_id: string; scenario_title: string; due_at: string | null; manager_note: string | null }>;
+  my_callbacks: Array<{ id: string; lead_id: string | null; caller_label: string; phone: string | null; status: string; started_at: string | null; ownership: "lead_owner" | "original_specialist" }>;
+  my_outreach_owed: number;
   recent_calls: Array<{ id: string; ctm_call_id: string; caller_name: string | null; caller_phone: string | null; status: string; talk_seconds: number | null; started_at: string | null; composite_score: number | null; agent_name: string | null }>;
 }
 
@@ -244,6 +246,94 @@ export default function HomeV2() {
             manager_note: a.notes,
           }));
 
+        // Specialist-scoped callbacks: missed/voicemail calls where I was the
+        // original specialist OR the lead is owned by me. Same dedup pattern as /me.
+        let myCallbacks: HomeData["my_callbacks"] = [];
+        if (user?.id) {
+          const baseSel = `id, status, caller_name, caller_phone_normalized, started_at, lead_id,
+            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name)`;
+          const [origRes, ownedLeadsRes] = await Promise.all([
+            supabase
+              .from("call_sessions")
+              .select(baseSel)
+              .eq("specialist_id", user.id)
+              .in("status", ["missed", "abandoned", "voicemail"])
+              .eq("callback_status", "pending")
+              .order("started_at", { ascending: false, nullsFirst: false })
+              .limit(20),
+            supabase.from("leads").select("id").eq("owner_id", user.id),
+          ]);
+          const ownedLeadIds = (ownedLeadsRes.data ?? []).map((l: any) => l.id) as string[];
+          const ownedCallsRes = ownedLeadIds.length > 0
+            ? await supabase
+                .from("call_sessions")
+                .select(baseSel)
+                .in("lead_id", ownedLeadIds)
+                .in("status", ["missed", "abandoned", "voicemail"])
+                .eq("callback_status", "pending")
+                .order("started_at", { ascending: false, nullsFirst: false })
+                .limit(20)
+            : { data: [] as any[] };
+          const cbMap = new Map<string, HomeData["my_callbacks"][number]>();
+          const toRow = (c: any, ownership: "original_specialist" | "lead_owner") => {
+            const lead = Array.isArray(c.lead) ? c.lead[0] : c.lead;
+            return {
+              id: c.id,
+              lead_id: lead?.id ?? c.lead_id ?? null,
+              caller_label: c.caller_name
+                ?? [lead?.first_name, lead?.last_name].filter(Boolean).join(" ")
+                ?? c.caller_phone_normalized
+                ?? "Unknown",
+              phone: c.caller_phone_normalized,
+              status: c.status,
+              started_at: c.started_at,
+              ownership,
+            };
+          };
+          for (const c of (origRes.data ?? []) as any[]) cbMap.set(c.id, toRow(c, "original_specialist"));
+          for (const c of (ownedCallsRes.data ?? []) as any[]) cbMap.set(c.id, toRow(c, "lead_owner"));
+          myCallbacks = Array.from(cbMap.values()).sort((a, b) =>
+            (a.started_at ?? "") < (b.started_at ?? "") ? 1 : -1,
+          );
+        }
+
+        // Outreach owed count (just count — full list lives on /me).
+        let myOutreachOwed = 0;
+        if (user?.id) {
+          const STALE_DAYS = 3;
+          const staleCutoffMs = Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000;
+          const lookback = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+          const { data: myLeads } = await supabase
+            .from("leads")
+            .select("id")
+            .eq("owner_id", user.id)
+            .eq("outcome_category", "in_progress")
+            .not("primary_phone_normalized", "is", null)
+            .gte("created_at", lookback)
+            .limit(200);
+          const ids = (myLeads ?? []).map((l: any) => l.id) as string[];
+          if (ids.length > 0) {
+            const { data: leadCalls } = await supabase
+              .from("call_sessions")
+              .select("lead_id, direction, started_at")
+              .in("lead_id", ids);
+            const byLead = new Map<string, { hasIn: boolean; lastOut: string | null }>();
+            for (const c of (leadCalls ?? []) as any[]) {
+              if (!c.lead_id) continue;
+              const b = byLead.get(c.lead_id) ?? { hasIn: false, lastOut: null };
+              if (c.direction === "inbound") b.hasIn = true;
+              if (c.direction === "outbound" && (!b.lastOut || (c.started_at && c.started_at > b.lastOut))) b.lastOut = c.started_at;
+              byLead.set(c.lead_id, b);
+            }
+            myOutreachOwed = ids.filter((id) => {
+              const b = byLead.get(id);
+              if (!b?.hasIn) return false;
+              if (b.lastOut && new Date(b.lastOut).getTime() > staleCutoffMs) return false;
+              return true;
+            }).length;
+          }
+        }
+
         const recentCalls = ((recentCallsRes.data ?? []) as any[]).map((c) => {
           const score = Array.isArray(c.score) ? c.score[0] : c.score;
           const agent = c.ctm_raw_payload?.agent;
@@ -281,6 +371,8 @@ export default function HomeV2() {
             kb_drafts_pending: kbDraftsPending ?? 0,
             scenarios_pending_review: scenariosPending ?? 0,
             my_assignments: myAssignments,
+            my_callbacks: myCallbacks,
+            my_outreach_owed: myOutreachOwed,
             recent_calls: recentCalls,
           });
         }
@@ -479,6 +571,70 @@ export default function HomeV2() {
                   </div>
                 </Link>
               ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Outreach owed (one-liner — full list lives on /me) */}
+        {data.my_outreach_owed > 0 && (
+          <Link href="/me" className="block">
+            <Card className="border-l-4 border-l-rose-500 hover:bg-accent/30 transition-colors">
+              <CardContent className="pt-3 pb-3 flex items-center gap-3">
+                <PhoneCall className="w-4 h-4 text-rose-600 shrink-0" />
+                <div className="flex-1 min-w-0 text-sm">
+                  <span className="font-semibold">{data.my_outreach_owed}</span>
+                  <span className="text-muted-foreground"> {data.my_outreach_owed === 1 ? "lead" : "leads"} you own with no outbound contact in 3+ days</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </CardContent>
+            </Card>
+          </Link>
+        )}
+
+        {/* My callbacks owed */}
+        {data.my_callbacks.length > 0 && (
+          <Card className="border-l-4 border-l-amber-500">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span className="flex items-center gap-2"><PhoneOff className="w-4 h-4 text-amber-600" /> Callbacks to make</span>
+                <Badge variant="outline" className="text-[10px]">{data.my_callbacks.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {data.my_callbacks.slice(0, 6).map((c) => {
+                const ageMs = c.started_at ? Date.now() - new Date(c.started_at).getTime() : 0;
+                const breached = ageMs > 60 * 60 * 1000;
+                const Icon = c.status === "voicemail" ? Voicemail : PhoneOff;
+                const iconColor = c.status === "voicemail" ? "text-blue-500" : "text-rose-500";
+                const href = c.lead_id ? `/leads/${c.lead_id}` : `/live/${c.id}`;
+                return (
+                  <Link key={c.id} href={href} className="block">
+                    <div className="border rounded-md p-2.5 text-sm hover:bg-accent/50 transition-colors flex items-start gap-3">
+                      <Icon className={`w-4 h-4 ${iconColor} shrink-0 mt-0.5`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium truncate">{c.caller_label}</span>
+                          <Badge variant="outline" className="text-[10px]">{c.status}</Badge>
+                          {c.ownership === "lead_owner" && (
+                            <Badge variant="outline" className="text-[10px] border-blue-500/40 text-blue-700 dark:text-blue-400">your lead</Badge>
+                          )}
+                          {breached && (
+                            <Badge variant="outline" className="text-[10px] border-rose-500/40 text-rose-700 dark:text-rose-400">&gt;1h</Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {c.phone && <>{c.phone} · </>}{c.started_at ? new Date(c.started_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+              {data.my_callbacks.length > 6 && (
+                <Link href="/me" className="block text-xs text-primary hover:underline text-center pt-1">
+                  +{data.my_callbacks.length - 6} more on My coaching →
+                </Link>
+              )}
             </CardContent>
           </Card>
         )}
