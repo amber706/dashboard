@@ -30,18 +30,40 @@ export default function KnowledgeBase() {
   // The query string the auto-file effect ran against, so we don't fire
   // again for the same search if the component re-renders.
   const lastAutoFiledQuery = useRef<string | null>(null);
+  // Whether the latest search came from an explicit Enter/click vs the
+  // debounced live-search effect. Only explicit submissions should
+  // auto-file unanswered questions — typing word by word shouldn't.
+  const [isExplicitSubmit, setIsExplicitSubmit] = useState(false);
 
   const canAuthor = role === "manager" || role === "admin";
+
+  function runSearch(q: string, explicit: boolean) {
+    setAutoFileState("idle");
+    lastAutoFiledQuery.current = null;
+    setSearchedQuery(q);
+    setIsExplicitSubmit(explicit);
+    queryKb.mutate({ data: { query: q } });
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) return;
-    setAutoFileState("idle");
-    lastAutoFiledQuery.current = null;
-    setSearchedQuery(trimmed);
-    queryKb.mutate({ data: { query: trimmed } });
+    runSearch(trimmed, true);
   };
+
+  // Live search-as-you-type. Debounce 400ms after the last keystroke,
+  // then fire a search if the query is at least 4 chars long. Skips
+  // if the query is identical to the last one we searched (handles
+  // the case where the user submits then keeps the same text).
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 4) return;
+    if (trimmed === searchedQuery) return;
+    const t = setTimeout(() => runSearch(trimmed, false), 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   const sources = (queryKb.data?.sources ?? []) as Array<{
     id: string;
@@ -53,11 +75,14 @@ export default function KnowledgeBase() {
   const noResults = !!queryKb.data && !queryKb.isPending && sources.length === 0;
 
   // When a search returns nothing, auto-file the question into kb_drafts so
-  // managers see it without the specialist having to click anything. We
-  // skip very short queries (likely typos / single words) and dedupe
-  // against pending requests for the same exact phrase in the last 14 days.
+  // managers see it without the specialist having to click anything. Only
+  // fires for explicit submits (Enter / button), not the debounced live
+  // search — otherwise typing a long question word-by-word would file
+  // multiple partial requests. Dedupes against pending requests for the
+  // same phrase in the last 14 days.
   useEffect(() => {
     if (!noResults) return;
+    if (!isExplicitSubmit) return;
     const q = searchedQuery;
     if (!q || q.length < 10) return;
     if (lastAutoFiledQuery.current === q) return;
@@ -87,7 +112,7 @@ export default function KnowledgeBase() {
       });
       setAutoFileState(error ? "error" : "logged");
     })();
-  }, [noResults, searchedQuery, user?.id]);
+  }, [noResults, isExplicitSubmit, searchedQuery, user?.id]);
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
