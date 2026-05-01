@@ -340,8 +340,9 @@ async function getOpsOverview(): Promise<Response> {
     .filter((id): id is string => Boolean(id));
   const callMap = new Map<string, any>();
   const transcriptMap = new Map<string, string>();
+  const scoreMap = new Map<string, any>();
   if (callIds.length > 0) {
-    const [callsRes, chunksRes] = await Promise.all([
+    const [callsRes, chunksRes, scoresRes] = await Promise.all([
       supabase
         .from("call_sessions")
         .select("id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds, direction, status, ctm_raw_payload, lead_id")
@@ -352,8 +353,16 @@ async function getOpsOverview(): Promise<Response> {
         .in("call_session_id", callIds)
         .order("sequence_number", { ascending: true })
         .limit(callIds.length * 8),
+      supabase
+        .from("call_scores")
+        .select(`call_session_id, composite_score, caller_sentiment, needs_supervisor_review,
+          qualification_completeness, rapport_and_empathy, objection_handling, urgency_handling,
+          next_step_clarity, script_adherence, compliance, booking_or_transfer, overall_quality,
+          quality_signals, compliance_flags, coaching_takeaways`)
+        .in("call_session_id", callIds),
     ]);
     for (const c of callsRes.data ?? []) callMap.set(c.id, c);
+    for (const s of scoresRes.data ?? []) scoreMap.set(s.call_session_id, s);
     // Build a short transcript excerpt per call (first 6 turns, ~500 chars max).
     const byCall = new Map<string, Array<{ sequence_number: number; speaker: string | null; content: string }>>();
     for (const ch of chunksRes.data ?? []) {
@@ -376,6 +385,8 @@ async function getOpsOverview(): Promise<Response> {
     const repName = agentRaw?.name ?? agentRaw?.email ?? null;
     const transcriptExcerpt = row.related_call_id ? transcriptMap.get(row.related_call_id) ?? null : null;
 
+    const score = row.related_call_id ? scoreMap.get(row.related_call_id) : null;
+
     const call_context = call ? {
       call_session_id: call.id,
       ctm_call_id: call.ctm_call_id,
@@ -391,6 +402,25 @@ async function getOpsOverview(): Promise<Response> {
       recording_url: call.ctm_raw_payload?.audio ?? null,
       lead_score: null,
       lead_quality_tier: null,
+      score: score ? {
+        composite: score.composite_score,
+        sentiment: score.caller_sentiment,
+        needs_supervisor_review: score.needs_supervisor_review,
+        rubric: {
+          qualification_completeness: score.qualification_completeness,
+          rapport_and_empathy: score.rapport_and_empathy,
+          objection_handling: score.objection_handling,
+          urgency_handling: score.urgency_handling,
+          next_step_clarity: score.next_step_clarity,
+          script_adherence: score.script_adherence,
+          compliance: score.compliance,
+          booking_or_transfer: score.booking_or_transfer,
+          overall_quality: score.overall_quality,
+        },
+        compliance_flags: score.compliance_flags ?? [],
+        coaching_takeaways: score.coaching_takeaways ?? null,
+        quality_signals: score.quality_signals ?? [],
+      } : null,
     } : null;
 
     return {

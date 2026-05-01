@@ -453,18 +453,106 @@ function OpsOverviewContent() {
                       <div className="px-5 pb-5 pt-0 border-t border-border/30 mt-0">
                         <div className="pt-4 pl-7 space-y-3">
                           {(ctx as any).call_session_id && (
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
                               <Link href={`/live/${(ctx as any).call_session_id}`} className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1">
                                 Open coaching view <ArrowRight className="w-3 h-3" />
                               </Link>
-                              {(ctx as any).recording_url && (
-                                <a href={(ctx as any).recording_url} target="_blank" rel="noopener noreferrer"
-                                   className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1">
-                                  <Headphones className="w-3 h-3" /> Recording
-                                </a>
-                              )}
                               {(ctx as any).ctm_call_id && (
                                 <span className="text-[10px] font-mono text-muted-foreground">CTM {(ctx as any).ctm_call_id}</span>
+                              )}
+                            </div>
+                          )}
+
+                          {(ctx as any).recording_url && (
+                            <div>
+                              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                                <Headphones className="w-3 h-3" /> Recording
+                              </div>
+                              <audio controls preload="none" className="w-full max-w-md h-9" src={(ctx as any).recording_url} />
+                            </div>
+                          )}
+
+                          {(ctx as any).score && (
+                            <div className="space-y-3 rounded-md bg-muted/30 border border-border/40 p-3">
+                              <div className="flex items-center justify-between">
+                                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">QA breakdown</div>
+                                <div className="flex items-center gap-3 text-xs">
+                                  <span className="text-muted-foreground">composite</span>
+                                  <span className={`text-lg font-semibold tabular-nums ${
+                                    (ctx as any).score.composite >= 80 ? "text-emerald-500" :
+                                    (ctx as any).score.composite >= 60 ? "text-amber-500" :
+                                    "text-rose-500"
+                                  }`}>{(ctx as any).score.composite ?? "—"}</span>
+                                  {(ctx as any).score.sentiment && (
+                                    <span className="px-1.5 py-0 rounded border border-border/40 text-[10px]">{(ctx as any).score.sentiment}</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {(ctx as any).score.rubric && (
+                                <div className="grid grid-cols-3 md:grid-cols-9 gap-1.5">
+                                  {[
+                                    ["qualification_completeness", "Qual"],
+                                    ["rapport_and_empathy", "Rapport"],
+                                    ["objection_handling", "Object"],
+                                    ["urgency_handling", "Urgency"],
+                                    ["next_step_clarity", "Next"],
+                                    ["script_adherence", "Script"],
+                                    ["compliance", "Comply"],
+                                    ["booking_or_transfer", "Book"],
+                                    ["overall_quality", "Overall"],
+                                  ].map(([key, label]) => {
+                                    const v = (ctx as any).score.rubric[key as string];
+                                    const cls = v == null ? "text-muted-foreground" :
+                                      v >= 80 ? "text-emerald-500" :
+                                      v >= 60 ? "text-amber-500" :
+                                      "text-rose-500";
+                                    return (
+                                      <div key={key as string} className="border border-border/40 rounded p-1.5 text-center">
+                                        <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</div>
+                                        <div className={`text-sm font-semibold tabular-nums ${cls}`}>{v ?? "—"}</div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {(ctx as any).score.compliance_flags?.length > 0 && (
+                                <div>
+                                  <div className="text-[10px] font-semibold uppercase tracking-wider text-rose-500 mb-1.5 flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" /> Compliance flags ({(ctx as any).score.compliance_flags.length})
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    {(ctx as any).score.compliance_flags.map((f: any, i: number) => (
+                                      <div key={i} className="border border-rose-500/30 bg-rose-500/5 rounded p-2 text-[11px]">
+                                        <div className="font-medium">{f.flag}</div>
+                                        {f.description && <div className="text-muted-foreground mt-0.5">{f.description}</div>}
+                                        {f.transcript_ref && <div className="italic text-muted-foreground/80 mt-1 text-[10px]">"{f.transcript_ref}"</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {(ctx as any).score.coaching_takeaways && (
+                                <div className="grid md:grid-cols-2 gap-3">
+                                  {(ctx as any).score.coaching_takeaways.what_went_well?.length > 0 && (
+                                    <div>
+                                      <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500 mb-1">What went well</div>
+                                      <ul className="text-[11px] space-y-0.5 list-disc list-inside text-muted-foreground">
+                                        {(ctx as any).score.coaching_takeaways.what_went_well.map((t: string, i: number) => <li key={i}>{t}</li>)}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  {(ctx as any).score.coaching_takeaways.what_to_try?.length > 0 && (
+                                    <div>
+                                      <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-500 mb-1">What to try</div>
+                                      <ul className="text-[11px] space-y-0.5 list-disc list-inside text-muted-foreground">
+                                        {(ctx as any).score.coaching_takeaways.what_to_try.map((t: string, i: number) => <li key={i}>{t}</li>)}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
                           )}
