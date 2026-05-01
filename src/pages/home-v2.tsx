@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import {
   AlertTriangle, ShieldAlert, BookOpen, GraduationCap, Phone, Inbox,
   TrendingUp, Loader2, Clock, Sparkles, Headphones, Zap, ChevronRight, Activity,
+  PhoneCall, Radio,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
@@ -47,11 +48,66 @@ const priorityClass: Record<string, string> = {
   low: "bg-slate-500/15 text-slate-700 dark:text-slate-400",
 };
 
+interface ActiveCall {
+  id: string;
+  caller_name: string | null;
+  caller_phone: string | null;
+  status: string;
+  started_at: string | null;
+}
+
 export default function HomeV2() {
   const { user } = useAuth();
   const [data, setData] = useState<HomeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Active-call watch: when ANY in-progress call is assigned to this user,
+  // surface a top-of-page banner so they can jump straight to coaching.
+  // Subscribes via Supabase Realtime; works for both initial load and live
+  // updates as new calls land.
+  const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([]);
+  const userIdRef = useRef<string | null>(user?.id ?? null);
+  useEffect(() => { userIdRef.current = user?.id ?? null; }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+
+    async function fetchActive() {
+      const { data } = await supabase
+        .from("call_sessions")
+        .select("id, caller_name, caller_phone_normalized, status, started_at")
+        .eq("specialist_id", user!.id)
+        .in("status", ["ringing", "in_progress"])
+        .order("started_at", { ascending: false, nullsFirst: false })
+        .limit(5);
+      if (cancelled) return;
+      setActiveCalls((data ?? []).map((c) => ({
+        id: c.id,
+        caller_name: c.caller_name,
+        caller_phone: c.caller_phone_normalized,
+        status: c.status,
+        started_at: c.started_at,
+      })));
+    }
+
+    fetchActive();
+
+    const channel = supabase
+      .channel(`home-active-calls-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "call_sessions", filter: `specialist_id=eq.${user.id}` },
+        () => fetchActive(),
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -208,6 +264,39 @@ export default function HomeV2() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
+      {/* Active-call banner — shows when current specialist has a ringing or in-progress call */}
+      {activeCalls.length > 0 && (
+        <div className="space-y-2">
+          {activeCalls.map((c) => (
+            <Link key={c.id} href={`/live/${c.id}`}>
+              <Card className="border-l-4 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors cursor-pointer">
+                <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <PhoneCall className="w-5 h-5 text-emerald-600" />
+                      <Radio className="w-3 h-3 text-emerald-600 absolute -top-1 -right-1 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-sm flex items-center gap-2">
+                        Live call{c.status === "ringing" ? " incoming" : " in progress"}
+                        <Badge variant="outline" className="text-[10px]">{c.status}</Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {c.caller_name ?? "Unknown caller"} {c.caller_phone && `· ${c.caller_phone}`}
+                        {c.started_at && ` · started ${fmtTime(c.started_at)}`}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                    Open coaching view <ChevronRight className="w-4 h-4" />
+                  </span>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
+
       <div>
         <h1 className="text-2xl font-semibold">{greeting}{user?.display_name ? `, ${user.display_name.split(" ")[0]}` : ""}.</h1>
         <p className="text-sm text-muted-foreground mt-1">Here's what needs attention today at Cornerstone Healing Center.</p>
