@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Loader2, Search, Plus, MessageSquarePlus, Sparkles, Save } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Search, Plus, MessageSquarePlus, Sparkles, Save, CheckCircle2, Inbox } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,8 +19,17 @@ export default function KnowledgeBase() {
   const queryKb = useQueryKb();
 
   const [query, setQuery] = useState("");
+  // The query string actually submitted (separate from the live input)
+  // so we file the right phrase even if the user keeps typing afterward.
+  const [searchedQuery, setSearchedQuery] = useState("");
   const [requestOpen, setRequestOpen] = useState(false);
   const [authorOpen, setAuthorOpen] = useState(false);
+  // Auto-file state for the empty-results case. "logged" → just created a
+  // new request, "duplicate" → there's already a pending one for this query.
+  const [autoFileState, setAutoFileState] = useState<"idle" | "logging" | "logged" | "duplicate" | "error">("idle");
+  // The query string the auto-file effect ran against, so we don't fire
+  // again for the same search if the component re-renders.
+  const lastAutoFiledQuery = useRef<string | null>(null);
 
   const canAuthor = role === "manager" || role === "admin";
 
@@ -28,6 +37,9 @@ export default function KnowledgeBase() {
     e.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) return;
+    setAutoFileState("idle");
+    lastAutoFiledQuery.current = null;
+    setSearchedQuery(trimmed);
     queryKb.mutate({ data: { query: trimmed } });
   };
 
@@ -38,7 +50,44 @@ export default function KnowledgeBase() {
     similarity: number;
   }>;
   const topAnswer = queryKb.data?.answer;
-  const noResults = queryKb.data && !queryKb.isPending && sources.length === 0;
+  const noResults = !!queryKb.data && !queryKb.isPending && sources.length === 0;
+
+  // When a search returns nothing, auto-file the question into kb_drafts so
+  // managers see it without the specialist having to click anything. We
+  // skip very short queries (likely typos / single words) and dedupe
+  // against pending requests for the same exact phrase in the last 14 days.
+  useEffect(() => {
+    if (!noResults) return;
+    const q = searchedQuery;
+    if (!q || q.length < 10) return;
+    if (lastAutoFiledQuery.current === q) return;
+    lastAutoFiledQuery.current = q;
+
+    (async () => {
+      setAutoFileState("logging");
+      const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: existing } = await supabase
+        .from("kb_drafts")
+        .select("id")
+        .ilike("problem_statement", q)
+        .eq("status", "pending")
+        .gte("created_at", fourteenDaysAgo)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        setAutoFileState("duplicate");
+        return;
+      }
+      const { error } = await supabase.from("kb_drafts").insert({
+        problem_statement: q,
+        recommended_answer: null,
+        requested_by: user?.id ?? null,
+        requested_query: q,
+        status: "pending",
+        confidence: null,
+      });
+      setAutoFileState(error ? "error" : "logged");
+    })();
+  }, [noResults, searchedQuery, user?.id]);
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
@@ -94,8 +143,28 @@ export default function KnowledgeBase() {
         <Card className="border-amber-500/30 bg-amber-50/30 dark:bg-amber-950/10">
           <CardContent className="pt-6 pb-6 space-y-3">
             <p className="text-sm">No matching content found above the relevance threshold.</p>
-            <Button size="sm" onClick={() => setRequestOpen(true)} className="gap-1.5">
-              <MessageSquarePlus className="w-4 h-4" /> Request "{query.trim().slice(0, 60)}" be added
+            {autoFileState === "logging" && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Sending your question to the KB team…
+              </p>
+            )}
+            {autoFileState === "logged" && (
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Sent to the KB team for review. You'll see an answer here once it's approved.
+              </p>
+            )}
+            {autoFileState === "duplicate" && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Inbox className="w-3.5 h-3.5" /> This question is already in the KB queue waiting on a manager.
+              </p>
+            )}
+            {autoFileState === "error" && (
+              <p className="text-xs text-rose-600 dark:text-rose-400">
+                Couldn't auto-file your question. Use the button below to send it manually.
+              </p>
+            )}
+            <Button size="sm" variant="outline" onClick={() => setRequestOpen(true)} className="gap-1.5">
+              <MessageSquarePlus className="w-4 h-4" /> Add context to this request
             </Button>
           </CardContent>
         </Card>
