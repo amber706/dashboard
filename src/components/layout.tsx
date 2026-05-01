@@ -62,10 +62,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { href: "/", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" />, section: "Overview", roles: ["rep", "manager", "admin"] as const },
-    { href: "/executive", label: "Executive Overview", icon: <Eye className="w-4 h-4" />, section: "Overview", roles: ["manager", "admin"] as const },
     { href: "/ctm-calls", label: "Live Calls", icon: <Phone className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const, pulse: true },
-    { href: "/pre-call/DEMO-CALL-001", label: "Pre-Call", icon: <PhoneIncoming className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
-    { href: "/wrap-up/DEMO-CALL-001", label: "Wrap-Up", icon: <ClipboardCheck className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/kb", label: "Knowledge Base", icon: <Search className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/training", label: "Training", icon: <GraduationCap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
@@ -73,23 +70,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/attribution", label: "Attribution", icon: <Activity className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/qa-review", label: "QA Review", icon: <ShieldAlert className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/supervisor-review", label: "QA / Supervisor (legacy)", icon: <ShieldAlert className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const, pulse: true },
     { href: "/ops/training-assignments", label: "Training Assignments", icon: <GraduationCap className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/abandoned-calls", label: "Abandoned Calls", icon: <PhoneOff className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/knowledge", label: "Knowledge Review (legacy)", icon: <HelpCircle className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/kb-drafts", label: "KB Drafts", icon: <BookOpen className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/scenario-review", label: "Scenario Review", icon: <GraduationCap className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/training-analytics", label: "Training Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/analytics", label: "Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
     { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
     { href: "/admin", label: "Admin Panel", icon: <Settings className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
-    { href: "/ctm-calls", label: "Call Log", icon: <Phone className="w-4 h-4" />, section: "CTM Data", roles: ["manager", "admin"] as const },
-    { href: "/ctm-agents", label: "Agent Directory", icon: <Users className="w-4 h-4" />, section: "CTM Data", roles: ["manager", "admin"] as const },
-    { href: "/ctm-attribution", label: "Attribution Review", icon: <Activity className="w-4 h-4" />, section: "CTM Data", roles: ["admin"] as const },
-    { href: "/knowledge-review", label: "Knowledge Review", icon: <BookOpen className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
     { href: "/settings", label: "Settings", icon: <Wrench className="w-4 h-4" />, section: "Management", roles: ["admin"] as const },
-    { href: "/onboarding", label: "Setup Wizard", icon: <BookOpen className="w-4 h-4" />, section: "Management", roles: ["admin"] as const },
   ];
 
   const filteredItems = navItems.filter((item) => (item.roles as readonly string[]).includes(role));
