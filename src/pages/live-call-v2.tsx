@@ -30,6 +30,9 @@ interface Call {
   disposition_set_at: string | null;
   disposition_set_by: string | null;
   disposition_notes: string | null;
+  ai_summary: string | null;
+  ai_summary_generated_at: string | null;
+  ai_summary_model: string | null;
 }
 
 interface Chunk {
@@ -302,6 +305,9 @@ export default function LiveCallView() {
 
       {/* Post-call snapshot — synthesizes what's known into a quick wrap-up brief */}
       {chunks.length > 0 && <CallSnapshot extractions={extractions} score={score} alerts={alerts} call={call} />}
+
+      {/* AI summary — on-demand 2-paragraph LLM synthesis */}
+      {call && chunks.length > 0 && <AiSummaryPanel call={call} onSaved={(c) => setCall(c)} />}
 
       {/* Alerts banner */}
       {alerts.length > 0 && (
@@ -889,6 +895,79 @@ function DispositionPicker({ call, onSaved }: { call: Call; onSaved: (c: Call) =
             {call.disposition_notes && <> · "{call.disposition_notes}"</>}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// === AI summary panel ===
+// On-demand LLM summary. First click hits the summarize-call Edge Function;
+// subsequent loads return the cached value from call_sessions.ai_summary.
+function AiSummaryPanel({ call, onSaved }: { call: Call; onSaved: (c: Call) => void }) {
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function generate(force = false) {
+    setGenerating(true);
+    setError(null);
+    try {
+      const { data, error: invokeErr } = await supabase.functions.invoke("summarize-call", {
+        body: { call_session_id: call.id, force },
+      });
+      if (invokeErr) throw new Error(invokeErr.message);
+      if (!data?.ok) throw new Error(data?.error ?? "summarize failed");
+      // Refetch the call so cached summary fields populate.
+      const { data: refreshed } = await supabase
+        .from("call_sessions")
+        .select("*")
+        .eq("id", call.id)
+        .maybeSingle();
+      if (refreshed) onSaved(refreshed as Call);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  if (!call.ai_summary) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-500" />
+            <span>No AI summary yet for this call.</span>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => generate(false)} disabled={generating} className="gap-1.5">
+            {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            Generate
+          </Button>
+        </CardContent>
+        {error && (
+          <CardContent className="pt-0 pb-3 text-xs text-destructive">{error}</CardContent>
+        )}
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center justify-between">
+          <span className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-amber-500" /> AI summary</span>
+          <Button size="sm" variant="ghost" onClick={() => generate(true)} disabled={generating} className="h-7 gap-1 text-xs">
+            {generating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            Regenerate
+          </Button>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-sm whitespace-pre-wrap leading-relaxed">{call.ai_summary}</div>
+        <div className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
+          <Sparkles className="w-2.5 h-2.5" />
+          {call.ai_summary_model} · {call.ai_summary_generated_at && new Date(call.ai_summary_generated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+        </div>
+        {error && <div className="text-xs text-destructive mt-2">{error}</div>}
       </CardContent>
     </Card>
   );
