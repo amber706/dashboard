@@ -22,6 +22,8 @@ interface Lead {
   callback_preference: string | null;
   notes: string | null;
   is_active: boolean;
+  outcome_category: "won" | "lost" | "in_progress" | null;
+  outcome_set_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -68,11 +70,14 @@ function scoreColor(n: number | null): string {
 }
 function zoho_id_display(id: string | null): string | null { return id; }
 
+type OutcomeFilter = "all" | "won" | "lost" | "in_progress";
+
 export default function LeadsView() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -80,18 +85,19 @@ export default function LeadsView() {
     setError(null);
     let q = supabase
       .from("leads")
-      .select("id, zoho_lead_id, first_name, last_name, primary_phone_normalized, primary_phone, email, program_interest, insurance_provider, urgency, relationship_to_patient, callback_preference, notes, is_active, created_at, updated_at")
+      .select("id, zoho_lead_id, first_name, last_name, primary_phone_normalized, primary_phone, email, program_interest, insurance_provider, urgency, relationship_to_patient, callback_preference, notes, is_active, outcome_category, outcome_set_at, created_at, updated_at")
       .order("updated_at", { ascending: false })
       .limit(200);
     if (search.trim()) {
       const s = `%${search.trim()}%`;
       q = q.or(`first_name.ilike.${s},last_name.ilike.${s},primary_phone_normalized.ilike.${s},email.ilike.${s},insurance_provider.ilike.${s}`);
     }
+    if (outcomeFilter !== "all") q = q.eq("outcome_category", outcomeFilter);
     const { data, error } = await q;
     if (error) setError(error.message);
     else setLeads((data ?? []) as Lead[]);
     setLoading(false);
-  }, [search]);
+  }, [search, outcomeFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -106,8 +112,8 @@ export default function LeadsView() {
         </p>
       </div>
 
-      <div className="flex gap-2">
-        <div className="relative flex-1">
+      <div className="flex gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[240px]">
           <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
           <Input
             value={search}
@@ -115,6 +121,18 @@ export default function LeadsView() {
             placeholder="Search name, phone, email, insurance…"
             className="pl-9"
           />
+        </div>
+        <div className="flex gap-1">
+          {(["all", "in_progress", "won", "lost"] as const).map((f) => (
+            <Button
+              key={f}
+              size="sm"
+              variant={outcomeFilter === f ? "default" : "outline"}
+              onClick={() => setOutcomeFilter(f)}
+            >
+              {f === "all" ? "All" : f === "won" ? "Admitted" : f === "lost" ? "Churned" : "In progress"}
+            </Button>
+          ))}
         </div>
       </div>
 
@@ -199,7 +217,23 @@ function LeadRow({ lead, expanded, onToggle }: { lead: Lead; expanded: boolean; 
           <div className="space-y-1.5 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              <span className="font-semibold text-base">{displayName}</span>
+              <Link
+                href={`/leads/${lead.id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="font-semibold text-base hover:underline"
+              >
+                {displayName}
+              </Link>
+              {lead.outcome_category && lead.outcome_category !== "in_progress" && (
+                <Badge
+                  className={lead.outcome_category === "won"
+                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                    : "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30"}
+                  variant="outline"
+                >
+                  {lead.outcome_category === "won" ? "admitted" : "churned"}
+                </Badge>
+              )}
               {lead.urgency && (
                 <Badge className={urgencyClass[lead.urgency] ?? ""} variant="secondary">{lead.urgency} urgency</Badge>
               )}
