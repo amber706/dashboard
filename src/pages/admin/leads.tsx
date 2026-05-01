@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Link } from "wouter";
 import { Loader2, Users, Phone, Mail, Calendar, AlertTriangle, ChevronDown, ChevronRight, Headphones, MessageSquare, Sparkles, Search, Send, CheckCircle2, Download } from "lucide-react";
 import { downloadCsv } from "@/lib/csv-export";
+import { logAudit } from "@/lib/audit";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -138,7 +139,7 @@ export default function LeadsView() {
         <Button
           size="sm"
           variant="outline"
-          onClick={() => downloadCsv(`leads-${new Date().toISOString().slice(0, 10)}.csv`, leads, [
+          onClick={() => { logAudit("export", "leads", null, { format: "csv", count: leads.length, search, outcome_filter: outcomeFilter }); downloadCsv(`leads-${new Date().toISOString().slice(0, 10)}.csv`, leads, [
             { key: "first_name", label: "First name" },
             { key: "last_name", label: "Last name" },
             { key: "primary_phone_normalized", label: "Phone" },
@@ -153,7 +154,7 @@ export default function LeadsView() {
             { key: "created_at", label: "Created", format: (v) => v ? new Date(v).toISOString() : "" },
             { key: "updated_at", label: "Updated", format: (v) => v ? new Date(v).toISOString() : "" },
             { key: "zoho_lead_id", label: "Zoho lead ID" },
-          ])}
+          ]); }}
           disabled={leads.length === 0}
           className="gap-1.5"
         >

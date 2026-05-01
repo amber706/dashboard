@@ -5,6 +5,7 @@ import {
   Sparkles, Activity, BookOpen, CheckCircle2, ChevronRight, MessageSquare,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,6 +79,7 @@ const OUTCOME_CLASS: Record<string, string> = {
 export default function PreCall() {
   const params = useParams();
   const callId = (params as any).id ?? "";
+  useAuditView("call_session", callId, { surface: "pre_call_brief" });
 
   const [call, setCall] = useState<Call | null>(null);
   const [lead, setLead] = useState<Lead | null>(null);

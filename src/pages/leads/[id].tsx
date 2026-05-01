@@ -6,6 +6,7 @@ import {
   CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,7 @@ function scoreColor(n: number | null): string {
 export default function LeadDetail() {
   const params = useParams();
   const leadId = (params as any).id ?? "";
+  useAuditView("lead", leadId);
 
   const [lead, setLead] = useState<Lead | null>(null);
   const [calls, setCalls] = useState<CallRow[]>([]);

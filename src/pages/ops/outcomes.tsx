@@ -6,6 +6,7 @@ import {
   Settings, Plus, Trash2, Save, AlertTriangle, Download,
 } from "lucide-react";
 import { downloadCsv } from "@/lib/csv-export";
+import { logAudit } from "@/lib/audit";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -195,7 +196,7 @@ export default function OpsOutcomes() {
                 size="sm"
                 variant="outline"
                 disabled={leads.length === 0}
-                onClick={() => downloadCsv(`outcomes-${new Date().toISOString().slice(0, 10)}.csv`, leads, [
+                onClick={() => { logAudit("export", "outcomes", null, { format: "csv", count: leads.length, window_days: windowDays, filter }); downloadCsv(`outcomes-${new Date().toISOString().slice(0, 10)}.csv`, leads, [
                   { key: "first_name", label: "First name" },
                   { key: "last_name", label: "Last name" },
                   { key: "primary_phone_normalized", label: "Phone" },
@@ -206,7 +207,7 @@ export default function OpsOutcomes() {
                   { key: "owner", label: "Owner", format: (v) => v?.full_name ?? v?.email ?? "" },
                   { key: "last_touch_call", label: "Last-touch agent", format: (v) => v?.ctm_raw_payload?.agent?.name ?? v?.ctm_raw_payload?.agent?.email ?? "" },
                   { key: "created_at", label: "Created", format: (v) => v ? new Date(v).toISOString() : "" },
-                ])}
+                ]); }}
                 className="gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" /> Export CSV

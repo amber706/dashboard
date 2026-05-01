@@ -49,6 +49,7 @@ import LeadDetail from "@/pages/leads/[id]";
 import OpsCallbacks from "@/pages/ops/callbacks";
 import HealthPage from "@/pages/admin/health";
 import OpsTeam from "@/pages/ops/team";
+import AuditPage from "@/pages/admin/audit";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -102,6 +103,7 @@ function AppRoutes() {
         <Route path="/ops/callbacks" component={OpsCallbacks} />
         <Route path="/admin/health" component={HealthPage} />
         <Route path="/ops/team" component={OpsTeam} />
+        <Route path="/admin/audit" component={AuditPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

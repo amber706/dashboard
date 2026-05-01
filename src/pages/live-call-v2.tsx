@@ -6,6 +6,7 @@ import {
   XCircle, Zap, BookOpen,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +86,7 @@ function agentName(payload: any): string | null {
 export default function LiveCallView() {
   const [, params] = useRoute<{ id: string }>("/live/:id");
   const callId = params?.id;
+  useAuditView("call_session", callId, { with_transcript: true });
 
   const [call, setCall] = useState<Call | null>(null);
   const [chunks, setChunks] = useState<Chunk[]>([]);

@@ -5,6 +5,7 @@ import {
   AlertTriangle, ChevronDown, ChevronRight, Activity, MessageSquare, Download,
 } from "lucide-react";
 import { downloadCsv } from "@/lib/csv-export";
+import { logAudit } from "@/lib/audit";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -169,7 +170,7 @@ export default function OpsCallbacks() {
           variant="outline"
           disabled={rows.length === 0}
           className="ml-auto gap-1.5"
-          onClick={() => downloadCsv(`callbacks-${new Date().toISOString().slice(0, 10)}.csv`, rows, [
+          onClick={() => { logAudit("export", "callbacks", null, { format: "csv", count: rows.length, filter }); downloadCsv(`callbacks-${new Date().toISOString().slice(0, 10)}.csv`, rows, [
             { key: "caller_name", label: "Caller name" },
             { key: "caller_phone_normalized", label: "Phone" },
             { key: "started_at", label: "Call time", format: (v) => v ? new Date(v).toISOString() : "" },
@@ -180,7 +181,7 @@ export default function OpsCallbacks() {
             { key: "callback_notes", label: "Notes" },
             { key: "ctm_raw_payload", label: "Tracking", format: (v) => v?.tracking_label ?? "" },
             { key: "lead", label: "Outcome", format: (v) => v?.outcome_category ?? "" },
-          ])}
+          ]); }}
         >
           <Download className="w-3.5 h-3.5" /> Export CSV
         </Button>
