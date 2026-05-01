@@ -308,7 +308,19 @@ async function getFlaggedReviewById(id: string): Promise<Response> {
 }
 
 async function getOpsOverview(): Promise<Response> {
-  const [conflictsCount, supervisorPending, openSuggestions] = await Promise.all([
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const startOfDayISO = startOfDay.toISOString();
+
+  const [
+    conflictsCount,
+    supervisorPending,
+    inboundTodayCount,
+    answeredTodayCount,
+    missedTodayCount,
+    repWorkloadForCapacity,
+    openSuggestions,
+  ] = await Promise.all([
     supabase
       .from("attribution_records")
       .select("id", { count: "exact", head: true })
@@ -318,6 +330,28 @@ async function getOpsOverview(): Promise<Response> {
       .select("id", { count: "exact", head: true })
       .eq("needs_supervisor_review", true)
       .is("supervisor_signoff_at", null),
+    supabase
+      .from("call_sessions")
+      .select("id", { count: "exact", head: true })
+      .gte("started_at", startOfDayISO)
+      .eq("direction", "inbound"),
+    supabase
+      .from("call_sessions")
+      .select("id", { count: "exact", head: true })
+      .gte("started_at", startOfDayISO)
+      .not("status", "in", "(missed,abandoned,no_answer)"),
+    supabase
+      .from("call_sessions")
+      .select("id", { count: "exact", head: true })
+      .gte("started_at", startOfDayISO)
+      .in("status", ["missed", "abandoned"]),
+    // Lightweight overloaded-rep count: specialists with >30 calls today.
+    // Matches the same heuristic used in getRepWorkload's capacity_status.
+    supabase
+      .from("call_sessions")
+      .select("specialist_id")
+      .gte("started_at", startOfDayISO)
+      .not("specialist_id", "is", null),
     supabase
       .from("suggestions")
       .select(
@@ -442,19 +476,141 @@ async function getOpsOverview(): Promise<Response> {
     };
   });
 
+  // Compute overloaded reps from the today-call list (count by specialist_id).
+  const callsBySpecialist = new Map<string, number>();
+  for (const row of (repWorkloadForCapacity.data ?? []) as Array<{ specialist_id: string }>) {
+    callsBySpecialist.set(row.specialist_id, (callsBySpecialist.get(row.specialist_id) ?? 0) + 1);
+  }
+  const overloadedReps = [...callsBySpecialist.values()].filter((n) => n >= 31).length;
+
   return jsonResponse({
-    inbound_calls_today: 0,
-    answered_today: 0,
-    missed_today: 0,
+    inbound_calls_today: inboundTodayCount.count ?? 0,
+    answered_today: answeredTodayCount.count ?? 0,
+    missed_today: missedTodayCount.count ?? 0,
+    // Backlog/awaiting/overdue need a CRM tasks table that isn't ported yet.
     callback_backlog: 0,
     leads_awaiting_first_contact: 0,
     overdue_followups: 0,
     attribution_conflicts: conflictsCount.count ?? 0,
     qa_review_queue: supervisorPending.count ?? 0,
     supervisor_review_queue: supervisorPending.count ?? 0,
-    rep_capacity_warnings: 0,
+    rep_capacity_warnings: overloadedReps,
     top_recommendations,
   });
+}
+
+// Drill-down handlers for the Operations Overview stat cards.
+// Each returns { items: [...], total: N } for the DrillDownPanel.
+
+async function getOpsOverviewInbound(queryString: string): Promise<Response> {
+  const params = new URLSearchParams(queryString);
+  const limit = Math.min(parseInt(params.get("limit") ?? "50", 10) || 50, 200);
+  const offset = parseInt(params.get("offset") ?? "0", 10) || 0;
+  const statusFilter = params.get("status"); // optional: "answered"
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const startOfDayISO = startOfDay.toISOString();
+
+  let q = supabase
+    .from("call_sessions")
+    .select(
+      `id, ctm_call_id, status, caller_phone_normalized, caller_name, started_at, talk_seconds, ctm_raw_payload`,
+      { count: "exact" },
+    )
+    .eq("direction", "inbound")
+    .gte("started_at", startOfDayISO)
+    .order("started_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (statusFilter === "answered") q = q.not("status", "in", "(missed,abandoned,no_answer)");
+
+  const { data, count, error } = await q;
+  if (error) return jsonResponse({ error: error.message }, 500);
+
+  const items = (data ?? []).map((c: any) => ({
+    call_session_id: c.id,
+    ctm_call_id: c.ctm_call_id,
+    caller_name: c.caller_name ?? c.caller_phone_normalized ?? "Unknown",
+    caller_phone: c.caller_phone_normalized,
+    call_time: c.started_at,
+    call_status: c.status,
+    duration_seconds: c.talk_seconds ?? 0,
+    rep_name: c.ctm_raw_payload?.agent?.name ?? c.ctm_raw_payload?.agent?.email ?? null,
+  }));
+  return jsonResponse({ items, total: count ?? items.length });
+}
+
+async function getOpsOverviewMissed(queryString: string): Promise<Response> {
+  const params = new URLSearchParams(queryString);
+  const limit = Math.min(parseInt(params.get("limit") ?? "50", 10) || 50, 200);
+  const offset = parseInt(params.get("offset") ?? "0", 10) || 0;
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const startOfDayISO = startOfDay.toISOString();
+
+  const { data, count, error } = await supabase
+    .from("call_sessions")
+    .select(
+      `id, ctm_call_id, caller_phone_normalized, caller_name, started_at, ctm_raw_payload`,
+      { count: "exact" },
+    )
+    .gte("started_at", startOfDayISO)
+    .in("status", ["missed", "abandoned"])
+    .order("started_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) return jsonResponse({ error: error.message }, 500);
+
+  const items = (data ?? []).map((c: any) => ({
+    call_session_id: c.id,
+    ctm_call_id: c.ctm_call_id,
+    caller_phone: c.caller_phone_normalized,
+    caller_name: c.caller_name ?? "Unknown",
+    call_time: c.started_at,
+    tracking_source: c.ctm_raw_payload?.tracking_label ?? c.ctm_raw_payload?.tracking_source ?? "—",
+  }));
+  return jsonResponse({ items, total: count ?? items.length });
+}
+
+async function getOpsOverviewQAReview(queryString: string): Promise<Response> {
+  const params = new URLSearchParams(queryString);
+  const limit = Math.min(parseInt(params.get("limit") ?? "50", 10) || 50, 200);
+  const offset = parseInt(params.get("offset") ?? "0", 10) || 0;
+
+  const { data, count, error } = await supabase
+    .from("call_scores")
+    .select(
+      `id, composite_score, needs_supervisor_review, supervisor_signoff_at, compliance_flags,
+       call:call_sessions(id, ctm_call_id, ctm_raw_payload)`,
+      { count: "exact" },
+    )
+    .eq("needs_supervisor_review", true)
+    .is("supervisor_signoff_at", null)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) return jsonResponse({ error: error.message }, 500);
+
+  const items = (data ?? []).map((row: any) => {
+    const call = Array.isArray(row.call) ? row.call[0] : row.call;
+    const flags = Array.isArray(row.compliance_flags) ? row.compliance_flags : [];
+    const flagReason = flags.length > 0 ? (flags[0]?.flag ?? "Compliance flag") : "Low composite score";
+    return {
+      call_session_id: call?.id,
+      ctm_call_id: call?.ctm_call_id ?? "—",
+      rep_name: call?.ctm_raw_payload?.agent?.name ?? call?.ctm_raw_payload?.agent?.email ?? "Unknown",
+      flag_reason: flagReason,
+      qa_score_percent: row.composite_score,
+      source: "AI score",
+    };
+  });
+  return jsonResponse({ items, total: count ?? items.length });
+}
+
+// The "tasks" backed endpoints (callback backlog, awaiting first contact,
+// overdue follow-ups) need a CRM tasks table that isn't ported to Supabase
+// yet. Return empty lists so the panel shows "no items" instead of 501.
+function emptyDrillResponse(): Response {
+  return jsonResponse({ items: [], total: 0 });
 }
 
 async function signoffFlaggedReview(
@@ -878,6 +1034,17 @@ async function routeApiPath(
       return getFlaggedReviewStats();
     case "/ops/overview":
       return getOpsOverview();
+    case "/ops/overview/inbound":
+      return getOpsOverviewInbound(queryString);
+    case "/ops/overview/missed":
+      return getOpsOverviewMissed(queryString);
+    case "/ops/overview/qa-review-queue":
+    case "/ops/overview/supervisor-review-queue":
+      return getOpsOverviewQAReview(queryString);
+    case "/ops/overview/callback-backlog":
+    case "/ops/overview/awaiting-first-contact":
+    case "/ops/overview/overdue-followups":
+      return emptyDrillResponse();
     case "/ctm-admin/calls":
       return getCTMCalls(queryString);
     case "/ctm-admin/stats":
