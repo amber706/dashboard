@@ -113,7 +113,7 @@ export default function TrainingAnalytics() {
 
         const specStats: SpecialistStat[] = await Promise.all(
           (profiles ?? []).map(async (p) => {
-            const [completedSessions, sessionScores] = await Promise.all([
+            const [completedSessions, sessionScores, realCallScores] = await Promise.all([
               supabase
                 .from("training_sessions")
                 .select("id", { count: "exact", head: true })
@@ -123,9 +123,17 @@ export default function TrainingAnalytics() {
                 .from("training_session_scores")
                 .select("composite_score, session:training_sessions!inner(specialist_id)")
                 .eq("session.specialist_id", p.id),
+              // Real-call scores joined to call_sessions filtered by specialist_id
+              // (populated by ctm-webhook from CTM agent.name -> profile lookup).
+              supabase
+                .from("call_scores")
+                .select("composite_score, call:call_sessions!inner(specialist_id)")
+                .eq("call.specialist_id", p.id),
             ]);
             const sessVals = ((sessionScores.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
             const avgSess = sessVals.length > 0 ? Math.round(sessVals.reduce((a, b) => a + b, 0) / sessVals.length) : null;
+            const callVals = ((realCallScores.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
+            const avgCall = callVals.length > 0 ? Math.round(callVals.reduce((a, b) => a + b, 0) / callVals.length) : null;
 
             return {
               id: p.id,
@@ -133,7 +141,7 @@ export default function TrainingAnalytics() {
               email: p.email,
               sessions_completed: completedSessions.count ?? 0,
               avg_composite: avgSess,
-              avg_real_call_composite: null, // TODO: link via specialist_id once that wires through CTM agent attribution
+              avg_real_call_composite: avgCall,
               weakest_real_category: null,
               weakest_real_score: null,
             };
@@ -235,7 +243,7 @@ export default function TrainingAnalytics() {
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">{s.sessions_completed}</td>
                       <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(s.avg_composite)}`}>{s.avg_composite ?? "—"}</td>
-                      <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground italic">soon</td>
+                      <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(s.avg_real_call_composite)}`}>{s.avg_real_call_composite ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
