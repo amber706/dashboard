@@ -33,3 +33,21 @@ export const LEAD_SCORE_RATING_PICKLIST: string[] = [
 
 // Zoho field: CTM_Score (1-5 rating used for per-call manual rating).
 export const CTM_SCORE_PICKLIST: string[] = ["1", "2", "3", "4", "5"];
+
+// Zoho field: Level_of_Care_Requested. The Cornerstone "program interest"
+// concept maps directly to this Zoho picklist. Values must match exactly.
+export const LEVEL_OF_CARE_PICKLIST: string[] = [
+  "BHRF",
+  "PHP",
+  "IOP5",
+  "IOP3",
+  "VIOP",
+  "VIOP Adolescent",
+  "VOP",
+  "VOP Adult",
+  "VOP Adolescent",
+  "OP",
+  "Detox",
+  "DUI",
+  "DV",
+];

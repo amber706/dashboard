@@ -8,7 +8,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { LEAD_STATUS_PICKLIST, LEAD_SCORE_RATING_PICKLIST } from "@/lib/zoho-picklists";
+import { LEAD_STATUS_PICKLIST, LEAD_SCORE_RATING_PICKLIST, LEVEL_OF_CARE_PICKLIST } from "@/lib/zoho-picklists";
 import { supabase } from "@/lib/supabase";
 import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -421,7 +421,9 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
     urgency: lead.urgency ?? "",
     relationship_to_patient: lead.relationship_to_patient ?? "",
     callback_preference: lead.callback_preference ?? "",
-    program_interest: (lead.program_interest ?? []).join(", "),
+    // Single-value editor backed by an array column — the Zoho field
+    // it maps to (Level_of_Care_Requested) is a single picklist.
+    program_interest: (lead.program_interest && lead.program_interest[0]) ?? "",
     stage: lead.stage ?? "",
     notes: lead.notes ?? "",
     lead_score: lead.lead_score ?? "",
@@ -440,9 +442,7 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
       urgency: form.urgency || null,
       relationship_to_patient: form.relationship_to_patient || null,
       callback_preference: form.callback_preference || null,
-      program_interest: form.program_interest.trim()
-        ? form.program_interest.split(",").map((s) => s.trim()).filter(Boolean)
-        : null,
+      program_interest: form.program_interest ? [form.program_interest] : null,
       stage: form.stage || null,
       notes: form.notes.trim() || null,
       lead_score: form.lead_score || null,
@@ -537,8 +537,12 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
                 {EDITABLE_CALLBACK.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ") || "—"}</option>)}
               </select>
             </FieldPair>
-            <FieldPair label="Program interest (comma-sep)">
-              <Input value={form.program_interest} onChange={(e) => setForm({ ...form, program_interest: e.target.value })} placeholder="e.g. inpatient, iop" className="h-8 text-sm" />
+            <FieldPair label="Requested level of care (→ Zoho Level_of_Care_Requested)">
+              <PicklistSelect
+                value={form.program_interest}
+                options={LEVEL_OF_CARE_PICKLIST}
+                onChange={(v) => setForm({ ...form, program_interest: v })}
+              />
             </FieldPair>
             <FieldPair label="Interaction status (→ Zoho Lead_Status)">
               <PicklistSelect
@@ -569,7 +573,7 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
             <FactRow label="Urgency" value={lead.urgency ?? "—"} />
             <FactRow label="Relationship to patient" value={lead.relationship_to_patient ?? "—"} />
             <FactRow label="Callback preference" value={lead.callback_preference ?? "—"} />
-            <FactRow label="Program interest" value={lead.program_interest && lead.program_interest.length > 0 ? lead.program_interest.join(", ") : "—"} />
+            <FactRow label="Requested level of care" value={lead.program_interest && lead.program_interest.length > 0 ? lead.program_interest.join(", ") : "—"} />
             <FactRow label="Interaction status" value={lead.stage ?? "—"} />
             <FactRow label="Lead score rating" value={lead.lead_score ?? "—"} />
             {lead.notes && (
