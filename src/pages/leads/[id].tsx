@@ -58,6 +58,7 @@ interface CallRow {
   callback_notes: string | null;
   manager_notes: string | null;
   specialist_disposition: string | null;
+  ai_summary: string | null;
   score: { composite_score: number | null; needs_supervisor_review: boolean } | null;
 }
 
@@ -172,7 +173,7 @@ export default function LeadDetail() {
           .from("call_sessions")
           .select(`id, ctm_call_id, status, started_at, talk_seconds, ctm_raw_payload,
             callback_status, callback_completed_at, callback_notes, manager_notes,
-            specialist_disposition,
+            specialist_disposition, ai_summary,
             score:call_scores(composite_score, needs_supervisor_review)`)
           .eq("lead_id", leadId)
           .order("started_at", { ascending: false, nullsFirst: false })
@@ -478,6 +479,12 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
             <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
           </div>
         </Link>
+        {c.ai_summary && (
+          <div className="ml-7 text-xs bg-muted/40 border rounded p-2 text-foreground">
+            <span className="font-semibold uppercase text-[10px] tracking-wide text-muted-foreground">AI summary · </span>
+            <span className="whitespace-pre-wrap">{c.ai_summary}</span>
+          </div>
+        )}
         {c.manager_notes && (
           <div className="ml-7 text-xs bg-amber-500/10 border border-amber-500/30 rounded p-2 text-amber-900 dark:text-amber-200">
             <span className="font-semibold uppercase text-[10px] tracking-wide">Coaching note · </span>
