@@ -8,7 +8,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { LEAD_STATUS_PICKLIST, LEAD_SCORE_RATING_PICKLIST, LEVEL_OF_CARE_PICKLIST } from "@/lib/zoho-picklists";
+import { LEAD_STATUS_PICKLIST, LEAD_SCORE_RATING_PICKLIST, LEVEL_OF_CARE_PICKLIST, INSURANCE_PROVIDER_PICKLIST } from "@/lib/zoho-picklists";
 import { supabase } from "@/lib/supabase";
 import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,9 +38,11 @@ interface Lead {
   notes: string | null;
   is_active: boolean | null;
   lead_score: string | null;
+  member_id: string | null;
+  owner_id: string | null;
   created_at: string;
   updated_at: string;
-  owner: { full_name: string | null; email: string | null } | null;
+  owner: { id: string; full_name: string | null; email: string | null } | null;
 }
 
 interface CallRow {
@@ -427,9 +429,26 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
     stage: lead.stage ?? "",
     notes: lead.notes ?? "",
     lead_score: lead.lead_score ?? "",
+    member_id: lead.member_id ?? "",
+    owner_id: lead.owner_id ?? "",
   });
   const [form, setForm] = useState(initial);
   function reset() { setForm(initial()); }
+
+  // Active admissions reps for the Owner dropdown — loaded once on mount.
+  interface RepOption { id: string; full_name: string | null; email: string | null }
+  const [reps, setReps] = useState<RepOption[]>([]);
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .eq("is_active", true)
+        .in("role", ["specialist", "manager", "admin"])
+        .order("full_name");
+      setReps((data ?? []) as RepOption[]);
+    })();
+  }, []);
 
   async function save() {
     setSaving(true);
@@ -446,6 +465,8 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
       stage: form.stage || null,
       notes: form.notes.trim() || null,
       lead_score: form.lead_score || null,
+      member_id: form.member_id.trim() || null,
+      owner_id: form.owner_id || null,
       updated_at: new Date().toISOString(),
     };
     const { data, error } = await supabase
@@ -496,8 +517,29 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
             <FieldPair label="Email">
               <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-8 text-sm" />
             </FieldPair>
-            <FieldPair label="Insurance provider">
-              <Input value={form.insurance_provider} onChange={(e) => setForm({ ...form, insurance_provider: e.target.value })} className="h-8 text-sm" />
+            <FieldPair label="Insurance provider (→ Zoho picklist)">
+              <PicklistSelect
+                value={form.insurance_provider}
+                options={INSURANCE_PROVIDER_PICKLIST}
+                onChange={(v) => setForm({ ...form, insurance_provider: v })}
+              />
+            </FieldPair>
+            <FieldPair label="Member ID (→ Zoho Member_ID)">
+              <Input value={form.member_id} onChange={(e) => setForm({ ...form, member_id: e.target.value })} placeholder="Insurance policy / member number" className="h-8 text-sm" />
+            </FieldPair>
+            <FieldPair label="Admissions rep (lead owner → Zoho Owner)">
+              <select
+                value={form.owner_id}
+                onChange={(e) => setForm({ ...form, owner_id: e.target.value })}
+                className="h-8 px-2 rounded-md border bg-background text-sm w-full"
+              >
+                <option value="">— None —</option>
+                {reps.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.full_name ?? r.email ?? r.id}
+                  </option>
+                ))}
+              </select>
             </FieldPair>
             <FieldPair label="Insurance qualified">
               <select
@@ -569,6 +611,8 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
             <FactRow label="Last name" value={lead.last_name ?? "—"} />
             <FactRow label="Email" value={lead.email ?? "—"} />
             <FactRow label="Insurance provider" value={lead.insurance_provider ?? "—"} />
+            <FactRow label="Member ID" value={lead.member_id ?? "—"} />
+            <FactRow label="Admissions rep" value={lead.owner?.full_name ?? lead.owner?.email ?? "—"} />
             <FactRow label="Insurance qualified" value={lead.insurance_qualified == null ? "—" : (lead.insurance_qualified ? "Yes" : "No")} />
             <FactRow label="Urgency" value={lead.urgency ?? "—"} />
             <FactRow label="Relationship to patient" value={lead.relationship_to_patient ?? "—"} />
