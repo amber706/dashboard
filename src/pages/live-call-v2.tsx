@@ -3,6 +3,7 @@ import { useRoute, Link } from "wouter";
 import {
   ArrowLeft, Loader2, Phone, Clock, Timer, User as UserIcon, Headphones,
   AlertTriangle, MessageSquare, Sparkles, Search, ShieldAlert, GraduationCap, CheckCircle2,
+  XCircle, Zap, BookOpen,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -382,8 +383,9 @@ export default function LiveCallView() {
           )}
         </div>
 
-        {/* Right column: KB search + extractions */}
+        {/* Right column: live coaching + KB search + extractions */}
         <div className="space-y-4">
+          <LiveCoachingPanel call={call} chunks={chunks} extractions={extractions} />
           <KbSearchPanel />
 
           <Card>
@@ -415,6 +417,141 @@ export default function LiveCallView() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Required intake fields for a complete admissions call. Compared
+// against field_extractions to show what's still missing while a call
+// is in progress. Order matters — the checklist renders in this order.
+const REQUIRED_INTAKE_FIELDS: Array<{ key: string; label: string }> = [
+  { key: "first_name", label: "First name" },
+  { key: "last_name", label: "Last name" },
+  { key: "relationship_to_patient", label: "Relationship to patient" },
+  { key: "presenting_substance", label: "Presenting substance" },
+  { key: "insurance_provider", label: "Insurance provider" },
+  { key: "urgency", label: "Urgency" },
+  { key: "callback_preference", label: "Callback preference" },
+];
+
+function LiveCoachingPanel({ call, chunks, extractions }: {
+  call: Call | null;
+  chunks: Chunk[];
+  extractions: Extraction[];
+}) {
+  const queryKb = useQueryKb();
+  const lastSearchedRef = useRef<string>("");
+  const [kbHits, setKbHits] = useState<Array<{ id: string; title: string; similarity: number }>>([]);
+  const [kbSummary, setKbSummary] = useState<string>("");
+
+  const isLive = call?.status === "ringing" || call?.status === "in_progress";
+
+  // Build the recent caller context window from the last few caller turns.
+  // Re-runs when chunks change. Debounced via the lastSearchedRef so we
+  // don't fire on every keystroke-like update.
+  useEffect(() => {
+    if (!isLive) return;
+    const callerLines = chunks
+      .filter((c) => c.speaker && !/(specialist|agent|voicebot|bot|rep)/i.test(c.speaker))
+      .slice(-3)
+      .map((c) => c.content)
+      .join(" ");
+    const trimmed = callerLines.trim();
+    if (trimmed.length < 20) return;
+    if (trimmed === lastSearchedRef.current) return;
+    lastSearchedRef.current = trimmed;
+    const t = setTimeout(() => {
+      queryKb.mutate({ data: { query: trimmed.slice(0, 400) } });
+    }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chunks, isLive]);
+
+  // Mirror queryKb response into local state so the panel keeps the
+  // last successful match if the next call is still pending.
+  useEffect(() => {
+    const sources = (queryKb.data?.sources ?? []) as Array<{ id: string; title: string; similarity: number }>;
+    if (sources.length > 0) {
+      setKbHits(sources.slice(0, 3));
+      setKbSummary(queryKb.data?.answer ?? "");
+    }
+  }, [queryKb.data]);
+
+  const captured = new Set(
+    extractions
+      .filter((e) => e.extracted_value && e.extracted_value.trim().length > 0)
+      .map((e) => e.field_name),
+  );
+  const missingCount = REQUIRED_INTAKE_FIELDS.filter((f) => !captured.has(f.key)).length;
+
+  return (
+    <Card className={isLive ? "border-emerald-500/40" : ""}>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Zap className={`w-4 h-4 ${isLive ? "text-emerald-500" : "text-muted-foreground"}`} />
+          Live coaching
+          {isLive && <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400">live</Badge>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Required intake checklist */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-xs font-semibold uppercase text-muted-foreground">Intake checklist</div>
+            <span className="text-[11px] text-muted-foreground">
+              {REQUIRED_INTAKE_FIELDS.length - missingCount}/{REQUIRED_INTAKE_FIELDS.length} captured
+            </span>
+          </div>
+          <div className="space-y-1">
+            {REQUIRED_INTAKE_FIELDS.map((f) => {
+              const has = captured.has(f.key);
+              return (
+                <div key={f.key} className="flex items-center gap-2 text-sm">
+                  {has
+                    ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    : <XCircle className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />}
+                  <span className={has ? "text-muted-foreground line-through" : ""}>{f.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          {!isLive && (
+            <p className="text-[11px] text-muted-foreground mt-2 italic">
+              Call has ended — checklist is final.
+            </p>
+          )}
+        </div>
+
+        {/* Live KB matches based on what the caller is saying */}
+        {isLive && (
+          <div className="border-t pt-3">
+            <div className="text-xs font-semibold uppercase text-muted-foreground mb-1.5 flex items-center gap-1.5">
+              <BookOpen className="w-3 h-3" /> Suggested KB
+              {queryKb.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
+            </div>
+            {kbHits.length === 0 && !queryKb.isPending && (
+              <p className="text-xs text-muted-foreground italic">
+                Suggestions will appear once the caller starts speaking.
+              </p>
+            )}
+            {kbSummary && (
+              <div className="text-xs whitespace-pre-wrap border-l-2 border-primary/30 pl-2 mb-2 text-foreground/80">
+                {kbSummary.slice(0, 240)}{kbSummary.length > 240 ? "…" : ""}
+              </div>
+            )}
+            {kbHits.length > 0 && (
+              <div className="space-y-1 text-xs">
+                {kbHits.map((h) => (
+                  <div key={h.id} className="flex items-center justify-between text-muted-foreground">
+                    <span className="truncate">{h.title}</span>
+                    <span className="tabular-nums shrink-0 ml-2">{(h.similarity * 100).toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
