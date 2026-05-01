@@ -10,6 +10,34 @@ import { downloadCsv } from "@/lib/csv-export";
 import { logAudit } from "@/lib/audit";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const TZ = "America/Phoenix";   // Arizona — no DST, always MST/UTC-7
+
+// Bucket a UTC timestamp into the Arizona-local day-of-week + hour.
+function phoenixDayHour(d: Date): { day: number; hour: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ, weekday: "short", hour: "numeric", hour12: false,
+  }).formatToParts(d);
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "Sun";
+  const hour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+  const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { day: dayMap[weekday] ?? 0, hour: hour === 24 ? 0 : hour };
+}
+
+// Format an hour-of-day (0-23) as "8 AM" / "12 PM" etc.
+function fmt12(h: number): string {
+  if (h === 0) return "12 AM";
+  if (h === 12) return "12 PM";
+  if (h < 12) return `${h} AM`;
+  return `${h - 12} PM`;
+}
+
+// Compact two-char header for the heatmap grid (saves horizontal space).
+function fmt12Short(h: number): string {
+  if (h === 0) return "12a";
+  if (h === 12) return "12p";
+  if (h < 12) return `${h}a`;
+  return `${h - 12}p`;
+}
 
 interface CallRow {
   started_at: string;
@@ -27,36 +55,68 @@ interface SlotStat {
   recommended_staff: number;
 }
 
+type RangePreset = "mtd" | "30d" | "90d" | "6m" | "9m" | "12m" | "custom";
+
+function presetSince(p: RangePreset, customSince: string | null): Date | null {
+  const now = new Date();
+  switch (p) {
+    case "mtd":  return new Date(now.getFullYear(), now.getMonth(), 1);
+    case "30d":  return new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+    case "90d":  return new Date(now.getTime() - 90 * 24 * 3600 * 1000);
+    case "6m":   return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    case "9m":   return new Date(now.getFullYear(), now.getMonth() - 9, now.getDate());
+    case "12m":  return new Date(now.getFullYear(), now.getMonth() - 12, now.getDate());
+    case "custom": return customSince ? new Date(customSince) : null;
+  }
+}
+
+function presetUntil(p: RangePreset, customUntil: string | null): Date {
+  if (p === "custom" && customUntil) return new Date(customUntil + "T23:59:59.999Z");
+  return new Date();
+}
+
+const PRESET_LABEL: Record<RangePreset, string> = {
+  mtd: "MTD", "30d": "30d", "90d": "90d", "6m": "6mo", "9m": "9mo", "12m": "12mo", custom: "Custom",
+};
+
 export default function OpsStaffing() {
   const [rows, setRows] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [windowDays, setWindowDays] = useState<number>(30);
+  const [rangePreset, setRangePreset] = useState<RangePreset>("30d");
+  const [customSince, setCustomSince] = useState<string>("");        // yyyy-mm-dd
+  const [customUntil, setCustomUntil] = useState<string>("");
+  const since = useMemo(() => presetSince(rangePreset, customSince), [rangePreset, customSince]);
+  const until = useMemo(() => presetUntil(rangePreset, customUntil), [rangePreset, customUntil]);
   // Tuning knobs the manager can play with — live recompute.
   const [callsPerSpecialistPerHour, setCallsPerSpecialistPerHour] = useState<number>(6);
   const [missedRateAlertThreshold, setMissedRateAlertThreshold] = useState<number>(15);
-  // Schedule-generator controls. All recompute live.
+  // Schedule-generator controls. The headcount is the primary variable;
+  // everything else has sensible defaults for "8am-8pm, 7 days/week"
+  // coverage and lives behind an Assumptions disclosure.
   const [headcount, setHeadcount] = useState<number>(8);
   const [shiftHours, setShiftHours] = useState<number>(8);
   const [daysPerWeek, setDaysPerWeek] = useState<number>(5);
   const [lunchHours, setLunchHours] = useState<number>(1);
-  const [earliestStart, setEarliestStart] = useState<number>(7);     // 7am
+  const [earliestStart, setEarliestStart] = useState<number>(8);     // 8am — operating window default
   const [latestEnd, setLatestEnd] = useState<number>(20);            // 8pm
+  const [showAssumptions, setShowAssumptions] = useState<boolean>(false);
 
   const load = useCallback(async () => {
+    if (!since) { setRows([]); setLoading(false); return; }
     setLoading(true);
     setError(null);
-    const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
     const { data, error: err } = await supabase
       .from("call_sessions")
       .select("started_at, status, direction")
-      .gte("started_at", since)
+      .gte("started_at", since.toISOString())
+      .lte("started_at", until.toISOString())
       .not("started_at", "is", null);
     if (err) setError(err.message);
     else setRows((data ?? []) as CallRow[]);
     setLoading(false);
-    logAudit("view", "calls", null, { surface: "staffing_recommendation", window_days: windowDays });
-  }, [windowDays]);
+    logAudit("view", "calls", null, { surface: "staffing_recommendation", range: rangePreset, since: since.toISOString(), until: until.toISOString() });
+  }, [since, until, rangePreset]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -69,11 +129,13 @@ export default function OpsStaffing() {
     for (const r of rows) {
       if ((r.direction ?? "inbound") !== "inbound") continue;  // staff-needs is inbound-driven
       const dt = new Date(r.started_at);
-      const cell = grid[dt.getDay()][dt.getHours()];
+      const { day, hour } = phoenixDayHour(dt);
+      const cell = grid[day][hour];
       cell.count++;
       if (r.status === "missed" || r.status === "abandoned") cell.missed++;
-      // ISO-week-ish key for distinct-week count.
-      const wkKey = `${dt.getFullYear()}-${Math.floor((dt.getTime() - new Date(dt.getFullYear(), 0, 1).getTime()) / (7 * 24 * 60 * 60 * 1000))}`;
+      // Week key in Arizona time so a call right after midnight UTC on
+      // Sunday doesn't bucket into the wrong week.
+      const wkKey = `${dt.getUTCFullYear()}-${Math.floor((dt.getTime() - new Date(dt.getUTCFullYear(), 0, 1).getTime()) / (7 * 24 * 60 * 60 * 1000))}`;
       cell.weeks.add(wkKey);
     }
     const out: SlotStat[][] = [];
@@ -242,6 +304,28 @@ export default function OpsStaffing() {
     return { assigned, coveragePct, totalDemand, remainingDemand: totalRemaining, staffed, demand };
   }, [slots, headcount, shiftHours, daysPerWeek, lunchHours, earliestStart, latestEnd]);
 
+  // Min-headcount-for-full-coverage: total demand-hours/week ÷ per-person
+  // hours, floored by peak concurrent demand. Independent of the assigned
+  // schedule — answers "if I want to cover 100% of expected calls within
+  // the operating window with these per-person constraints, what's my
+  // floor headcount?"
+  const minHeadcountFullCoverage = useMemo(() => {
+    if (slots.length === 0) return null;
+    let totalDemandHours = 0;
+    let peakConcurrent = 0;
+    for (const row of slots) {
+      for (const s of row) {
+        if (s.hour < earliestStart || s.hour >= latestEnd) continue;
+        totalDemandHours += s.recommended_staff;
+        if (s.recommended_staff > peakConcurrent) peakConcurrent = s.recommended_staff;
+      }
+    }
+    const perPersonHours = (shiftHours - lunchHours) * daysPerWeek;
+    if (perPersonHours <= 0) return null;
+    const fromTotal = Math.ceil(totalDemandHours / perPersonHours);
+    return Math.max(peakConcurrent, fromTotal);
+  }, [slots, earliestStart, latestEnd, shiftHours, lunchHours, daysPerWeek]);
+
   // Coloring: deeper = more calls. Cap at peakAvg for the gradient.
   function cellClass(avg: number): string {
     if (avg < 0.25) return "bg-muted/20 text-muted-foreground/40";
@@ -262,7 +346,7 @@ export default function OpsStaffing() {
       missed_rate_pct: s.missed_rate.toFixed(1),
       recommended_staff: s.recommended_staff,
     }));
-    logAudit("export", "calls", null, { format: "csv", surface: "staffing_recommendation", window_days: windowDays });
+    logAudit("export", "calls", null, { format: "csv", surface: "staffing_recommendation", range: rangePreset, since: since?.toISOString(), until: until.toISOString() });
     downloadCsv(`staffing-${new Date().toISOString().slice(0, 10)}.csv`, flat, [
       { key: "day", label: "Day" },
       { key: "hour", label: "Hour" },
@@ -297,19 +381,39 @@ export default function OpsStaffing() {
         </div>
       </div>
 
-      {/* Top tiles + tuning */}
-      <div className="grid md:grid-cols-4 gap-3">
-        <Card><CardContent className="pt-4 pb-4">
-          <div className="text-xs text-muted-foreground">Window</div>
-          <div className="text-2xl font-semibold tabular-nums mt-1">{windowDays}d</div>
-          <div className="flex gap-1 mt-2">
-            {[14, 30, 60, 90].map((d) => (
-              <Button key={d} size="sm" variant={windowDays === d ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setWindowDays(d)}>
-                {d}d
-              </Button>
-            ))}
+      {/* Date range selector — quick presets + custom */}
+      <Card>
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <div className="text-xs text-muted-foreground">Call data window <span className="opacity-60">· Arizona time (MST)</span></div>
+              <div className="text-sm font-medium mt-0.5">
+                {since ? since.toLocaleDateString("en-US", { timeZone: TZ, month: "short", day: "numeric", year: "numeric" }) : "—"}
+                {" → "}
+                {until.toLocaleDateString("en-US", { timeZone: TZ, month: "short", day: "numeric", year: "numeric" })}
+              </div>
+            </div>
+            <div className="flex gap-1 flex-wrap">
+              {(["mtd", "30d", "90d", "6m", "9m", "12m", "custom"] as const).map((p) => (
+                <Button key={p} size="sm" variant={rangePreset === p ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setRangePreset(p)}>
+                  {PRESET_LABEL[p]}
+                </Button>
+              ))}
+            </div>
           </div>
-        </CardContent></Card>
+          {rangePreset === "custom" && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="text-xs text-muted-foreground">From</label>
+              <input type="date" value={customSince} onChange={(e) => setCustomSince(e.target.value)} className="h-8 px-2 border rounded-md bg-background text-sm" />
+              <label className="text-xs text-muted-foreground">To</label>
+              <input type="date" value={customUntil} onChange={(e) => setCustomUntil(e.target.value)} max={new Date().toISOString().slice(0, 10)} className="h-8 px-2 border rounded-md bg-background text-sm" />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Stats: calls observed, peak slot, calls/specialist/hr assumption */}
+      <div className="grid md:grid-cols-3 gap-3">
         <Card><CardContent className="pt-4 pb-4">
           <div className="text-xs text-muted-foreground flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" /> Inbound calls observed</div>
           <div className="text-2xl font-semibold tabular-nums mt-1">{summary.totalCalls}</div>
@@ -321,7 +425,7 @@ export default function OpsStaffing() {
             {summary.peakSlot ? `${summary.peakAvg.toFixed(1)}/wk` : "—"}
           </div>
           <div className="text-[11px] text-muted-foreground mt-0.5">
-            {summary.peakSlot ? `${DAYS[summary.peakSlot.day]} ${String(summary.peakSlot.hour).padStart(2, "0")}:00` : ""}
+            {summary.peakSlot ? `${DAYS[summary.peakSlot.day]} ${fmt12(summary.peakSlot.hour)}` : ""}
           </div>
         </CardContent></Card>
         <Card><CardContent className="pt-4 pb-4">
@@ -369,7 +473,7 @@ export default function OpsStaffing() {
                     <th className="text-left px-1 py-1 text-muted-foreground sticky left-0 bg-background z-10">Day</th>
                     {Array.from({ length: 24 }).map((_, h) => (
                       <th key={h} className="text-center px-1 py-1 text-[10px] text-muted-foreground tabular-nums">
-                        {String(h).padStart(2, "0")}
+                        {fmt12Short(h)}
                       </th>
                     ))}
                   </tr>
@@ -381,7 +485,7 @@ export default function OpsStaffing() {
                       {row.map((s) => (
                         <td
                           key={s.hour}
-                          title={`${DAYS[d]} ${String(s.hour).padStart(2, "0")}:00\nAvg ${s.avg_calls.toFixed(1)} inbound/wk · ${s.total_calls} total in ${s.weeks}w\nMissed rate ${s.missed_rate.toFixed(0)}%\nRecommend ${s.recommended_staff} specialist${s.recommended_staff === 1 ? "" : "s"}`}
+                          title={`${DAYS[d]} ${fmt12(s.hour)}\nAvg ${s.avg_calls.toFixed(1)} inbound/wk · ${s.total_calls} total in ${s.weeks}w\nMissed rate ${s.missed_rate.toFixed(0)}%\nRecommend ${s.recommended_staff} specialist${s.recommended_staff === 1 ? "" : "s"}`}
                           className={`text-center px-1 py-1.5 rounded tabular-nums ${cellClass(s.avg_calls)}`}
                         >
                           {s.recommended_staff > 0 ? s.recommended_staff : ""}
@@ -428,7 +532,7 @@ export default function OpsStaffing() {
             <div className="space-y-1.5">
               {summary.highMissSlots.map((s) => (
                 <div key={`${s.day}-${s.hour}`} className="flex items-center gap-3 text-sm">
-                  <span className="font-medium w-20">{DAYS[s.day]} {String(s.hour).padStart(2, "0")}:00</span>
+                  <span className="font-medium w-20">{DAYS[s.day]} {fmt12(s.hour)}</span>
                   <span className="text-muted-foreground flex-1">
                     {s.total_calls} call{s.total_calls === 1 ? "" : "s"} in {s.weeks}w · avg {s.avg_calls.toFixed(1)}/wk
                   </span>
@@ -447,27 +551,71 @@ export default function OpsStaffing() {
 
       {/* Generated schedule — recomputes live as controls change */}
       {!loading && schedule && (
-        <Card>
+        <Card className="border-l-4 border-l-blue-500">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Sliders className="w-4 h-4" /> Generated schedule
+              <Sliders className="w-4 h-4" /> How many specialists do you need?
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Greedy assignment of {headcount} specialist{headcount === 1 ? "" : "s"} to shifts that
-              maximally cover the recommended-headcount grid. Tweak the controls and the schedule
-              recomputes instantly.
+              Holding the assumptions below constant ({fmt12(earliestStart)}–{fmt12(latestEnd)},
+              7 days/week, {shiftHours}h shifts, {daysPerWeek} days per specialist), here's how
+              many you need to cover your call demand.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Controls grid */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              <ControlField label="Specialists" value={headcount} min={1} max={50} onChange={setHeadcount} />
-              <ControlField label="Shift hours" value={shiftHours} min={4} max={12} onChange={setShiftHours} />
-              <ControlField label="Days/week" value={daysPerWeek} min={1} max={7} onChange={setDaysPerWeek} />
-              <ControlField label="Lunch (hrs)" value={lunchHours} min={0} max={2} onChange={setLunchHours} />
-              <ControlField label="Earliest start" value={earliestStart} min={0} max={23} onChange={setEarliestStart} suffix=":00" />
-              <ControlField label="Latest end" value={latestEnd} min={1} max={24} onChange={setLatestEnd} suffix=":00" />
+            {/* Hero: min for full coverage + headcount input */}
+            <div className="grid md:grid-cols-2 gap-3">
+              <Card className="bg-emerald-500/5 border-emerald-500/30">
+                <CardContent className="pt-4 pb-4">
+                  <div className="text-xs text-muted-foreground">Minimum specialists for full coverage</div>
+                  <div className="text-3xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-400 mt-1">
+                    {minHeadcountFullCoverage ?? "—"}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Floor based on total weekly demand-hours and the peak concurrent slot.
+                  </div>
+                  {minHeadcountFullCoverage != null && (
+                    <Button size="sm" variant="outline" className="h-7 text-xs mt-2" onClick={() => setHeadcount(minHeadcountFullCoverage)}>
+                      Use this number
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-4">
+                  <div className="text-xs text-muted-foreground">Try a headcount</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Button size="sm" variant="outline" className="h-9 w-9 p-0" onClick={() => setHeadcount(Math.max(1, headcount - 1))}>−</Button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={headcount}
+                      onChange={(e) => setHeadcount(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                      className="text-3xl font-semibold tabular-nums w-24 h-12 px-2 border rounded-md bg-background text-center"
+                    />
+                    <Button size="sm" variant="outline" className="h-9 w-9 p-0" onClick={() => setHeadcount(headcount + 1)}>+</Button>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Total: {headcount * (shiftHours - lunchHours) * daysPerWeek}h scheduled per week
+                  </div>
+                </CardContent>
+              </Card>
             </div>
+
+            {/* Assumptions disclosure */}
+            <details className="border rounded-md" open={showAssumptions} onToggle={(e) => setShowAssumptions((e.target as HTMLDetailsElement).open)}>
+              <summary className="cursor-pointer p-3 text-xs font-semibold uppercase text-muted-foreground hover:bg-accent/40 select-none">
+                Assumptions {showAssumptions ? "" : "— click to adjust"}
+              </summary>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 p-3 border-t">
+                <ControlField label="Shift hours" value={shiftHours} min={4} max={12} onChange={setShiftHours} />
+                <ControlField label="Days/specialist" value={daysPerWeek} min={1} max={7} onChange={setDaysPerWeek} />
+                <ControlField label="Lunch (hrs)" value={lunchHours} min={0} max={2} onChange={setLunchHours} />
+                <HourPickerField label="Earliest start" value={earliestStart} onChange={setEarliestStart} min={0} max={23} />
+                <HourPickerField label="Latest end" value={latestEnd} onChange={setLatestEnd} min={1} max={24} />
+              </div>
+            </details>
 
             {/* Coverage summary */}
             <div className="grid grid-cols-3 gap-3 pt-2 border-t">
@@ -520,11 +668,11 @@ export default function OpsStaffing() {
                         {a.shift.working_days.map((d) => DAYS[d]).join(", ")}
                       </td>
                       <td className="p-2 text-xs tabular-nums">
-                        {String(a.shift.start_hour).padStart(2, "0")}:00 – {String(a.shift.end_hour).padStart(2, "0")}:00
+                        {fmt12(a.shift.start_hour)} – {fmt12(a.shift.end_hour)}
                       </td>
                       <td className="p-2 text-xs text-muted-foreground tabular-nums">
                         {lunchHours > 0
-                          ? `${String(a.shift.lunch_start_hour).padStart(2, "0")}:00 – ${String(a.shift.lunch_start_hour + lunchHours).padStart(2, "0")}:00`
+                          ? `${fmt12(a.shift.lunch_start_hour)} – ${fmt12(a.shift.lunch_start_hour + lunchHours)}`
                           : "—"}
                       </td>
                       <td className="p-2 text-xs text-right tabular-nums">{(shiftHours - lunchHours) * daysPerWeek}</td>
@@ -546,7 +694,7 @@ export default function OpsStaffing() {
                       <th className="text-left px-1 py-1 text-muted-foreground sticky left-0 bg-background z-10">Day</th>
                       {Array.from({ length: 24 }).map((_, h) => (
                         <th key={h} className="text-center px-1 py-1 text-[10px] text-muted-foreground tabular-nums">
-                          {String(h).padStart(2, "0")}
+                          {fmt12Short(h)}
                         </th>
                       ))}
                     </tr>
@@ -569,7 +717,7 @@ export default function OpsStaffing() {
                               : "bg-emerald-500/25 text-emerald-800 dark:text-emerald-300";
                           return (
                             <td key={h} className={`text-center px-1 py-1.5 rounded tabular-nums ${cls}`}
-                              title={`${DAYS[d]} ${String(h).padStart(2, "0")}:00\nDemand: ${dem}\nStaffed: ${staffed}\n${gap > 0 ? `Short ${gap}` : gap < 0 ? `Over by ${-gap}` : "Exact"}`}>
+                              title={`${DAYS[d]} ${fmt12(h)}\nDemand: ${dem}\nStaffed: ${staffed}\n${gap > 0 ? `Short ${gap}` : gap < 0 ? `Over by ${-gap}` : "Exact"}`}>
                               {staffed}{dem > 0 ? `/${dem}` : ""}
                             </td>
                           );
@@ -592,10 +740,10 @@ export default function OpsStaffing() {
                     schedule.assigned.map((a) => ({
                       specialist: a.specialist,
                       days: a.shift.working_days.map((d) => DAYS[d]).join(", "),
-                      shift_start: `${String(a.shift.start_hour).padStart(2, "0")}:00`,
-                      shift_end: `${String(a.shift.end_hour).padStart(2, "0")}:00`,
+                      shift_start: fmt12(a.shift.start_hour),
+                      shift_end: fmt12(a.shift.end_hour),
                       lunch: lunchHours > 0
-                        ? `${String(a.shift.lunch_start_hour).padStart(2, "0")}:00–${String(a.shift.lunch_start_hour + lunchHours).padStart(2, "0")}:00`
+                        ? `${fmt12(a.shift.lunch_start_hour)}–${fmt12(a.shift.lunch_start_hour + lunchHours)}`
                         : "",
                       hours_per_week: (shiftHours - lunchHours) * daysPerWeek,
                     })), [
@@ -614,6 +762,34 @@ export default function OpsStaffing() {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+// Hour-of-day picker rendered as 12-hour AM/PM dropdown.
+function HourPickerField({ label, value, min, max, onChange }: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (n: number) => void;
+}) {
+  const options: number[] = [];
+  for (let h = min; h <= max; h++) options.push(h);
+  return (
+    <div>
+      <label className="text-xs text-muted-foreground block mb-1">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full h-9 px-2 border rounded-md bg-background text-sm"
+      >
+        {options.map((h) => (
+          <option key={h} value={h}>
+            {h === 24 ? "12 AM (midnight)" : fmt12(h)}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
