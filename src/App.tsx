@@ -8,6 +8,7 @@ import { WorkflowProvider } from "@/lib/workflow-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { RoleProvider } from "@/lib/role-context";
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 import Home from "@/pages/home-v2";
 import LegacyHome from "@/pages/home";
@@ -64,6 +65,7 @@ const queryClient = new QueryClient({
 function AppRoutes() {
   return (
     <Layout>
+      <ErrorBoundary>
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/legacy-home" component={LegacyHome} />
@@ -108,6 +110,7 @@ function AppRoutes() {
         <Route path="/ops/staffing" component={OpsStaffing} />
         <Route component={NotFound} />
       </Switch>
+      </ErrorBoundary>
     </Layout>
   );
 }

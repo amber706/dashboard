@@ -77,7 +77,7 @@ export default function OpsCallbacks() {
         id, ctm_call_id, status, caller_phone_normalized, caller_name,
         started_at, ring_seconds, ctm_raw_payload,
         callback_status, callback_completed_at, callback_notes,
-        lead:leads(id, outcome_category, first_name, last_name),
+        lead:leads!call_sessions_lead_id_fkey(id, outcome_category, first_name, last_name),
         callback_completed_by_profile:profiles!call_sessions_callback_completed_by_fkey(full_name, email)
       `)
       .in("status", ["missed", "abandoned", "voicemail"])
