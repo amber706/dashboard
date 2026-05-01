@@ -79,6 +79,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/abandoned-calls", label: "Abandoned Calls", icon: <PhoneOff className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/knowledge", label: "Knowledge Review (legacy)", icon: <HelpCircle className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/ops/kb-drafts", label: "KB Drafts", icon: <BookOpen className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
+    { href: "/ops/scenario-review", label: "Scenario Review", icon: <GraduationCap className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
     { href: "/analytics", label: "Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
     { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
     { href: "/admin", label: "Admin Panel", icon: <Settings className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },

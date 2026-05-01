@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRoute, Link } from "wouter";
 import {
   ArrowLeft, Loader2, Phone, Clock, Timer, User as UserIcon, Headphones,
-  AlertTriangle, MessageSquare, Sparkles, Search, ShieldAlert,
+  AlertTriangle, MessageSquare, Sparkles, Search, ShieldAlert, GraduationCap, CheckCircle2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,6 +94,29 @@ export default function LiveCallView() {
   const [error, setError] = useState<string | null>(null);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
+
+  const [seedingScenario, setSeedingScenario] = useState(false);
+  const [seedResult, setSeedResult] = useState<{ ok: boolean; message: string; scenarioId?: string } | null>(null);
+
+  async function seedScenario() {
+    if (!callId) return;
+    setSeedingScenario(true); setSeedResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("seed-scenario-from-call", {
+        body: { call_session_id: callId },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.ok) throw new Error(data?.error ?? "seed failed");
+      const msg = data.already_seeded
+        ? `Already seeded as "${data.title}" — review queue`
+        : `Created "${data.title}" — pending manager review`;
+      setSeedResult({ ok: true, message: msg, scenarioId: data.scenario_id });
+    } catch (e) {
+      setSeedResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSeedingScenario(false);
+    }
+  }
 
   // Initial load + realtime subscription for transcript chunks
   useEffect(() => {
@@ -240,14 +263,30 @@ export default function LiveCallView() {
                 <span className="font-mono text-[10px]">CTM {call.ctm_call_id}</span>
               </div>
             </div>
-            {audio && (
-              <div className="min-w-[280px]">
-                <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5">
-                  <Headphones className="w-3 h-3" /> Recording
+            <div className="space-y-2 min-w-[280px]">
+              {audio && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5">
+                    <Headphones className="w-3 h-3" /> Recording
+                  </div>
+                  <audio controls preload="none" className="w-full" src={String(audio)} />
                 </div>
-                <audio controls preload="none" className="w-full" src={String(audio)} />
-              </div>
-            )}
+              )}
+              {chunks.length >= 8 && (
+                <div className="flex items-center gap-2 justify-end">
+                  {seedResult && (
+                    <span className={`text-xs ${seedResult.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}>
+                      {seedResult.ok && <CheckCircle2 className="w-3 h-3 inline mr-1" />}
+                      {seedResult.message.slice(0, 100)}
+                    </span>
+                  )}
+                  <Button size="sm" variant="outline" onClick={seedScenario} disabled={seedingScenario}>
+                    {seedingScenario ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <GraduationCap className="w-3 h-3 mr-1.5" />}
+                    Seed scenario from this call
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
