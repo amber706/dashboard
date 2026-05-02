@@ -1,23 +1,25 @@
 import { useEffect, useState, useCallback } from "react";
-import { Link } from "wouter";
-import { AlertTriangle, Loader2, CheckCircle2, ShieldCheck, X, Clock, Phone, Headphones, User as UserIcon, Timer } from "lucide-react";
+import {
+  AlertTriangle, Loader2, CheckCircle2, ShieldCheck, X,
+  Clock, Phone, Headphones, User as UserIcon, Timer, MapPin,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { IncidentCard, type Severity, type Status } from "@/components/dashboard/IncidentCard";
+import { GradientWord } from "@/components/dashboard/SectionHeader";
 
 type AlertType = "self_harm" | "threat_violence" | "threat_criminal" | "emergency_services";
-type Severity = "critical" | "high" | "medium";
-type Status = "pending" | "acknowledged" | "resolved";
+type AlertSeverity = "critical" | "high" | "medium";
+type AlertStatus = "pending" | "acknowledged" | "resolved";
 
 interface AlertRow {
   id: string;
   call_session_id: string;
   alert_type: AlertType;
-  severity: Severity;
-  status: Status;
+  severity: AlertSeverity;
+  status: AlertStatus;
   trigger_excerpt: string;
   trigger_chunk_id: string | null;
   classified_at: string;
@@ -46,38 +48,11 @@ function fmtDuration(seconds: number | null | undefined): string {
   return `${m}m ${s}s`;
 }
 
-function getScore(call: AlertRow["call"]): { composite_score: number | null; caller_sentiment: string | null; needs_supervisor_review: boolean | null } | null {
+function getScore(call: AlertRow["call"]) {
   if (!call?.score) return null;
-  // PostgREST may return either an object or a single-element array depending on its FK detection.
   if (Array.isArray(call.score)) return call.score[0] ?? null;
-  return call.score as any;
+  return call.score;
 }
-
-function scoreColorClass(n: number | null): string {
-  if (n == null) return "text-muted-foreground";
-  if (n >= 80) return "text-emerald-700 dark:text-emerald-400";
-  if (n >= 60) return "text-amber-700 dark:text-amber-400";
-  return "text-rose-700 dark:text-rose-400";
-}
-
-const alertTypeLabel: Record<AlertType, string> = {
-  self_harm: "Self-harm",
-  threat_violence: "Threat of violence",
-  threat_criminal: "Criminal threat",
-  emergency_services: "Emergency services",
-};
-
-const severityClass: Record<Severity, string> = {
-  critical: "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-900",
-  high: "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-900",
-  medium: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-900",
-};
-
-const statusClass: Record<Status, string> = {
-  pending: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
-  acknowledged: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  resolved: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-};
 
 function fmtTime(s: string | null): string {
   if (!s) return "—";
@@ -89,12 +64,26 @@ function fmtTime(s: string | null): string {
   });
 }
 
+const ALERT_TYPE_LABEL: Record<AlertType, string> = {
+  self_harm: "Self-harm",
+  threat_violence: "Threat of violence",
+  threat_criminal: "Criminal threat",
+  emergency_services: "Emergency services",
+};
+
+// Map domain severity to IncidentCard's broader severity scale
+function toSev(s: AlertSeverity): Severity {
+  if (s === "critical") return "critical";
+  if (s === "high") return "high";
+  return "medium";
+}
+
 export default function AlertsQueue() {
   const { user } = useAuth();
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<Status | "all">("pending");
+  const [statusFilter, setStatusFilter] = useState<AlertStatus | "all">("pending");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -126,50 +115,70 @@ export default function AlertsQueue() {
     resolved: alerts.filter((a) => a.status === "resolved").length,
   };
 
+  const filterCount = statusFilter === "all" ? alerts.length : counts[statusFilter] ?? 0;
+
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <AlertTriangle className="w-6 h-6 text-rose-600" />
-          High-priority alerts
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Crisis-language signals flagged by the AI classifier. Review, acknowledge, and sign off.
+    <div className="px-4 sm:px-6 lg:px-8 py-8 max-w-[1400px] mx-auto space-y-8">
+      {/* Page header */}
+      <header>
+        <div className="mb-3"><span className="eyebrow text-[#E89077]">00 — RISK SIGNALS</span></div>
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <h1 className="font-display text-[40px] sm:text-[48px] font-normal leading-[0.98] tracking-[-0.025em] text-[#F4EFE6] flex items-center gap-3">
+            <AlertTriangle className="w-9 h-9 text-[#E89077]" aria-hidden="true" />
+            High-priority <GradientWord>alerts.</GradientWord>
+          </h1>
+        </div>
+        <p className="mt-3 text-[15px] text-[#A6B5D0] max-w-2xl leading-relaxed">
+          Crisis-language signals flagged by the AI classifier. Review the excerpt, listen to the recording, and sign off so leadership knows it was handled.
         </p>
+        <div className="chc-divider mt-6 max-w-md opacity-80" />
+      </header>
+
+      {/* Segmented filter — pill row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {(["pending", "acknowledged", "resolved", "all"] as const).map((f) => {
+          const active = statusFilter === f;
+          const count = f === "all" ? alerts.length : counts[f] ?? 0;
+          return (
+            <button
+              key={f}
+              onClick={() => setStatusFilter(f)}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12.5px] font-medium transition-colors capitalize ${
+                active
+                  ? "bg-[#5BA3D4] text-[#02071A] shadow-[0_0_0_1px_rgba(91,163,212,0.4),_0_4px_16px_rgba(91,163,212,0.25)]"
+                  : "bg-[#0F2549] border border-[#11244A] text-[#A6B5D0] hover:border-[#1B335F] hover:text-[#F4EFE6]"
+              }`}
+            >
+              <span>{f}</span>
+              <span className={`text-[10.5px] tabular-nums px-1.5 rounded-full ${active ? "bg-white/20" : "bg-[#02071A]/60 text-[#6E7E9E]"}`}>{count}</span>
+            </button>
+          );
+        })}
       </div>
 
-      <div className="flex gap-2">
-        {(["pending", "acknowledged", "resolved", "all"] as const).map((f) => (
-          <Button
-            key={f}
-            size="sm"
-            variant={statusFilter === f ? "default" : "outline"}
-            onClick={() => setStatusFilter(f)}
-          >
-            {f}{f !== "all" && counts[f] != null && ` (${counts[f]})`}
-          </Button>
-        ))}
-      </div>
-
+      {/* States */}
       {loading && (
-        <Card><CardContent className="pt-6 text-sm text-muted-foreground flex items-center gap-2">
+        <div className="glass rounded-2xl p-6 text-sm text-[#A6B5D0] flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading alerts…
-        </CardContent></Card>
+        </div>
       )}
-
       {error && (
-        <Card className="border-destructive"><CardContent className="pt-6 text-sm text-destructive">{error}</CardContent></Card>
+        <div className="rounded-2xl border border-[#E89077]/40 bg-[#E89077]/5 p-6 text-sm text-[#E89077]">{error}</div>
       )}
-
       {!loading && !error && alerts.length === 0 && (
-        <Card><CardContent className="pt-8 text-center text-sm text-muted-foreground">
-          No alerts in this status. {statusFilter === "pending" && "That's a good thing."}
-        </CardContent></Card>
+        <div className="glass rounded-2xl p-10 text-center">
+          <div className="w-12 h-12 rounded-full bg-[#10B981]/15 text-[#10B981] flex items-center justify-center mx-auto mb-3">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <p className="text-[15px] text-[#F4EFE6]">No alerts in this status.</p>
+          <p className="text-[13px] text-[#6E7E9E] mt-1">{statusFilter === "pending" ? "That's a good thing." : `Showing ${filterCount} alert${filterCount === 1 ? "" : "s"}.`}</p>
+        </div>
       )}
 
+      {/* Alert list — IncidentCard per row */}
       <div className="space-y-3">
         {alerts.map((a) => (
-          <AlertCard
+          <AlertItem
             key={a.id}
             alert={a}
             expanded={expandedId === a.id}
@@ -183,7 +192,7 @@ export default function AlertsQueue() {
   );
 }
 
-function AlertCard({
+function AlertItem({
   alert,
   expanded,
   onToggle,
@@ -210,8 +219,8 @@ function AlertCard({
       .select("sequence_number, speaker, content")
       .eq("call_session_id", alert.call_session_id)
       .order("sequence_number", { ascending: true })
-      .then(({ data, error }) => {
-        if (!error) setTranscript((data ?? []) as any);
+      .then(({ data }) => {
+        setTranscript((data ?? []) as any);
         setTranscriptLoading(false);
       });
   }, [expanded, alert.call_session_id, transcript]);
@@ -251,146 +260,166 @@ function AlertCard({
     else onChanged();
   }
 
-  return (
-    <Card className={`border-l-4 ${severityClass[alert.severity].split(" ")[3]}`}>
-      <CardHeader className="cursor-pointer" onClick={onToggle}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-2 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge className={severityClass[alert.severity]} variant="outline">
-                {alert.severity}
-              </Badge>
-              <Badge variant="secondary">{alertTypeLabel[alert.alert_type]}</Badge>
-              <Badge className={statusClass[alert.status]} variant="secondary">{alert.status}</Badge>
-            </div>
-            <div className="text-xs text-muted-foreground flex items-center gap-x-3 gap-y-1 flex-wrap">
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3" /> {fmtTime(alert.call?.started_at ?? alert.classified_at)}
-              </span>
-              {alert.call?.talk_seconds != null && (
-                <span className="flex items-center gap-1">
-                  <Timer className="w-3 h-3" /> {fmtDuration(alert.call.talk_seconds)}
-                </span>
-              )}
-              {alert.call?.caller_phone_normalized && (
-                <span className="flex items-center gap-1">
-                  <Phone className="w-3 h-3" /> {alert.call.caller_phone_normalized}
-                  {alert.call.caller_name && ` · ${alert.call.caller_name}`}
-                </span>
-              )}
-              {alert.call?.ctm_raw_payload?.agent && (
-                <span className="flex items-center gap-1">
-                  <UserIcon className="w-3 h-3" /> Specialist: {alert.call.ctm_raw_payload.agent?.name ?? alert.call.ctm_raw_payload.agent?.email ?? String(alert.call.ctm_raw_payload.agent)}
-                </span>
-              )}
-              {alert.call?.ctm_raw_payload?.tracking_number && (
-                <span>via {String(alert.call.ctm_raw_payload.tracking_number)}</span>
-              )}
-              {alert.call?.ctm_call_id && (
-                <span className="font-mono text-[10px]">call {alert.call.ctm_call_id}</span>
-              )}
-              {(() => {
-                const score = getScore(alert.call);
-                if (!score?.composite_score) return null;
-                return (
-                  <span className="flex items-center gap-1">
-                    QA: <span className={`font-semibold ${scoreColorClass(score.composite_score)}`}>{score.composite_score}</span>
-                    {score.needs_supervisor_review && <Badge variant="outline" className="text-[10px] py-0 px-1 ml-0.5">flagged</Badge>}
-                  </span>
-                );
-              })()}
-              {alert.call?.ctm_raw_payload?.audio && (
-                <a
-                  href={String(alert.call.ctm_raw_payload.audio)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex items-center gap-1 text-foreground hover:underline"
-                >
-                  <Headphones className="w-3 h-3" /> Recording
-                </a>
-              )}
-            </div>
-            <p className="text-sm italic text-muted-foreground">"{alert.trigger_excerpt}"</p>
-          </div>
-        </div>
-      </CardHeader>
+  const score = getScore(alert.call);
+  const agent = alert.call?.ctm_raw_payload?.agent;
+  const agentName = agent?.name ?? agent?.email ?? null;
+  const callerLabel = alert.call?.caller_name ?? alert.call?.caller_phone_normalized ?? "Unknown caller";
+  // CTM caller-ID often returns "PHOENIX      AZ" — show as a pseudo-location chip
+  const callerLocation = alert.call?.ctm_raw_payload?.cnam && /^[A-Z]+\s+[A-Z]{2}$/.test(String(alert.call.ctm_raw_payload.cnam).trim())
+    ? String(alert.call.ctm_raw_payload.cnam).trim()
+    : null;
+  const recordingUrl = alert.call?.ctm_raw_payload?.audio ? String(alert.call.ctm_raw_payload.audio) : null;
 
-      {expanded && (
-        <CardContent className="border-t pt-4 space-y-4">
-          {alert.call?.ctm_raw_payload?.audio && (
-            <div>
-              <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-1.5">
-                <Headphones className="w-3 h-3" /> Call recording
-              </h4>
-              <audio controls preload="none" className="w-full" src={String(alert.call.ctm_raw_payload.audio)}>
-                Your browser does not support audio playback.
-              </audio>
-            </div>
-          )}
-          <div>
-            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Full transcript</h4>
-            {transcriptLoading ? (
-              <div className="text-sm text-muted-foreground flex items-center gap-2">
-                <Loader2 className="w-3 h-3 animate-spin" /> Loading transcript…
-              </div>
-            ) : !transcript || transcript.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No transcript available for this call.</p>
-            ) : (
-              <div className="max-h-80 overflow-y-auto space-y-1.5 border rounded-md p-3 text-sm">
-                {transcript.map((t) => (
-                  <div key={t.sequence_number}>
-                    <span className="text-xs font-medium text-muted-foreground mr-2">
-                      [{t.sequence_number}] {t.speaker ?? "?"}:
-                    </span>
-                    {t.content}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+  const timingChips = [
+    { icon: Clock, label: fmtTime(alert.call?.started_at ?? alert.classified_at), srLabel: "Time" },
+    ...(alert.call?.talk_seconds != null
+      ? [{ icon: Timer, label: fmtDuration(alert.call.talk_seconds), srLabel: "Duration" }]
+      : []),
+  ];
 
-          {alert.status !== "resolved" && (
-            <div>
-              <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Resolution notes</h4>
-              <Textarea
-                value={resolutionNotes}
-                onChange={(e) => setResolutionNotes(e.target.value)}
-                placeholder="What action was taken? E.g., warm transferred to clinical, called caller back, escalated to medical director…"
-                rows={3}
-              />
-            </div>
-          )}
+  const contextChips = [
+    {
+      icon: Phone,
+      label: <>{alert.call?.caller_phone_normalized ?? "—"}{callerLocation ? <span className="text-[#6E7E9E] ml-1">· {callerLocation}</span> : null}</>,
+      mono: true,
+      srLabel: "Caller phone",
+    },
+    ...(callerLabel !== "Unknown caller" && alert.call?.caller_name
+      ? [{ icon: UserIcon, label: alert.call.caller_name, srLabel: "Caller name" }]
+      : []),
+    ...(agentName
+      ? [{ icon: UserIcon, label: <>Specialist: <span className="text-[#F4EFE6]">{agentName}</span></>, srLabel: "Specialist" }]
+      : []),
+    ...(alert.call?.ctm_call_id
+      ? [{ label: <>call <span className="text-[#A6B5D0]">{alert.call.ctm_call_id}</span></>, mono: true, muted: true, srLabel: "CTM call ID" }]
+      : []),
+    ...(score?.composite_score != null
+      ? [{
+          label: <>QA <span className={score.composite_score >= 80 ? "text-[#10B981]" : score.composite_score >= 60 ? "text-[#E5C879]" : "text-[#E89077]"}>{score.composite_score}</span></>,
+          srLabel: "QA score",
+        }]
+      : []),
+  ];
 
-          {alert.status === "resolved" && alert.resolution_notes && (
-            <div>
-              <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-1">Resolution notes</h4>
-              <p className="text-sm">{alert.resolution_notes}</p>
-              <p className="text-xs text-muted-foreground mt-1">Resolved {fmtTime(alert.resolved_at)}</p>
-            </div>
-          )}
-
-          {actionError && <div className="text-xs text-destructive">{actionError}</div>}
-
-          <div className="flex gap-2 justify-end">
-            {alert.status === "pending" && (
-              <Button size="sm" variant="outline" onClick={acknowledge} disabled={actionLoading !== null}>
-                {actionLoading === "ack" ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <ShieldCheck className="w-3 h-3 mr-1.5" />}
-                Acknowledge
-              </Button>
-            )}
-            {alert.status !== "resolved" && (
-              <Button size="sm" onClick={resolve} disabled={actionLoading !== null}>
-                {actionLoading === "resolve" ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="w-3 h-3 mr-1.5" />}
-                Mark resolved
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" onClick={onToggle}>
-              <X className="w-3 h-3 mr-1.5" /> Close
-            </Button>
-          </div>
-        </CardContent>
+  const actions = (
+    <div className="flex flex-wrap items-center gap-2 ml-auto">
+      {recordingUrl && !expanded && (
+        <a
+          href={recordingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1.5 text-[12.5px] text-[#5BA3D4] hover:text-[#F4EFE6] transition-colors px-2 py-1"
+        >
+          <Headphones className="w-3.5 h-3.5" /> Recording
+        </a>
       )}
-    </Card>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={(e) => { e.stopPropagation(); onToggle(); }}
+        className="h-8 text-xs"
+      >
+        {expanded ? "Close" : "Review"}
+      </Button>
+      {alert.status === "pending" && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={(e) => { e.stopPropagation(); acknowledge(); }}
+          disabled={actionLoading !== null}
+          className="h-8 text-xs"
+        >
+          {actionLoading === "ack" ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <ShieldCheck className="w-3 h-3 mr-1.5" />}
+          Acknowledge
+        </Button>
+      )}
+      {alert.status !== "resolved" && (
+        <Button
+          size="sm"
+          onClick={(e) => { e.stopPropagation(); resolve(); }}
+          disabled={actionLoading !== null}
+          className="h-8 text-xs"
+        >
+          {actionLoading === "resolve" ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <CheckCircle2 className="w-3 h-3 mr-1.5" />}
+          Mark resolved
+        </Button>
+      )}
+    </div>
+  );
+
+  const expandedBody = (
+    <div className="space-y-4 mt-3">
+      {recordingUrl && (
+        <div>
+          <div className="eyebrow text-[#5BA3D4] mb-2 flex items-center gap-1.5">
+            <Headphones className="w-3 h-3" /> Call recording
+          </div>
+          <audio controls preload="none" className="w-full" src={recordingUrl}>
+            Your browser does not support audio playback.
+          </audio>
+        </div>
+      )}
+      <div>
+        <div className="eyebrow text-[#A6B5D0] mb-2">Full transcript</div>
+        {transcriptLoading ? (
+          <div className="text-sm text-[#A6B5D0] flex items-center gap-2">
+            <Loader2 className="w-3 h-3 animate-spin" /> Loading transcript…
+          </div>
+        ) : !transcript || transcript.length === 0 ? (
+          <p className="text-sm text-[#6E7E9E]">No transcript available for this call.</p>
+        ) : (
+          <div className="max-h-80 overflow-y-auto space-y-2 bg-[#050E24]/60 border border-[#11244A] rounded-lg p-3 text-[13px] leading-relaxed">
+            {transcript.map((t) => (
+              <div key={t.sequence_number}>
+                <span className="text-[11px] font-medium text-[#5BA3D4] mr-2 uppercase tracking-wide">
+                  {t.speaker ?? "?"}
+                </span>
+                <span className="text-[#A6B5D0]">{t.content}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {alert.status !== "resolved" && (
+        <div>
+          <div className="eyebrow text-[#A6B5D0] mb-2">Resolution notes</div>
+          <Textarea
+            value={resolutionNotes}
+            onChange={(e) => setResolutionNotes(e.target.value)}
+            placeholder="What action was taken? E.g., warm transferred to clinical, called caller back, escalated to medical director…"
+            rows={3}
+            className="bg-[#050E24]/60 border-[#11244A] text-[#F4EFE6] placeholder:text-[#6E7E9E]"
+          />
+        </div>
+      )}
+
+      {alert.status === "resolved" && alert.resolution_notes && (
+        <div>
+          <div className="eyebrow text-[#10B981] mb-2">Resolution</div>
+          <p className="text-[13px] text-[#F4EFE6] leading-relaxed">{alert.resolution_notes}</p>
+          <p className="text-[11.5px] text-[#6E7E9E] mt-1">Resolved {fmtTime(alert.resolved_at)}</p>
+        </div>
+      )}
+
+      {actionError && <div className="text-[12.5px] text-[#E89077]">{actionError}</div>}
+    </div>
+  );
+
+  return (
+    <IncidentCard
+      severity={toSev(alert.severity)}
+      category={ALERT_TYPE_LABEL[alert.alert_type]}
+      status={alert.status as Status}
+      timingChips={timingChips}
+      contextChips={contextChips}
+      body={<>&ldquo;{alert.trigger_excerpt}&rdquo;</>}
+      actions={actions}
+      expandable
+      defaultExpanded={expanded}
+      expandedBody={expandedBody}
+      ariaLabel={`${alert.severity} ${ALERT_TYPE_LABEL[alert.alert_type]} alert, status ${alert.status}`}
+    />
   );
 }

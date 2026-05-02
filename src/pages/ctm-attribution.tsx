@@ -119,7 +119,7 @@ export default function CTMAttribution() {
                     <Badge className="bg-amber-600/20 text-amber-400 border-amber-600/30 font-mono text-[11px]">{item.new_value}</Badge>
                   </div>
 
-                  <div className="pl-6 text-[11px] text-muted-foreground italic">{item.reason}</div>
+                  <div className="pl-6 text-[11px] text-muted-foreground">{item.reason}</div>
 
                   <div className="pl-6 flex gap-2 flex-wrap">
                     {item.status === "pending" ? (

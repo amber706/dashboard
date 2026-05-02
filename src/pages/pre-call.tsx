@@ -232,7 +232,7 @@ export default function PreCall() {
                 )}
               </div>
               {contextLine.length > 0 && (
-                <div className="text-xs text-foreground/80 italic">
+                <div className="text-xs text-foreground/80">
                   {contextLine.join(" · ")}
                 </div>
               )}

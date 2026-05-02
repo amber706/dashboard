@@ -482,7 +482,7 @@ export default function HomeV2() {
         <Card className="border-l-4 border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/15">
           <CardContent className="pt-3 pb-3">
             <div className="text-xs text-muted-foreground mb-1.5">
-              Since you last visited <span className="italic">({new Date(sinceLastVisit.since).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })})</span>
+              Since you last visited <span className="">({new Date(sinceLastVisit.since).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })})</span>
             </div>
             <div className="flex flex-wrap gap-3 text-sm">
               {sinceLastVisit.new_alerts > 0 && (
@@ -563,7 +563,7 @@ export default function HomeV2() {
                 <Link key={a.id} href={`/live/${a.call_id}`} className="block">
                   <div className="border rounded-md p-2.5 text-sm hover:bg-accent/50 transition-colors">
                     <Badge variant="outline" className="text-xs mb-1.5">{a.alert_type.replace(/_/g, " ")}</Badge>
-                    <p className="text-muted-foreground italic">"{a.trigger_excerpt.slice(0, 200)}"</p>
+                    <p className="text-muted-foreground">"{a.trigger_excerpt.slice(0, 200)}"</p>
                   </div>
                 </Link>
               ))}
@@ -707,7 +707,7 @@ export default function HomeV2() {
                   <div className="border-l-4 border-l-amber-500 border rounded-md p-2.5 text-sm hover:bg-accent/50 transition-colors">
                     <div className="font-medium">{a.scenario_title}</div>
                     {a.due_at && <div className="text-xs text-muted-foreground mt-0.5">Due {new Date(a.due_at).toLocaleDateString()}</div>}
-                    {a.manager_note && <div className="text-xs italic text-muted-foreground mt-0.5">"{a.manager_note}"</div>}
+                    {a.manager_note && <div className="text-xs text-muted-foreground mt-0.5">"{a.manager_note}"</div>}
                   </div>
                 </Link>
               ))}

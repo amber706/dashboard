@@ -257,7 +257,7 @@ export default function QAReview() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-xs text-muted-foreground italic">No transcript available.</div>
+                      <div className="text-xs text-muted-foreground">No transcript available.</div>
                     )}
                   </div>
 
@@ -271,7 +271,7 @@ export default function QAReview() {
                           <div key={i} className="border border-rose-200 dark:border-rose-900 rounded-md p-2.5 text-sm bg-rose-50 dark:bg-rose-950/20">
                             <div className="font-medium">{f.flag}</div>
                             <div className="text-muted-foreground mt-0.5">{f.description}</div>
-                            {f.transcript_ref && <div className="text-xs italic mt-1 text-muted-foreground">"{f.transcript_ref}"</div>}
+                            {f.transcript_ref && <div className="text-xs mt-1 text-muted-foreground">"{f.transcript_ref}"</div>}
                           </div>
                         ))}
                       </div>

@@ -596,7 +596,7 @@ export default function SpecialistDeepDive() {
                         <div className="text-xs text-muted-foreground flex items-center gap-2">
                           <Clock className="w-3 h-3" /> {fmtTime(w.call?.started_at ?? w.created_at)}
                           {w.coaching_takeaways?.what_went_well?.[0] && (
-                            <span className="italic truncate">— {w.coaching_takeaways.what_went_well[0]}</span>
+                            <span className="truncate">— {w.coaching_takeaways.what_went_well[0]}</span>
                           )}
                         </div>
                       </div>

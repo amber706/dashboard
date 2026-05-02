@@ -320,7 +320,7 @@ export default function LiveCallView() {
               <div key={a.id} className="text-sm">
                 <Badge variant="outline" className="mr-2">{a.severity}</Badge>
                 <span className="font-medium">{a.alert_type.replace(/_/g, " ")}</span>
-                <span className="ml-2 text-muted-foreground italic">"{a.trigger_excerpt.slice(0, 200)}"</span>
+                <span className="ml-2 text-muted-foreground">"{a.trigger_excerpt.slice(0, 200)}"</span>
               </div>
             ))}
           </CardContent>
@@ -338,7 +338,7 @@ export default function LiveCallView() {
             </CardHeader>
             <CardContent>
               {chunks.length === 0 ? (
-                <p className="text-sm text-muted-foreground italic text-center py-6">
+                <p className="text-sm text-muted-foreground text-center py-6">
                   No transcript yet. CTM transcribes after the call ends; updates will appear here automatically.
                 </p>
               ) : (
@@ -417,7 +417,7 @@ export default function LiveCallView() {
             </CardHeader>
             <CardContent>
               {extractions.length === 0 ? (
-                <p className="text-sm text-muted-foreground italic">No extractions yet.</p>
+                <p className="text-sm text-muted-foreground">No extractions yet.</p>
               ) : (
                 <div className="space-y-2">
                   {extractions.map((e, i) => (
@@ -536,7 +536,7 @@ function LiveCoachingPanel({ call, chunks, extractions }: {
             })}
           </div>
           {!isLive && (
-            <p className="text-[11px] text-muted-foreground mt-2 italic">
+            <p className="text-[11px] text-muted-foreground mt-2">
               Call has ended — checklist is final.
             </p>
           )}
@@ -550,7 +550,7 @@ function LiveCoachingPanel({ call, chunks, extractions }: {
               {queryKb.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
             </div>
             {kbHits.length === 0 && !queryKb.isPending && (
-              <p className="text-xs text-muted-foreground italic">
+              <p className="text-xs text-muted-foreground">
                 Suggestions will appear once the caller starts speaking.
               </p>
             )}
@@ -690,7 +690,7 @@ function KbSearchPanel() {
         {queryKb.data && !queryKb.isPending && (
           <div className="space-y-2">
             {sources.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic">No matches.</p>
+              <p className="text-sm text-muted-foreground">No matches.</p>
             ) : (
               <>
                 <div className="text-sm whitespace-pre-wrap border-l-2 border-primary/30 pl-3">
@@ -761,7 +761,7 @@ function CallSnapshot({ extractions, score, alerts, call }: {
         <div className="grid md:grid-cols-3 gap-4 text-sm">
           <div>
             <div className="text-xs text-muted-foreground mb-1">Caller intent</div>
-            <div>{intentParts.length > 0 ? intentParts.join(" · ") : <span className="text-muted-foreground italic">Not yet captured</span>}</div>
+            <div>{intentParts.length > 0 ? intentParts.join(" · ") : <span className="text-muted-foreground">Not yet captured</span>}</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">How it went</div>
@@ -769,13 +769,13 @@ function CallSnapshot({ extractions, score, alerts, call }: {
               {composite != null && (
                 <span className={`text-base font-semibold tabular-nums ${scoreColor(composite)}`}>{composite}</span>
               )}
-              <span>{verdict ?? <span className="text-muted-foreground italic">Not scored yet</span>}</span>
+              <span>{verdict ?? <span className="text-muted-foreground">Not scored yet</span>}</span>
             </div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">Suggested next</div>
             {nextActions.length === 0 ? (
-              <span className="text-muted-foreground italic">No specific action — review and disposition</span>
+              <span className="text-muted-foreground">No specific action — review and disposition</span>
             ) : (
               <ul className="space-y-0.5 list-disc list-inside">
                 {nextActions.slice(0, 3).map((a, i) => <li key={i}>{a}</li>)}

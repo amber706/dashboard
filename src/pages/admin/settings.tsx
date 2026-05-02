@@ -225,7 +225,7 @@ function IntegrationsStatusCard() {
           <IntegrationRow label="Supabase" desc="Database + auth + edge functions" healthLink={null} />
           <IntegrationRow label="Resend" desc="Manager notifications (optional)" healthLink={null} />
         </div>
-        <p className="text-[11px] text-muted-foreground mt-3 italic">
+        <p className="text-[11px] text-muted-foreground mt-3">
           Pipeline freshness for each integration is tracked on{" "}
           <a href="/admin/health" className="text-primary hover:underline">/admin/health</a>.
         </p>

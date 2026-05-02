@@ -546,7 +546,7 @@ function OpsOverviewContent() {
                                       <div key={i} className="border border-rose-500/30 bg-rose-500/5 rounded p-2 text-[11px]">
                                         <div className="font-medium">{f.flag}</div>
                                         {f.description && <div className="text-muted-foreground mt-0.5">{f.description}</div>}
-                                        {f.transcript_ref && <div className="italic text-muted-foreground/80 mt-1 text-[10px]">"{f.transcript_ref}"</div>}
+                                        {f.transcript_ref && <div className="text-muted-foreground/80 mt-1 text-[10px]">"{f.transcript_ref}"</div>}
                                       </div>
                                     ))}
                                   </div>

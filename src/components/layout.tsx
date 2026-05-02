@@ -74,41 +74,84 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const modeInfo = modeLabels[mode] || modeLabels.admin;
 
+  // Nav reorganized into smaller intent-grouped sections so a manager can
+  // find what they need without scrolling 22 items. Each section can be
+  // collapsed; the section containing the active page auto-expands.
   const navItems = [
+    // OVERVIEW
     { href: "/", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" />, section: "Overview", roles: ["rep", "manager", "admin"] as const },
     { href: "/me", label: "My Coaching", icon: <Award className="w-4 h-4" />, section: "Overview", roles: ["rep", "manager", "admin"] as const },
+
+    // WORKFLOW (specialist daily work)
     { href: "/ctm-calls", label: "Live Calls", icon: <Phone className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const, pulse: true },
     { href: "/kb", label: "Knowledge Base", icon: <Search className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/training", label: "Training", icon: <GraduationCap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
-    { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/team", label: "Team", icon: <Users className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/staffing", label: "Staffing Schedule", icon: <Calendar className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/attribution", label: "Attribution", icon: <Activity className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/qa-review", label: "QA Review", icon: <ShieldAlert className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/coaching", label: "Coaching Feed", icon: <Award className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const, pulse: true },
-    { href: "/ops/training-assignments", label: "Training Assignments", icon: <GraduationCap className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/callbacks", label: "Callback Queue", icon: <PhoneOff className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/outreach", label: "Outreach Gaps", icon: <PhoneIncoming className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/stuck-leads", label: "Stuck Leads", icon: <Hourglass className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/dispositions", label: "Dispositions", icon: <ClipboardCheck className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/ai-bot-feedback", label: "AI Bot Feedback", icon: <Bot className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/outcomes", label: "Outcomes", icon: <Trophy className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/kb-drafts", label: "KB Drafts", icon: <BookOpen className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/scenario-review", label: "Scenario Review", icon: <GraduationCap className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/ops/training-analytics", label: "Training Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Operations", roles: ["manager", "admin"] as const },
-    { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
-    { href: "/admin", label: "Admin Panel", icon: <Settings className="w-4 h-4" />, section: "Management", roles: ["manager", "admin"] as const },
-    { href: "/admin/health", label: "System Health", icon: <Activity className="w-4 h-4" />, section: "Management", roles: ["admin"] as const },
-    { href: "/admin/audit", label: "Audit Log", icon: <Shield className="w-4 h-4" />, section: "Management", roles: ["admin"] as const },
-    { href: "/admin/settings", label: "Notification Settings", icon: <Settings className="w-4 h-4" />, section: "Management", roles: ["admin"] as const },
-    { href: "/settings", label: "Settings", icon: <Wrench className="w-4 h-4" />, section: "Management", roles: ["admin"] as const },
+
+    // LIVE OPS (manager — what's happening right now)
+    { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+    { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const, pulse: true },
+    { href: "/ops/callbacks", label: "Callback Queue", icon: <PhoneOff className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+    { href: "/ops/outreach", label: "Outreach Gaps", icon: <PhoneIncoming className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+    { href: "/ops/stuck-leads", label: "Stuck Leads", icon: <Hourglass className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+    { href: "/ops/abandoned-calls", label: "Abandoned Calls", icon: <PhoneOff className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+    { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+
+    // QUALITY (review + coaching)
+    { href: "/ops/qa-review", label: "QA Review", icon: <ShieldAlert className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
+    { href: "/ops/coaching", label: "Coaching Feed", icon: <Award className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
+    { href: "/ops/dispositions", label: "Dispositions", icon: <ClipboardCheck className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
+    { href: "/ops/ai-bot-feedback", label: "AI Bot Feedback", icon: <Bot className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
+    { href: "/ops/supervisor-review", label: "Supervisor Review", icon: <Eye className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
+
+    // TEAM (people + capacity)
+    { href: "/ops/team", label: "Team", icon: <Users className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
+    { href: "/ops/staffing", label: "Staffing Schedule", icon: <Calendar className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
+    { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
+    { href: "/ops/training-assignments", label: "Training Assignments", icon: <GraduationCap className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
+
+    // INSIGHTS (analytics + content)
+    { href: "/ops/outcomes", label: "Outcomes", icon: <Trophy className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
+    { href: "/ops/attribution", label: "Attribution", icon: <Activity className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
+    { href: "/ops/training-analytics", label: "Training Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
+    { href: "/ops/kb-drafts", label: "KB Drafts", icon: <BookOpen className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
+    { href: "/ops/scenario-review", label: "Scenario Review", icon: <GraduationCap className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
+
+    // ADMIN
+    { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Admin", roles: ["manager", "admin"] as const },
+    { href: "/admin", label: "Admin Panel", icon: <Settings className="w-4 h-4" />, section: "Admin", roles: ["manager", "admin"] as const },
+    { href: "/admin/health", label: "System Health", icon: <Activity className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
+    { href: "/admin/audit", label: "Audit Log", icon: <Shield className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
+    { href: "/admin/settings", label: "Notification Settings", icon: <Settings className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
+    { href: "/settings", label: "Settings", icon: <Wrench className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
   ];
 
   const filteredItems = navItems.filter((item) => (item.roles as readonly string[]).includes(role));
   const sections = [...new Set(filteredItems.map((i) => i.section))];
+
+  // Track which sections are expanded; auto-expand the section containing the
+  // active page on first render and whenever the location changes.
+  const sectionForActive = filteredItems.find((i) => {
+    if (i.href === "/") return location === "/";
+    return location.startsWith(i.href.split("/").slice(0, 3).join("/"));
+  })?.section;
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    sections.forEach((s) => {
+      // Default: Overview + Workflow + the active section open; rest collapsed
+      init[s] = s === "Overview" || s === "Workflow" || s === sectionForActive;
+    });
+    return init;
+  });
+  useEffect(() => {
+    if (sectionForActive && !openSections[sectionForActive]) {
+      setOpenSections((prev) => ({ ...prev, [sectionForActive]: true }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionForActive]);
+
+  function toggleSection(s: string) {
+    setOpenSections((prev) => ({ ...prev, [s]: !prev[s] }));
+  }
 
   const navContent = (
     <>
@@ -127,36 +170,69 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
-      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
-        {sections.map((section) => (
-          <div key={section}>
-            <div className="eyebrow text-[#6E7E9E] mt-5 mb-2 px-3">
-              {section}
-            </div>
-            {filteredItems.filter((i) => i.section === section).map((item) => {
-              const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href.split("/").slice(0, 2).join("/"));
-              return (
-                <Link
-                  key={item.href + item.label}
-                  href={item.href}
-                  aria-current={isActive ? "page" : undefined}
-                  onClick={() => setDrawerOpen(false)}
-                  className={`relative flex items-center justify-between pl-4 pr-3 py-2 min-h-[36px] rounded-lg text-[13px] transition-all duration-150 ${
-                    isActive
-                      ? "nav-active bg-[#0F2549] text-[#F4EFE6] font-medium"
-                      : "text-[#A6B5D0] hover:bg-[#0F2549]/60 hover:text-[#F4EFE6]"
-                  }`}
+      <nav className="flex-1 px-3 py-3 overflow-y-auto" aria-label="Primary">
+        {sections.map((section) => {
+          const items = filteredItems.filter((i) => i.section === section);
+          const sectionHasActive = items.some((i) => {
+            if (i.href === "/") return location === "/";
+            return location.startsWith(i.href.split("/").slice(0, 3).join("/"));
+          });
+          const sectionHasPulse = items.some((i) => i.pulse);
+          // Top-level singletons (Overview/Workflow): always open, no toggle
+          const isTopLevel = section === "Overview" || section === "Workflow";
+          const open = isTopLevel || openSections[section];
+          return (
+            <div key={section} className="mt-3 first:mt-0">
+              {isTopLevel ? (
+                <div className="eyebrow text-[#6E7E9E] mb-1.5 px-3">
+                  {section}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 mb-1 rounded-md hover:bg-[#0F2549]/40 transition-colors group"
+                  aria-expanded={open}
                 >
-                  <div className="flex items-center gap-2.5">
-                    {item.icon}
-                    {item.label}
-                  </div>
-                  {item.pulse && <span className="w-1.5 h-1.5 rounded-full bg-[#E89077] animate-pulse" />}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+                  <span className="eyebrow text-[#6E7E9E] group-hover:text-[#A6B5D0] transition-colors">{section}</span>
+                  <span className="flex items-center gap-1.5">
+                    {sectionHasPulse && !open && <span className="w-1.5 h-1.5 rounded-full bg-[#E89077] animate-pulse" />}
+                    <ChevronDown className={`w-3 h-3 text-[#6E7E9E] transition-transform ${open ? "" : "-rotate-90"}`} />
+                  </span>
+                </button>
+              )}
+              {open && (
+                <ul className="space-y-0.5">
+                  {items.map((item) => {
+                    const isActive = item.href === "/"
+                      ? location === "/"
+                      : location.startsWith(item.href.split("/").slice(0, 3).join("/"));
+                    return (
+                      <li key={item.href + item.label}>
+                        <Link
+                          href={item.href}
+                          aria-current={isActive ? "page" : undefined}
+                          onClick={() => setDrawerOpen(false)}
+                          className={`relative flex items-center justify-between pl-4 pr-3 py-2 min-h-[34px] rounded-lg text-[13px] transition-all duration-150 ${
+                            isActive
+                              ? "nav-active bg-[#0F2549] text-[#F4EFE6] font-medium"
+                              : "text-[#A6B5D0] hover:bg-[#0F2549]/60 hover:text-[#F4EFE6]"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            {item.icon}
+                            {item.label}
+                          </div>
+                          {item.pulse && <span className="w-1.5 h-1.5 rounded-full bg-[#E89077] animate-pulse" aria-label="Pending items" />}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       <div className="p-4 border-t border-[#11244A] space-y-2">

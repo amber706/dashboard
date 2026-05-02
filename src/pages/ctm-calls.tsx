@@ -851,7 +851,7 @@ export default function CTMCalls() {
                               <Badge variant={ev.review_required ? "destructive" : "outline"} className="text-[9px]">{ev.action}</Badge>
                               <span className="text-muted-foreground">{ev.field}:</span>
                               <span>{ev.old_value || "(empty)"} → {ev.new_value}</span>
-                              {ev.reason && <span className="text-muted-foreground italic">({ev.reason})</span>}
+                              {ev.reason && <span className="text-muted-foreground">({ev.reason})</span>}
                             </div>
                           ))}
                         </div>

@@ -278,7 +278,7 @@ export default function LiveCall() {
                   <SuggestionFeedback suggestion={coaching.suggested_response} />
                 </div>
               ) : (
-                <p className="text-sm text-indigo-200/50 italic">Analyzing conversation...</p>
+                <p className="text-sm text-indigo-200/50">Analyzing conversation...</p>
               )}
             </div>
           </div>
@@ -311,7 +311,7 @@ export default function LiveCall() {
                               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{field.field_name}</span>
                               <ConfidenceBadge confidence={field.confidence} showLabel={false} />
                             </div>
-                            <div className="font-medium text-sm mt-0.5">{field.field_value || <span className="text-muted-foreground italic">Empty</span>}</div>
+                            <div className="font-medium text-sm mt-0.5">{field.field_value || <span className="text-muted-foreground">Empty</span>}</div>
                           </div>
                           <div className="flex gap-1 ml-2 shrink-0">
                             <Button
@@ -472,7 +472,7 @@ export default function LiveCall() {
               <ScrollArea className="flex-1 p-3">
                 <div className="space-y-3 pb-4">
                   {transcript.length === 0 ? (
-                    <div className="text-center py-8 text-xs text-muted-foreground/50 italic">Waiting for speech...</div>
+                    <div className="text-center py-8 text-xs text-muted-foreground/50">Waiting for speech...</div>
                   ) : (
                     transcript.map((chunk: any, i: number) => {
                       const isRep = chunk.speaker?.toLowerCase().includes("rep");

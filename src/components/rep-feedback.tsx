@@ -41,7 +41,7 @@ export function FieldConfirmRow({ field, onConfirm, onReject, onLock, onUnlock, 
           <ConfidenceBadge confidence={field.confidence} />
           {field.status === "locked" && <Lock className="w-3 h-3 text-blue-500" />}
         </div>
-        <div className="text-sm font-medium mt-0.5">{field.field_value || <span className="text-muted-foreground italic">Empty</span>}</div>
+        <div className="text-sm font-medium mt-0.5">{field.field_value || <span className="text-muted-foreground">Empty</span>}</div>
         {showReason && field.reason && (
           <p className="text-xs text-muted-foreground mt-1 bg-muted/30 rounded px-2 py-1">{field.reason}</p>
         )}

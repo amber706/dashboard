@@ -313,7 +313,7 @@ function LeadRow({ lead, expanded, onToggle }: { lead: Lead; expanded: boolean; 
                         </div>
                         <div className="text-foreground mt-0.5">{e.extracted_value}</div>
                         {e.source_signal && (
-                          <div className="text-xs italic text-muted-foreground mt-1">"{e.source_signal.slice(0, 200)}{e.source_signal.length > 200 ? "…" : ""}"</div>
+                          <div className="text-xs text-muted-foreground mt-1">"{e.source_signal.slice(0, 200)}{e.source_signal.length > 200 ? "…" : ""}"</div>
                         )}
                       </div>
                     ))}

@@ -697,7 +697,7 @@ export default function MyCoaching() {
                               </div>
                             )}
                             {s.coaching_takeaways?.what_to_try && s.coaching_takeaways.what_to_try.length > 0 && (
-                              <div className="text-xs text-muted-foreground italic mt-0.5">
+                              <div className="text-xs text-muted-foreground mt-0.5">
                                 Try: {s.coaching_takeaways.what_to_try[0]}
                               </div>
                             )}
@@ -740,7 +740,7 @@ export default function MyCoaching() {
                             <span className="capitalize">{a.status.replace(/_/g, " ")}</span>
                           </div>
                           {a.notes && (
-                            <p className="text-xs italic text-muted-foreground mt-0.5">"{a.notes}"</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">"{a.notes}"</p>
                           )}
                         </div>
                       </Link>
@@ -772,7 +772,7 @@ export default function MyCoaching() {
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
                             <Clock className="w-3 h-3" /> {fmtTime(w.call?.started_at ?? w.created_at)}
                             {w.coaching_takeaways?.what_went_well?.[0] && (
-                              <span className="italic">— {w.coaching_takeaways.what_went_well[0]}</span>
+                              <span className="">— {w.coaching_takeaways.what_went_well[0]}</span>
                             )}
                           </div>
                         </div>

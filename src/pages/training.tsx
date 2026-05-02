@@ -127,7 +127,7 @@ export default function TrainingScenarios() {
                             )}
                           </div>
                           {a.notes && (
-                            <p className="text-sm text-muted-foreground italic mt-1.5">"{a.notes}"</p>
+                            <p className="text-sm text-muted-foreground mt-1.5">"{a.notes}"</p>
                           )}
                         </div>
                       </div>

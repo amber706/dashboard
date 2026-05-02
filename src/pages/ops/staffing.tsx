@@ -645,7 +645,7 @@ export default function OpsStaffing() {
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-3 italic">
+            <p className="text-[11px] text-muted-foreground mt-3">
               These are the hours where missed-call rate is highest. Adding a specialist to the hours
               above is the highest-leverage staffing change you can make.
             </p>

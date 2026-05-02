@@ -215,7 +215,7 @@ function DraftRow({
             </div>
             <div className="font-medium">{draft.problem_statement}</div>
             {draft.requested_query && draft.requested_query !== draft.problem_statement && (
-              <div className="text-xs text-muted-foreground italic">searched: "{draft.requested_query}"</div>
+              <div className="text-xs text-muted-foreground">searched: "{draft.requested_query}"</div>
             )}
           </div>
         </div>

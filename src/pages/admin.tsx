@@ -791,7 +791,7 @@ export default function Admin() {
                           </td>
                           <td className="p-3 font-mono text-xs">{event.ctm_call_id}</td>
                           <td className="p-3 font-medium">{event.selected_rep_id || 'Unassigned'}</td>
-                          <td className="p-3 text-muted-foreground italic">{event.reason_text}</td>
+                          <td className="p-3 text-muted-foreground">{event.reason_text}</td>
                         </tr>
                       ))
                     )}

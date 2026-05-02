@@ -320,12 +320,12 @@ function CoachingRow({ score, highlightFlags, onSaved }: {
       {highlightFlags && flag && (
         <div className="text-xs bg-rose-500/10 text-rose-700 dark:text-rose-400 rounded p-2 border border-rose-500/30">
           <div className="font-semibold">{flag.flag ?? "Compliance flag"}</div>
-          {flag.evidence && <div className="italic mt-0.5">"{flag.evidence}"</div>}
+          {flag.evidence && <div className="mt-0.5">"{flag.evidence}"</div>}
         </div>
       )}
 
       {!highlightFlags && score.coaching_takeaways?.what_to_try?.[0] && (
-        <div className="text-xs text-muted-foreground italic">
+        <div className="text-xs text-muted-foreground">
           AI suggests: {score.coaching_takeaways.what_to_try[0]}
         </div>
       )}

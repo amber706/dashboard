@@ -245,7 +245,7 @@ function ReviewCard({ review, onSignoff }: { review: FlaggedReview; onSignoff: (
                           </div>
                           <p className="text-[11px] text-muted-foreground leading-relaxed">{concern.explanation}</p>
                           {concern.supporting_evidence && (
-                            <p className="text-[10px] text-muted-foreground/70 italic">{concern.supporting_evidence}</p>
+                            <p className="text-[10px] text-muted-foreground/70">{concern.supporting_evidence}</p>
                           )}
                         </div>
                       ))}
@@ -274,7 +274,7 @@ function ReviewCard({ review, onSignoff }: { review: FlaggedReview; onSignoff: (
                                       <span className="mx-1.5 text-border">|</span>
                                       <span className="capitalize">{match.speaker}</span>
                                       <span className="mx-1.5 text-border">|</span>
-                                      <span className="italic">"{match.snippet.slice(0, 120)}{match.snippet.length > 120 ? "..." : ""}"</span>
+                                      <span className="">"{match.snippet.slice(0, 120)}{match.snippet.length > 120 ? "..." : ""}"</span>
                                     </div>
                                   ))}
                                 </div>
@@ -328,7 +328,7 @@ function ReviewCard({ review, onSignoff }: { review: FlaggedReview; onSignoff: (
                           <div key={i} className="p-2.5 rounded-md bg-red-950/40 border border-red-700/40 text-[11px]">
                             <span className="font-medium text-red-200 capitalize">{marker.indicator || marker.type.replace(/_/g, " ")}</span>
                             {marker.context_snippet && (
-                              <p className="text-red-300/70 mt-0.5 italic">"{marker.context_snippet.slice(0, 150)}{marker.context_snippet.length > 150 ? "..." : ""}"</p>
+                              <p className="text-red-300/70 mt-0.5">"{marker.context_snippet.slice(0, 150)}{marker.context_snippet.length > 150 ? "..." : ""}"</p>
                             )}
                             {marker.detail && !marker.context_snippet && (
                               <p className="text-red-300/70 mt-0.5">{marker.detail}</p>

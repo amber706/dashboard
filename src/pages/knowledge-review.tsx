@@ -475,7 +475,7 @@ function AnswerPanel({
           <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{title}</h5>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">Insufficient Data</span>
         </div>
-        <p className="text-xs text-muted-foreground italic">Not enough data to generate this answer type.</p>
+        <p className="text-xs text-muted-foreground">Not enough data to generate this answer type.</p>
       </div>
     );
   }
@@ -504,7 +504,7 @@ function AnswerPanel({
       {answer.next_best_question && (
         <div className="mt-2">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase">Next Best Question</span>
-          <p className="text-xs text-foreground italic mt-0.5">{answer.next_best_question}</p>
+          <p className="text-xs text-foreground mt-0.5">{answer.next_best_question}</p>
         </div>
       )}
 

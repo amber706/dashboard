@@ -380,7 +380,7 @@ export default function TrainingSession() {
         <CardContent className="pt-6">
           <div ref={scrollRef} className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
             {messages.length === 0 && (
-              <p className="text-sm text-muted-foreground italic text-center py-8">
+              <p className="text-sm text-muted-foreground text-center py-8">
                 Start the conversation. The caller is on the line — open with however you'd answer a real call.
               </p>
             )}
@@ -559,7 +559,7 @@ function Scorecard({ score }: { score: ScoreResult }) {
                   <div className="font-medium">{f.flag}</div>
                   <div className="text-muted-foreground mt-1">{f.description}</div>
                   {f.transcript_ref && (
-                    <div className="text-xs italic mt-1.5 text-muted-foreground">"{f.transcript_ref}"</div>
+                    <div className="text-xs mt-1.5 text-muted-foreground">"{f.transcript_ref}"</div>
                   )}
                 </div>
               ))}

@@ -510,7 +510,7 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
             <Badge variant="outline" className="text-[10px] capitalize">{a.status}</Badge>
           </div>
           <div className="text-xs text-muted-foreground mt-0.5">{fmtTime(a.classified_at)}</div>
-          <p className="text-xs italic text-muted-foreground mt-1 line-clamp-2">"{a.trigger_excerpt}"</p>
+          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">"{a.trigger_excerpt}"</p>
         </div>
       </div>
     );
@@ -532,7 +532,7 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
           <div className="text-xs text-muted-foreground mt-0.5">
             {fmtTime(call.callback_completed_at)} (re: <Link href={`/live/${call.id}`} className="text-primary hover:underline">{fmtTime(call.started_at)}</Link>)
           </div>
-          {notes && <p className="text-xs italic text-muted-foreground mt-1">"{notes}"</p>}
+          {notes && <p className="text-xs text-muted-foreground mt-1">"{notes}"</p>}
         </div>
       </div>
     );

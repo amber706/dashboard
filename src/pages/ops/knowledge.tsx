@@ -65,7 +65,7 @@ function ProposalSection({
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{title}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">Insufficient Data</span>
         </div>
-        <p className="text-[11px] text-muted-foreground italic mt-1">Not enough data available.</p>
+        <p className="text-[11px] text-muted-foreground mt-1">Not enough data available.</p>
       </div>
     );
   }
@@ -95,7 +95,7 @@ function ProposalSection({
       {answer.next_best_question && (
         <div className="mt-1.5">
           <span className="text-[10px] font-semibold text-muted-foreground">Next Best Question:</span>
-          <p className="text-[11px] italic text-foreground mt-0.5">{answer.next_best_question}</p>
+          <p className="text-[11px] text-foreground mt-0.5">{answer.next_best_question}</p>
         </div>
       )}
 

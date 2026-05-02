@@ -339,7 +339,7 @@ export default function TrainingAnalytics() {
                         <td className="py-2 pr-3 text-right tabular-nums">{sc.completed_assignments}</td>
                         <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(sc.avg_session_score)}`}>{sc.avg_session_score ?? "—"}</td>
                         <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${liftColor}`}>
-                          {sc.real_call_lift == null ? <span className="text-xs italic">insufficient data</span> : (
+                          {sc.real_call_lift == null ? <span className="text-xs">insufficient data</span> : (
                             <>
                               {sc.real_call_lift > 0 ? "+" : ""}{sc.real_call_lift}
                               <span className="text-[10px] text-muted-foreground ml-1">n={sc.lift_sample_n}</span>

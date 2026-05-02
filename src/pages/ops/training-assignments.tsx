@@ -203,7 +203,7 @@ export default function TrainingAssignments() {
                     )}
                   </div>
                   {a.notes && (
-                    <p className="text-sm text-muted-foreground italic">"{a.notes}"</p>
+                    <p className="text-sm text-muted-foreground">"{a.notes}"</p>
                   )}
                 </div>
               </div>

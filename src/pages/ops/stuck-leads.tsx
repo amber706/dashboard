@@ -231,7 +231,7 @@ export default function OpsStuckLeads() {
                         {l.insurance_provider && <span>{l.insurance_provider}</span>}
                       </div>
                       <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
-                        <span><Activity className="w-3 h-3 inline-block" /> Last move: {l.last_transition_at ? fmtTime(l.last_transition_at) : <span className="italic">never moved</span>}</span>
+                        <span><Activity className="w-3 h-3 inline-block" /> Last move: {l.last_transition_at ? fmtTime(l.last_transition_at) : <span className="">never moved</span>}</span>
                         <span>· <Clock className="w-3 h-3 inline-block" /> Created {fmtTime(l.created_at)}</span>
                       </div>
                       {l.owner && (
