@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useQueryKb } from "@/lib/workspace-api-stub";
+import { PriorConversationsPanel } from "@/components/calls/prior-conversations-panel";
 
 interface Call {
   id: string;
@@ -302,6 +303,16 @@ export default function LiveCallView() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Prior conversations — what we know from earlier calls with the
+          same caller. Renders nothing for first-time callers. */}
+      {call && (
+        <PriorConversationsPanel
+          leadId={call.lead_id ?? null}
+          phone={call.caller_phone_normalized ?? null}
+          excludeCallId={call.id}
+        />
+      )}
 
       {/* Post-call snapshot — synthesizes what's known into a quick wrap-up brief */}
       {chunks.length > 0 && <CallSnapshot extractions={extractions} score={score} alerts={alerts} call={call} />}

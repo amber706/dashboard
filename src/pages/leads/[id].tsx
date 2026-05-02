@@ -8,6 +8,7 @@ import {
   Calendar as CalendarIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { PriorConversationsPanel } from "@/components/calls/prior-conversations-panel";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -372,6 +373,12 @@ export default function LeadDetail() {
             4. Captured from calls: extracted facts in a dense grid
             5. Marketing attribution: only if present
       */}
+
+      {/* 0. PRIOR CONVERSATIONS — what we already know from earlier
+             calls with the same caller. Renders nothing for first
+             contacts. Sits at the very top so a rep on a callback
+             sees the context before opening anything else. */}
+      <PriorConversationsPanel leadId={lead.id} />
 
       {/* 1. FACTS ON FILE — front and center now. Reps want to know
              who they're calling before they decide what to do, so the
