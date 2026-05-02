@@ -364,17 +364,21 @@ export default function LeadDetail() {
         </CardContent>
       </Card>
 
-      {/* Page reads top-to-bottom in the rep's natural workflow. Sidebar
-          gone — primary actions don't belong in a side rail.
-            1. Action band: VOB | Intake | Lost reason — only the cards
-               relevant to this lead's state, side by side
-            2. Timeline: history full-width
-            3. Captured from calls: extracted facts in a dense grid
-            4. Facts on file: editable reference data
+      {/* Page reads top-to-bottom in the rep's natural workflow:
+            1. Facts on file: who this person is + what we know
+            2. Action band: VOB | Intake | Lost reason — actions for
+               this lead's current state
+            3. Timeline: chronological history
+            4. Captured from calls: extracted facts in a dense grid
             5. Marketing attribution: only if present
       */}
 
-      {/* 1. ACTION BAND — at most three cards, side by side, only the
+      {/* 1. FACTS ON FILE — front and center now. Reps want to know
+             who they're calling before they decide what to do, so the
+             editable fact card sits at the top instead of being buried. */}
+      <EditableLeadFacts lead={lead} onSaved={(updated) => setLead(updated)} />
+
+      {/* 2. ACTION BAND — at most three cards, side by side, only the
              ones that actually apply to this lead. Each panel's empty
              state already invites the action, so a missing card means
              the action isn't relevant (no insurance → no VOB card). */}
@@ -422,10 +426,6 @@ export default function LeadDetail() {
           </CardContent>
         </Card>
       )}
-
-      {/* 4. FACTS ON FILE — reference card, editable, lives below the
-             action + timeline because it's not what reps come here to do. */}
-      <EditableLeadFacts lead={lead} onSaved={(updated) => setLead(updated)} />
 
       {/* 5. MARKETING ATTRIBUTION — only when populated. */}
       {(lead.first_touch_source_category || lead.first_touch_campaign) && (
