@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck,
+  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -110,6 +110,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/staffing", label: "Staffing Schedule", icon: <Calendar className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
     { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
     { href: "/ops/training-assignments", label: "Training Assignments", icon: <GraduationCap className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
+    { href: "/ops/training-paths", label: "Training Paths", icon: <Route className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
 
     // INSIGHTS (analytics + content)
     { href: "/ops/outcomes", label: "Outcomes", icon: <Trophy className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },

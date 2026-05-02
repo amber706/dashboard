@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { Loader2, AlertTriangle, Shield, Calendar, Inbox } from "lucide-react";
+import { Loader2, AlertTriangle, Shield, Calendar, Inbox, Route, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,20 +29,38 @@ interface Assignment {
   due_at: string | null;
   status: "assigned" | "in_progress" | "completed" | "overdue";
   notes: string | null;
+  source_path_id?: string | null;
   scenario: { id: string; title: string; difficulty: string; is_crisis_tagged: boolean } | null;
+}
+
+interface TrainingPath {
+  id: string;
+  title: string;
+  description: string | null;
+  scenario_ids: string[];
+}
+
+interface PathProgress {
+  path: TrainingPath;
+  total: number;
+  completed: number;
+  in_progress: number;
+  next_scenario_id: string | null;
+  next_scenario_title: string | null;
 }
 
 export default function TrainingScenarios() {
   const { user } = useAuth();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [pathProgress, setPathProgress] = useState<PathProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [scRes, asRes] = await Promise.all([
+      const [scRes, asRes, pathsRes] = await Promise.all([
         supabase
           .from("training_scenarios")
           .select("id, title, description, difficulty, is_crisis_tagged, involves_minors, programs, skill_tags")
@@ -52,18 +70,62 @@ export default function TrainingScenarios() {
           ? supabase
               .from("training_assignments")
               .select(`
-                id, scenario_id, due_at, status, notes,
+                id, scenario_id, due_at, status, notes, source_path_id,
                 scenario:training_scenarios(id, title, difficulty, is_crisis_tagged)
               `)
               .eq("specialist_id", user.id)
-              .in("status", ["assigned", "in_progress", "overdue"])
               .order("assigned_at", { ascending: false })
+              .limit(200)
           : Promise.resolve({ data: [], error: null }),
+        supabase
+          .from("training_paths")
+          .select("id, title, description, scenario_ids")
+          .eq("is_published", true)
+          .order("title"),
       ]);
       if (cancelled) return;
       if (scRes.error) setError(scRes.error.message);
       else setScenarios((scRes.data ?? []) as Scenario[]);
-      if (asRes.data) setAssignments(asRes.data as unknown as Assignment[]);
+      const allAssignments = (asRes.data ?? []) as unknown as Assignment[];
+      // Show only open assignments in the "assigned to you" rail; the full
+      // list is used to compute path progress below.
+      setAssignments(allAssignments.filter((a) => ["assigned", "in_progress", "overdue"].includes(a.status)));
+
+      // Compute progress per published path. A path scenario is "complete"
+      // for the specialist if any training_assignments row for that
+      // specialist + scenario has status='completed'.
+      const completedScenarioIds = new Set(
+        allAssignments.filter((a) => a.status === "completed" && a.scenario_id).map((a) => a.scenario_id!),
+      );
+      const inProgressScenarioIds = new Set(
+        allAssignments.filter((a) => a.status === "in_progress" && a.scenario_id).map((a) => a.scenario_id!),
+      );
+      const scenarioMap = new Map<string, { id: string; title: string }>();
+      for (const sc of (scRes.data ?? []) as Scenario[]) scenarioMap.set(sc.id, { id: sc.id, title: sc.title });
+
+      const progress: PathProgress[] = ((pathsRes.data ?? []) as TrainingPath[]).map((p) => {
+        let completed = 0; let inProgress = 0;
+        let nextId: string | null = null;
+        for (const sId of p.scenario_ids) {
+          if (completedScenarioIds.has(sId)) completed++;
+          else if (inProgressScenarioIds.has(sId)) {
+            inProgress++;
+            if (!nextId) nextId = sId;
+          } else if (!nextId) {
+            nextId = sId;
+          }
+        }
+        return {
+          path: p,
+          total: p.scenario_ids.length,
+          completed,
+          in_progress: inProgress,
+          next_scenario_id: nextId,
+          next_scenario_title: nextId ? scenarioMap.get(nextId)?.title ?? null : null,
+        };
+      });
+      setPathProgress(progress);
+
       setLoading(false);
     })();
     return () => {
@@ -98,6 +160,56 @@ export default function TrainingScenarios() {
         <Card>
           <CardContent className="pt-6 text-sm text-muted-foreground">No published scenarios yet.</CardContent>
         </Card>
+      )}
+
+      {pathProgress.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground">
+            <Route className="w-4 h-4" /> Training paths ({pathProgress.length})
+          </h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {pathProgress.map(({ path, total, completed, in_progress, next_scenario_id, next_scenario_title }) => {
+              const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+              const isDone = completed === total && total > 0;
+              return (
+                <Card key={path.id} className={isDone ? "border-emerald-500/30" : ""}>
+                  <CardContent className="pt-4 pb-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium flex items-center gap-2">
+                          {isDone && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+                          <span className="truncate">{path.title}</span>
+                        </div>
+                        {path.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{path.description}</p>
+                        )}
+                      </div>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{completed}/{total}</Badge>
+                    </div>
+                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div className={`h-full ${isDone ? "bg-emerald-500" : "bg-blue-500"}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    {!isDone && next_scenario_id && next_scenario_title && (
+                      <Link href={`/training/${next_scenario_id}`} className="block">
+                        <div className="text-xs flex items-center justify-between gap-2 pt-1">
+                          <span className="text-muted-foreground truncate">
+                            Next: {next_scenario_title}
+                          </span>
+                          <span className="text-blue-600 dark:text-blue-400 shrink-0">Start →</span>
+                        </div>
+                      </Link>
+                    )}
+                    {in_progress > 0 && !isDone && (
+                      <div className="text-[10px] text-amber-700 dark:text-amber-400">
+                        {in_progress} in progress
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {assignments.length > 0 && (
