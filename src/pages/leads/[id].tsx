@@ -382,9 +382,41 @@ export default function LeadDetail() {
               )}
             </CardContent>
           </Card>
+
+          {/* Captured from calls — moved into the left column so the
+              chronological + extracted content live together, and so
+              the Timeline card isn't an island in a tall page. */}
+          {extractions.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" /> Captured from calls
+                  <Badge variant="outline" className="text-[10px] ml-1">{extractions.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                  {extractions.slice(0, 18).map((f, i) => (
+                    <div key={`${f.field_name}-${i}`} className="flex items-start gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-muted-foreground capitalize">{f.field_name.replace(/_/g, " ")}</div>
+                        <div className="truncate">{f.extracted_value}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        {/* Right: facts (editable) + extractions + notes */}
+        {/* Right: state + actions, stacked in workflow order:
+            1. Facts on file (editable) — compact, empty fields collapsed
+            2. VOB panel (only renders when there's insurance to verify)
+            3. Intake schedule (always renders — primary call-to-action)
+            4. Lost reason (only renders when outcome=lost)
+            5. Marketing attribution (only renders when present) */}
         <div className="space-y-4">
           <EditableLeadFacts lead={lead} onSaved={(updated) => setLead(updated)} />
 
@@ -406,29 +438,6 @@ export default function LeadDetail() {
                 {lead.first_touch_campaign && (
                   <FactRow label="Campaign" value={lead.first_touch_campaign} />
                 )}
-              </CardContent>
-            </Card>
-          )}
-
-          {extractions.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" /> Captured from calls
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-1 text-sm">
-                  {extractions.slice(0, 12).map((f, i) => (
-                    <div key={`${f.field_name}-${i}`} className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs text-muted-foreground capitalize">{f.field_name.replace(/_/g, " ")}</div>
-                        <div className="truncate">{f.extracted_value}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </CardContent>
             </Card>
           )}
@@ -658,6 +667,69 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
   return null;
 }
 
+// Helper: is a fact value "empty" — used by the read-only Facts on file
+// view to collapse all the em-dash rows that crowd the panel when the
+// lead hasn't been worked yet.
+function isEmptyFact(v: string | null | undefined): boolean {
+  return v == null || v === "—" || (typeof v === "string" && v.trim() === "");
+}
+
+// Read-only Facts on file. Renders only populated fields by default;
+// empty fields collapse under a "Show N empty fields" footer so the
+// panel doesn't waste vertical space on em-dash rows. Notes get their
+// own block at the bottom so they read naturally.
+function FactsReadOnly({ lead }: { lead: Lead }) {
+  const [showEmpty, setShowEmpty] = useState(false);
+  const fields: Array<{ label: string; value: string | null }> = [
+    { label: "First name", value: lead.first_name },
+    { label: "Last name", value: lead.last_name },
+    { label: "Email", value: lead.email },
+    { label: "Insurance provider", value: lead.insurance_provider },
+    { label: "Member ID", value: lead.member_id },
+    { label: "Admissions rep", value: lead.owner?.full_name ?? lead.owner?.email ?? null },
+    { label: "Insurance qualified", value: lead.insurance_qualified == null ? null : (lead.insurance_qualified ? "Yes" : "No") },
+    { label: "Urgency", value: lead.urgency },
+    { label: "Relationship to patient", value: lead.relationship_to_patient },
+    { label: "Callback preference", value: lead.callback_preference },
+    { label: "Requested level of care", value: lead.program_interest && lead.program_interest.length > 0 ? lead.program_interest.join(", ") : null },
+    { label: "Interaction status", value: lead.stage },
+    { label: "Lead score rating", value: lead.lead_score },
+  ];
+  const populated = fields.filter((f) => !isEmptyFact(f.value));
+  const empty = fields.filter((f) => isEmptyFact(f.value));
+
+  return (
+    <>
+      {populated.length === 0 && !showEmpty && (
+        <div className="text-sm text-muted-foreground py-2">
+          No facts captured yet — open Edit or wait for AI extraction from the next call.
+        </div>
+      )}
+      {populated.map((f) => (
+        <FactRow key={f.label} label={f.label} value={f.value as string} />
+      ))}
+      {showEmpty && empty.map((f) => (
+        <FactRow key={f.label} label={f.label} value="—" />
+      ))}
+      {empty.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowEmpty(!showEmpty)}
+          className="text-xs text-muted-foreground hover:text-foreground pt-1.5 transition-colors text-left"
+        >
+          {showEmpty ? "Hide empty fields" : `Show ${empty.length} empty field${empty.length === 1 ? "" : "s"}`}
+        </button>
+      )}
+      {lead.notes && (
+        <div className="pt-2 border-t">
+          <div className="text-xs text-muted-foreground mb-1">Notes</div>
+          <div className="text-sm whitespace-pre-wrap">{lead.notes}</div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function FactRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-2 text-sm">
@@ -868,27 +940,7 @@ function EditableLeadFacts({ lead, onSaved }: { lead: Lead; onSaved: (lead: Lead
             </div>
           </>
         ) : (
-          <>
-            <FactRow label="First name" value={lead.first_name ?? "—"} />
-            <FactRow label="Last name" value={lead.last_name ?? "—"} />
-            <FactRow label="Email" value={lead.email ?? "—"} />
-            <FactRow label="Insurance provider" value={lead.insurance_provider ?? "—"} />
-            <FactRow label="Member ID" value={lead.member_id ?? "—"} />
-            <FactRow label="Admissions rep" value={lead.owner?.full_name ?? lead.owner?.email ?? "—"} />
-            <FactRow label="Insurance qualified" value={lead.insurance_qualified == null ? "—" : (lead.insurance_qualified ? "Yes" : "No")} />
-            <FactRow label="Urgency" value={lead.urgency ?? "—"} />
-            <FactRow label="Relationship to patient" value={lead.relationship_to_patient ?? "—"} />
-            <FactRow label="Callback preference" value={lead.callback_preference ?? "—"} />
-            <FactRow label="Requested level of care" value={lead.program_interest && lead.program_interest.length > 0 ? lead.program_interest.join(", ") : "—"} />
-            <FactRow label="Interaction status" value={lead.stage ?? "—"} />
-            <FactRow label="Lead score rating" value={lead.lead_score ?? "—"} />
-            {lead.notes && (
-              <div className="pt-2 border-t">
-                <div className="text-xs text-muted-foreground mb-1">Notes</div>
-                <div className="text-sm whitespace-pre-wrap">{lead.notes}</div>
-              </div>
-            )}
-          </>
+          <FactsReadOnly lead={lead} />
         )}
       </CardContent>
     </Card>
