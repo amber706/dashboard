@@ -3,7 +3,7 @@ import { useParams, Link } from "wouter";
 import {
   ArrowLeft, Loader2, User as UserIcon, Phone, Clock, ChevronRight,
   TrendingUp, TrendingDown, Award, AlertTriangle, ShieldAlert, Trophy,
-  GraduationCap, Activity, MessageSquare,
+  GraduationCap, Activity, MessageSquare, Sparkles, RefreshCw,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/lib/supabase";
@@ -339,6 +339,10 @@ export default function SpecialistDeepDive() {
           </Link>
         </div>
       </div>
+
+      {/* AI 1:1 prep — synthesizes recent signal into 4-6 talking points
+          a manager can scan in 30 seconds before the weekly 1:1. */}
+      <OneOnOnePrep specialistId={profile.id} />
 
       {/* Headline tiles */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -685,5 +689,118 @@ function Tile({ label, value, sub, valueClass, trend }: {
         </div>
       )}
     </div>
+  );
+}
+
+
+interface TalkingPoint {
+  category: "win" | "concern" | "coaching" | "next";
+  headline: string;
+  detail: string;
+  data_ref?: string;
+}
+
+const CATEGORY_TONE: Record<string, string> = {
+  win: "border-emerald-500/40 bg-emerald-500/5",
+  concern: "border-rose-500/40 bg-rose-500/5",
+  coaching: "border-amber-500/40 bg-amber-500/5",
+  next: "border-blue-500/40 bg-blue-500/5",
+};
+const CATEGORY_LABEL: Record<string, string> = {
+  win: "Win",
+  concern: "Concern",
+  coaching: "Coaching focus",
+  next: "Next step",
+};
+const CATEGORY_DOT: Record<string, string> = {
+  win: "bg-emerald-500",
+  concern: "bg-rose-500",
+  coaching: "bg-amber-500",
+  next: "bg-blue-500",
+};
+
+// AI-generated talking points for a 1:1 meeting. Calls generate-1on1-prep
+// on demand (no cache yet — Claude is fast enough that a fresh take per
+// click is fine, and the data changes between meetings anyway).
+function OneOnOnePrep({ specialistId }: { specialistId: string }) {
+  const [points, setPoints] = useState<TalkingPoint[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+
+  async function generate() {
+    setLoading(true); setError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-1on1-prep`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ specialist_id: specialistId, period_days: 14 }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error ?? "generation failed");
+      setPoints(json.talking_points ?? []);
+      setGeneratedAt(json.generated_at ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="border-blue-500/30">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center justify-between gap-2 flex-wrap">
+          <span className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-blue-500" />
+            1:1 prep
+            <span className="text-xs text-muted-foreground font-normal">last 14 days</span>
+          </span>
+          <Button size="sm" variant={points ? "outline" : "default"} onClick={generate} disabled={loading} className="gap-1.5 h-8">
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : points ? <RefreshCw className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {loading ? "Generating…" : points ? "Re-generate" : "Generate talking points"}
+          </Button>
+        </CardTitle>
+      </CardHeader>
+      {(points || error) && (
+        <CardContent>
+          {error && <div className="text-sm text-destructive">{error}</div>}
+          {points && points.length === 0 && (
+            <div className="text-sm text-muted-foreground">Not enough data yet to suggest talking points.</div>
+          )}
+          {points && points.length > 0 && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {points.map((p, i) => (
+                  <div key={i} className={`border rounded-md p-3 ${CATEGORY_TONE[p.category] ?? ""}`}>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${CATEGORY_DOT[p.category] ?? "bg-zinc-500"}`} />
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{CATEGORY_LABEL[p.category] ?? p.category}</span>
+                    </div>
+                    <div className="text-sm font-medium mb-1">{p.headline}</div>
+                    <div className="text-xs text-muted-foreground leading-relaxed">{p.detail}</div>
+                    {p.data_ref && (
+                      <div className="text-[10px] text-muted-foreground/80 mt-1.5 italic">
+                        {p.data_ref}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {generatedAt && (
+                <div className="text-[10px] text-muted-foreground mt-2 text-right">
+                  Generated {new Date(generatedAt).toLocaleString()}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      )}
+    </Card>
   );
 }

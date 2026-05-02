@@ -223,10 +223,16 @@ export default function CTMCalls() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await apiFetch("/ctm-admin/stats");
+      const params = new URLSearchParams();
+      if (dateRange) {
+        params.set("start_date", formatDateParam(dateRange.startDate));
+        params.set("end_date", formatDateParam(dateRange.endDate));
+      }
+      const qs = params.toString();
+      const res = await apiFetch(`/ctm-admin/stats${qs ? `?${qs}` : ""}`);
       if (res.ok) setStats(await res.json());
     } catch {}
-  }, []);
+  }, [dateRange]);
 
   useEffect(() => { fetchCalls(); }, [fetchCalls]);
   useEffect(() => { fetchStats(); }, [fetchStats]);

@@ -1024,16 +1024,38 @@ async function getCTMCallDetail(ctmCallId: string): Promise<Response> {
 }
 
 // CTM Stats: counters for the page header.
-async function getCTMStats(): Promise<Response> {
-  const sinceISO = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+async function getCTMStats(queryString: string): Promise<Response> {
+  // Honor the same start_date / end_date params the call list uses so the
+  // top scorecard tiles match the filter the rep set. Falls back to MTD
+  // when no params are supplied (matches getDefaultDateRange in the
+  // date-range-picker so URL-less loads land on the same window).
+  const params = new URLSearchParams(queryString);
+  const startParam = params.get("start_date");
+  const endParam = params.get("end_date");
+  let startDate: Date;
+  let endDate: Date;
+  if (startParam && endParam) {
+    startDate = new Date(startParam + "T00:00:00");
+    endDate = new Date(endParam + "T23:59:59.999");
+  } else {
+    const now = new Date();
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    endDate = now;
+  }
+  const startISO = startDate.toISOString();
+  const endISO = endDate.toISOString();
+
+  const inWindow = (q: any) => q.gte("started_at", startISO).lte("started_at", endISO);
+
   const [{ count: total }, { count: pending }, inboundRes, outboundRes, missedRes, withRecRes, withTransRes] = await Promise.all([
-    supabase.from("call_sessions").select("id", { count: "exact", head: true }).gte("created_at", sinceISO),
+    inWindow(supabase.from("call_sessions").select("id", { count: "exact", head: true })),
+    // Pending reviews aren't time-bounded; an old flagged call still needs review until signed off.
     supabase.from("call_scores").select("id", { count: "exact", head: true }).eq("needs_supervisor_review", true).is("supervisor_signoff_at", null),
-    supabase.from("call_sessions").select("id", { count: "exact", head: true }).eq("direction", "inbound").gte("created_at", sinceISO),
-    supabase.from("call_sessions").select("id", { count: "exact", head: true }).eq("direction", "outbound").gte("created_at", sinceISO),
-    supabase.from("call_sessions").select("id", { count: "exact", head: true }).in("status", ["missed", "abandoned"]).gte("created_at", sinceISO),
-    supabase.from("call_sessions").select("id", { count: "exact", head: true }).not("ctm_raw_payload->>audio", "is", null).gte("created_at", sinceISO),
-    supabase.from("call_sessions").select("id", { count: "exact", head: true }).not("ctm_raw_payload->>transcription_text", "is", null).gte("created_at", sinceISO),
+    inWindow(supabase.from("call_sessions").select("id", { count: "exact", head: true }).eq("direction", "inbound")),
+    inWindow(supabase.from("call_sessions").select("id", { count: "exact", head: true }).eq("direction", "outbound")),
+    inWindow(supabase.from("call_sessions").select("id", { count: "exact", head: true }).in("status", ["missed", "abandoned"])),
+    inWindow(supabase.from("call_sessions").select("id", { count: "exact", head: true }).not("ctm_raw_payload->>audio", "is", null)),
+    inWindow(supabase.from("call_sessions").select("id", { count: "exact", head: true }).not("ctm_raw_payload->>transcription_text", "is", null)),
   ]);
   const { count: agents } = await supabase.from("profiles").select("id", { count: "exact", head: true }).eq("is_active", true).in("role", ["specialist", "manager"]);
 
@@ -1050,6 +1072,7 @@ async function getCTMStats(): Promise<Response> {
       calls_with_recording: withRecRes.count ?? 0,
       calls_with_transcript: withTransRes.count ?? 0,
     },
+    window: { start_date: startISO, end_date: endISO },
   });
 }
 
@@ -1090,7 +1113,7 @@ async function routeApiPath(
     case "/ctm-admin/calls":
       return getCTMCalls(queryString);
     case "/ctm-admin/stats":
-      return getCTMStats();
+      return getCTMStats(queryString);
     default: {
       const ctmDetailMatch = pathOnly.match(/^\/ctm-admin\/calls\/([^/]+)$/);
       if (ctmDetailMatch) return getCTMCallDetail(ctmDetailMatch[1]);

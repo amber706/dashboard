@@ -138,10 +138,13 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
   );
 }
 
+// Default date range across the app — Month-to-date. Resets on the 1st
+// of every month, which is the natural cadence managers think in.
+// (Was Last 30 Days; rolling-window broke MTD reports.)
 export function getDefaultDateRange(): DateRange {
   const now = new Date();
   return {
-    startDate: startOfDay(subDays(now, 29)),
+    startDate: startOfMonth(now),
     endDate: endOfDay(now),
   };
 }
