@@ -153,7 +153,10 @@
   --app-font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --app-font-serif: Georgia, 'Times New Roman', serif;
   --app-font-mono: 'JetBrains Mono', 'Spline Sans Mono', ui-monospace, 'SF Mono', monospace;
-  --app-font-display: 'Fraunces', 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  /* Display headings use the same Inter as body — readable, no decorative
+     serif. The variable is kept so we can tune in one place if we later
+     want a tighter display weight. */
+  --app-font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --radius: 0.625rem;
 
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.04);
@@ -176,20 +179,23 @@
   --elevate-1: rgba(255,255,255, .03);
   --elevate-2: rgba(255,255,255, .06);
 
-  --background: 228 20% 10%;
+  --background: 228 22% 9%;
   --foreground: 220 14% 96%;
 
-  --border: 226 16% 18%;
-  --input: 226 16% 18%;
+  /* Card surfaces are pulled up to ~19% lightness so they stand off the
+     body gradient (which floors near pure black). Borders bumped to ~28%
+     so edges read clearly without being noisy. */
+  --border: 226 16% 26%;
+  --input: 226 16% 22%;
   --ring: 220 70% 55%;
 
-  --card: 228 18% 12%;
+  --card: 226 16% 18%;
   --card-foreground: 220 14% 96%;
-  --card-border: 226 16% 18%;
+  --card-border: 226 16% 28%;
 
-  --popover: 228 18% 12%;
+  --popover: 226 16% 18%;
   --popover-foreground: 220 14% 96%;
-  --popover-border: 226 16% 18%;
+  --popover-border: 226 16% 28%;
 
   --primary: 220 70% 55%;
   --primary-foreground: 0 0% 100%;
@@ -340,16 +346,17 @@
       linear-gradient(135deg, rgba(91,163,212,0.7), rgba(232,144,119,0.6)) border-box;
   }
 
-  /* Glassmorphism */
+  /* Glassmorphism — pulled up to ~22% luminance equivalent so cards
+     stand off the body gradient instead of disappearing into it. */
   .glass {
-    background: rgba(10, 24, 56, 0.65);
+    background: rgba(34, 44, 70, 0.85);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
-    border: 1px solid rgba(244, 239, 230, 0.07);
+    border: 1px solid rgba(244, 239, 230, 0.14);
   }
   .glass:hover {
-    background: rgba(15, 37, 73, 0.75);
-    border-color: rgba(244, 239, 230, 0.12);
+    background: rgba(44, 56, 86, 0.92);
+    border-color: rgba(244, 239, 230, 0.22);
   }
   .glass-sunken {
     background: rgba(2, 7, 26, 0.75);
@@ -375,10 +382,12 @@
     text-transform: uppercase;
   }
 
-  /* Display heading helper — Fraunces with proper letter-spacing */
+  /* Display heading helper. Now resolves to Inter via --app-font-display
+     (no decorative serif). Pulled to weight 600 since Inter at 400 reads
+     thin at headline sizes. */
   .font-display {
     font-family: var(--app-font-display);
-    font-feature-settings: "ss01", "ss02";
+    font-weight: 600;
     letter-spacing: -0.02em;
   }
 
@@ -413,13 +422,12 @@
    apply the new tokens. */
 .dark body,
 html.dark body {
-  background-color: #01030E;
+  background-color: #0E1730;
   background-image: linear-gradient(135deg,
-    #0A1838 0%,
-    #071229 25%,
-    #050E24 50%,
-    #03081A 75%,
-    #01030E 100%);
+    #15233F 0%,
+    #111B36 30%,
+    #0E1730 60%,
+    #0B1428 100%);
   background-attachment: fixed;
   background-size: 100% 100%;
   color: #F4EFE6;
