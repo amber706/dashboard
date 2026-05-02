@@ -84,6 +84,10 @@ interface Lead {
   lost_reason: LostReason | null;
   lost_reason_notes: string | null;
   lost_reason_set_at: string | null;
+  lead_quality_score: number | null;
+  lead_quality_tier: "A" | "B" | "C" | "D" | null;
+  lead_quality_reason: string | null;
+  lead_quality_scored_at: string | null;
   owner: { id: string; full_name: string | null; email: string | null } | null;
 }
 
@@ -304,6 +308,20 @@ export default function LeadDetail() {
                 <Badge className={`${OUTCOME_CLASS[cat]} border text-[10px] uppercase`} variant="outline">
                   {OUTCOME_LABEL[cat]}
                 </Badge>
+                {lead.lead_quality_tier && (
+                  <Badge
+                    variant="outline"
+                    title={lead.lead_quality_reason ?? `Quality score: ${lead.lead_quality_score ?? "—"}`}
+                    className={`text-[10px] font-semibold ${
+                      lead.lead_quality_tier === "A" ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
+                      : lead.lead_quality_tier === "B" ? "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10"
+                      : lead.lead_quality_tier === "C" ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
+                      : "border-zinc-500/40 text-zinc-600 dark:text-zinc-400 bg-zinc-500/10"
+                    }`}
+                  >
+                    Tier {lead.lead_quality_tier} · {lead.lead_quality_score ?? "—"}
+                  </Badge>
+                )}
                 {lead.stage && <Badge variant="outline" className="text-[10px]">stage: {lead.stage}</Badge>}
                 {lead.is_active === false && <Badge variant="outline" className="text-[10px] opacity-60">inactive</Badge>}
               </div>

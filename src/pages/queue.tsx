@@ -38,15 +38,19 @@ interface QueueItem {
   owner_name: string | null;
   insurance_provider: string | null;
   urgency: string | null;
+  lead_quality_tier: "A" | "B" | "C" | "D" | null;
+  lead_quality_score: number | null;
   // Sortable timestamp — earliest action needed first.
-  // For callbacks: the call's started_at (older = more urgent).
-  // For VOB pending: lead created_at.
-  // For intake: scheduled_at (earliest first).
-  // For outreach: last contact (older = more urgent).
-  // For stuck: time since last transition.
-  // For abandoned: call started_at.
   sort_at: string;
 }
+
+const TIER_TONE: Record<string, string> = {
+  A: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10",
+  B: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
+  C: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
+  D: "border-zinc-500/40 text-zinc-600 dark:text-zinc-400 bg-zinc-500/10",
+};
+const TIER_RANK: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
 
 const TYPE_LABEL: Record<QueueType, string> = {
   callback: "Callback",
@@ -100,6 +104,9 @@ export default function QueuePage() {
   const [filter, setFilter] = useState<QueueType | "all">("all");
   // Specialists default to "mine"; managers default to "all team".
   const [scope, setScope] = useState<"mine" | "all">(isManager ? "all" : "mine");
+  // Sort: "urgency" (default — oldest action needed first) or "quality"
+  // (highest-tier leads at top so reps work the best leads first).
+  const [sortBy, setSortBy] = useState<"urgency" | "quality">("urgency");
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -120,7 +127,7 @@ export default function QueuePage() {
           .select(`id, ctm_call_id, caller_name, caller_phone_normalized, started_at, status,
             specialist_id, specialist_disposition, callback_status,
             lead_id,
-            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name, owner_id, insurance_provider, urgency, owner:profiles!leads_owner_id_fkey(full_name, email))`)
+            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name, owner_id, insurance_provider, urgency, lead_quality_tier, lead_quality_score, owner:profiles!leads_owner_id_fkey(full_name, email))`)
           .or("callback_status.eq.pending")
           .gte("started_at", sevenAgoISO)
           .order("started_at", { ascending: true })
@@ -130,7 +137,7 @@ export default function QueuePage() {
         supabase
           .from("leads")
           .select(`id, first_name, last_name, primary_phone_normalized, insurance_provider, urgency,
-            vob_status, owner_id, created_at,
+            vob_status, owner_id, created_at, lead_quality_tier, lead_quality_score,
             owner:profiles!leads_owner_id_fkey(full_name, email)`)
           .in("vob_status", ["pending", "in_progress"])
           .order("created_at", { ascending: true })
@@ -140,7 +147,7 @@ export default function QueuePage() {
         supabase
           .from("leads")
           .select(`id, first_name, last_name, primary_phone_normalized, insurance_provider, urgency,
-            intake_scheduled_at, intake_status, owner_id,
+            intake_scheduled_at, intake_status, owner_id, lead_quality_tier, lead_quality_score,
             owner:profiles!leads_owner_id_fkey(full_name, email)`)
           .gte("intake_scheduled_at", startOfWeek.toISOString())
           .lt("intake_scheduled_at", sevenDaysOutISO)
@@ -152,7 +159,7 @@ export default function QueuePage() {
         supabase
           .from("leads")
           .select(`id, first_name, last_name, primary_phone_normalized, insurance_provider, urgency,
-            outcome_category, owner_id, created_at,
+            outcome_category, owner_id, created_at, lead_quality_tier, lead_quality_score,
             owner:profiles!leads_owner_id_fkey(full_name, email)`)
           .eq("outcome_category", "in_progress")
           .gte("created_at", ninetyAgoISO)
@@ -164,7 +171,7 @@ export default function QueuePage() {
           .select(`id, ctm_call_id, caller_name, caller_phone_normalized, started_at,
             specialist_id, callback_status,
             lead_id,
-            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name, owner_id, insurance_provider, urgency, owner:profiles!leads_owner_id_fkey(full_name, email))`)
+            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name, owner_id, insurance_provider, urgency, lead_quality_tier, lead_quality_score, owner:profiles!leads_owner_id_fkey(full_name, email))`)
           .eq("status", "abandoned")
           .is("callback_status", null)
           .gte("started_at", sevenAgoISO)
@@ -193,6 +200,8 @@ export default function QueuePage() {
           owner_name: owner?.full_name ?? owner?.email ?? null,
           insurance_provider: lead?.insurance_provider ?? null,
           urgency: lead?.urgency ?? null,
+          lead_quality_tier: lead?.lead_quality_tier ?? null,
+          lead_quality_score: lead?.lead_quality_score ?? null,
           sort_at: c.started_at ?? new Date().toISOString(),
         });
       }
@@ -212,6 +221,8 @@ export default function QueuePage() {
           owner_name: owner?.full_name ?? owner?.email ?? null,
           insurance_provider: l.insurance_provider ?? null,
           urgency: l.urgency ?? null,
+          lead_quality_tier: l.lead_quality_tier ?? null,
+          lead_quality_score: l.lead_quality_score ?? null,
           sort_at: l.created_at ?? new Date().toISOString(),
         });
       }
@@ -231,6 +242,8 @@ export default function QueuePage() {
           owner_name: owner?.full_name ?? owner?.email ?? null,
           insurance_provider: l.insurance_provider ?? null,
           urgency: l.urgency ?? null,
+          lead_quality_tier: l.lead_quality_tier ?? null,
+          lead_quality_score: l.lead_quality_score ?? null,
           sort_at: l.intake_scheduled_at ?? new Date().toISOString(),
         });
       }
@@ -279,6 +292,8 @@ export default function QueuePage() {
               owner_name: owner?.full_name ?? owner?.email ?? null,
               insurance_provider: l.insurance_provider ?? null,
               urgency: l.urgency ?? null,
+              lead_quality_tier: l.lead_quality_tier ?? null,
+              lead_quality_score: l.lead_quality_score ?? null,
               sort_at: calls.lastOut ?? l.created_at ?? new Date().toISOString(),
             });
           }
@@ -299,6 +314,8 @@ export default function QueuePage() {
             owner_name: owner?.full_name ?? owner?.email ?? null,
             insurance_provider: l.insurance_provider ?? null,
             urgency: l.urgency ?? null,
+            lead_quality_tier: l.lead_quality_tier ?? null,
+            lead_quality_score: l.lead_quality_score ?? null,
             sort_at: calls?.lastAny ?? l.created_at ?? new Date().toISOString(),
           });
         }
@@ -323,6 +340,8 @@ export default function QueuePage() {
           owner_name: owner?.full_name ?? owner?.email ?? null,
           insurance_provider: lead?.insurance_provider ?? null,
           urgency: lead?.urgency ?? null,
+          lead_quality_tier: lead?.lead_quality_tier ?? null,
+          lead_quality_score: lead?.lead_quality_score ?? null,
           sort_at: c.started_at ?? new Date().toISOString(),
         });
       }
@@ -337,16 +356,8 @@ export default function QueuePage() {
         return true;
       });
 
-      // Sort: oldest sort_at first within type group; intake sorts ascending
-      // (soonest first). Across types we just sort by sort_at oldest first
-      // since everything older = more urgent except intake which we want as-is.
-      deduped.sort((a, b) => {
-        // Intake: ascending (soonest first). Both intake → ascending. One intake → put intake first.
-        if (a.type === "intake" && b.type !== "intake") return -1;
-        if (b.type === "intake" && a.type !== "intake") return 1;
-        return a.sort_at < b.sort_at ? -1 : 1;
-      });
-
+      // Default sort handled in the render path so the sortBy toggle can
+      // re-order without re-fetching.
       setItems(deduped);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -359,12 +370,29 @@ export default function QueuePage() {
 
   // Counts per type — across the current scope (mine vs all)
   const filteredItems = useMemo(() => {
-    return items.filter((i) => {
+    const list = items.filter((i) => {
       if (scope === "mine" && i.owner_id !== user?.id) return false;
       if (filter !== "all" && i.type !== filter) return false;
       return true;
     });
-  }, [items, scope, filter, user?.id]);
+
+    // Quality-first: tier A → B → C → D → null, then by urgency timestamp
+    // Urgency-first (default): intake first (soonest), then oldest action
+    return [...list].sort((a, b) => {
+      if (sortBy === "quality") {
+        const ar = a.lead_quality_tier ? TIER_RANK[a.lead_quality_tier] : 99;
+        const br = b.lead_quality_tier ? TIER_RANK[b.lead_quality_tier] : 99;
+        if (ar !== br) return ar - br;
+        const aScore = a.lead_quality_score ?? -1;
+        const bScore = b.lead_quality_score ?? -1;
+        if (aScore !== bScore) return bScore - aScore;
+      }
+      // Urgency fallback: intake ascending (soonest first), others oldest first
+      if (a.type === "intake" && b.type !== "intake") return -1;
+      if (b.type === "intake" && a.type !== "intake") return 1;
+      return a.sort_at < b.sort_at ? -1 : 1;
+    });
+  }, [items, scope, filter, user?.id, sortBy]);
 
   const countsByType = useMemo(() => {
     const c: Record<string, number> = { all: 0 };
@@ -413,6 +441,15 @@ export default function QueuePage() {
             </Button>
           </>
         )}
+
+        <span className="mx-2 h-5 w-px bg-border" />
+        <span className="text-xs text-muted-foreground">Sort:</span>
+        <Button size="sm" variant={sortBy === "urgency" ? "default" : "outline"} onClick={() => setSortBy("urgency")} className="h-8">
+          Urgency
+        </Button>
+        <Button size="sm" variant={sortBy === "quality" ? "default" : "outline"} onClick={() => setSortBy("quality")} className="h-8">
+          Quality
+        </Button>
       </div>
 
       {loading && (
@@ -457,6 +494,11 @@ function QueueRow({ item, showOwner }: { item: QueueItem; showOwner: boolean }) 
             <Badge variant="secondary" className={`text-[10px] gap-1 ${TYPE_TONE[item.type]}`}>
               <Icon className="w-3 h-3" /> {TYPE_LABEL[item.type]}
             </Badge>
+            {item.lead_quality_tier && (
+              <Badge variant="outline" className={`text-[10px] font-semibold ${TIER_TONE[item.lead_quality_tier]}`} title={`Quality score: ${item.lead_quality_score ?? "—"}`}>
+                Tier {item.lead_quality_tier}
+              </Badge>
+            )}
             <div className="flex-1 min-w-0">
               <div className="font-medium text-sm truncate">{item.title}</div>
               <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap mt-0.5">
