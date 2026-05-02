@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox,
+  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -118,6 +118,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/scenario-review", label: "Scenario Review", icon: <GraduationCap className="w-4 h-4" />, section: "Training", roles: ["manager", "admin"] as const },
 
     // INSIGHTS (analytics + content)
+    { href: "/ops/funnel", label: "Conversion Funnel", icon: <TrendingDown className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
     { href: "/ops/outcomes", label: "Outcomes", icon: <Trophy className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
     { href: "/ops/attribution", label: "Attribution", icon: <Activity className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
     { href: "/ops/training-analytics", label: "Training Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
