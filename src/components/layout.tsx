@@ -208,7 +208,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <img
             src="/brand/cornerstone-wordmark.png"
             alt="Cornerstone Healing Center"
-            className="w-full h-auto max-w-[200px] mx-auto block opacity-95"
+            className="w-full h-auto max-w-[200px] mx-auto block"
+            style={{ mixBlendMode: "lighten" }}
           />
         </div>
         <div className="px-5 mb-3 flex items-center justify-center">
@@ -234,7 +235,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <img
                 src="/brand/cornerstone-wordmark.png"
                 alt="Cornerstone Healing Center"
-                className="h-5 w-auto opacity-95"
+                className="h-5 w-auto"
+                style={{ mixBlendMode: "lighten" }}
               />
               <button
                 onClick={() => setDrawerOpen(false)}
@@ -266,7 +268,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <img
               src="/brand/cornerstone-wordmark.png"
               alt="Cornerstone Healing Center"
-              className="h-4 w-auto opacity-95"
+              className="h-4 w-auto"
+              style={{ mixBlendMode: "lighten" }}
             />
           </div>
           <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#0F2549] border border-[#11244A]">
