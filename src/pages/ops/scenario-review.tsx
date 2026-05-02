@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/dashboard/PageShell";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -80,21 +81,18 @@ export default function ScenarioReview() {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <GraduationCap className="w-6 h-6" /> Scenario review
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            AI-seeded scenarios from real calls AND manager-authored scenarios. Review, edit, and
-            publish (or reject) before specialists practice against them.
-          </p>
-        </div>
-        <Button onClick={() => setComposing(true)} className="gap-1.5 shrink-0">
+    <PageShell
+      number="03"
+      eyebrow="LIBRARY"
+      title="Scenario review"
+      subtitle="AI-seeded scenarios from real calls AND manager-authored scenarios. Review, edit, and publish (or reject) before specialists practice against them."
+      maxWidth={1200}
+      actions={
+        <Button onClick={() => setComposing(true)} className="gap-1.5 h-9">
           <Plus className="w-4 h-4" /> New scenario
         </Button>
-      </div>
+      }
+    >
 
       <NewScenarioDialog
         open={composing}
@@ -131,7 +129,7 @@ export default function ScenarioReview() {
           />
         ))}
       </div>
-    </div>
+    </PageShell>
   );
 }
 

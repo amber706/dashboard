@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { downloadCsv } from "@/lib/csv-export";
 import { logAudit } from "@/lib/audit";
 import { erlangCStaff } from "@/lib/erlang";
+import { PageShell } from "@/components/dashboard/PageShell";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TZ = "America/Phoenix";   // Arizona — no DST, always MST/UTC-7
@@ -400,27 +401,23 @@ export default function OpsStaffing() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Calendar className="w-6 h-6" /> Staffing schedule
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Recommended specialist coverage by day-of-week and hour, derived from inbound-call patterns
-            in the chosen window. Tune the assumptions on the right; the heatmap and recommendations
-            recompute live.
-          </p>
-        </div>
+    <PageShell
+      number="02"
+      eyebrow="STAFFING"
+      title="Staffing schedule"
+      subtitle="Recommended specialist coverage by day-of-week and hour, derived from inbound-call patterns in the chosen window. Tune the assumptions on the right; the heatmap and recommendations recompute live."
+      maxWidth={1600}
+      actions={
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 h-9">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0} className="gap-1.5 h-9">
             <Download className="w-3.5 h-3.5" /> Export CSV
           </Button>
         </div>
-      </div>
+      }
+    >
 
       {/* Date range selector — quick presets + custom */}
       <Card>
@@ -866,7 +863,7 @@ export default function OpsStaffing() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </PageShell>
   );
 }
 

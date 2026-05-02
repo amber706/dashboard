@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { PageShell } from "@/components/dashboard/PageShell";
 
 interface ScoredCall {
   id: string;
@@ -154,15 +155,13 @@ export default function OpsCoaching() {
   }, [scores]);
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Award className="w-6 h-6" /> Coaching feed
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Curated coachable moments from the last 7 days. Compliance flags and worst calls first; trends and wins below.
-        </p>
-      </div>
+    <PageShell
+      number="03"
+      eyebrow="COACHING"
+      eyebrowAccent="coral"
+      title="Coaching feed"
+      subtitle="Curated coachable moments from the last 7 days. Compliance flags and worst calls first; trends and wins below."
+    >
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Tile label="Calls scored (7d)" value={buckets.totalLast7} />
@@ -247,7 +246,7 @@ export default function OpsCoaching() {
           />
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
 

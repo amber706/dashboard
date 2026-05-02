@@ -4,6 +4,7 @@ import { BarChart3, Loader2, TrendingUp, Target, GraduationCap, Award } from "lu
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageShell } from "@/components/dashboard/PageShell";
 
 interface SpecialistStat {
   id: string;
@@ -241,15 +242,12 @@ export default function TrainingAnalytics() {
   }, []);
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <BarChart3 className="w-6 h-6" /> Training analytics
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Practice activity, scenario effectiveness, and (eventually) real-call lift correlation.
-        </p>
-      </div>
+    <PageShell
+      number="02"
+      eyebrow="ANALYTICS"
+      title="Training analytics"
+      subtitle="Practice activity, scenario effectiveness, and real-call lift correlation."
+    >
 
       {loading && <Card><CardContent className="pt-6 text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading analytics…</CardContent></Card>}
       {error && <Card className="border-destructive"><CardContent className="pt-6 text-sm text-destructive">{error}</CardContent></Card>}
@@ -355,7 +353,7 @@ export default function TrainingAnalytics() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </PageShell>
   );
 }
 

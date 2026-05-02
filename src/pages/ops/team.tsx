@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/dashboard/PageShell";
 
 interface Specialist {
   id: string;
@@ -194,23 +195,17 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Users className="w-6 h-6" /> Team
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Active specialists, managers, and admins. All stats are last 30 days.
-            Team conversion rate: <span className="font-medium">{teamConv == null ? "—" : `${teamConv}%`}</span>.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant={showBots ? "default" : "outline"} onClick={() => setShowBots(!showBots)} className="gap-1.5">
-            <Bot className="w-3.5 h-3.5" /> {showBots ? "Hide bots" : "Show bots"}
-          </Button>
-        </div>
-      </div>
+    <PageShell
+      number="01"
+      eyebrow="ROSTER"
+      title="Team"
+      subtitle={<>Active specialists, managers, and admins. All stats are last 30 days. Team conversion rate: <span className="font-medium text-[#F4EFE6]">{teamConv == null ? "—" : `${teamConv}%`}</span>.</>}
+      actions={
+        <Button size="sm" variant={showBots ? "default" : "outline"} onClick={() => setShowBots(!showBots)} className="gap-1.5 h-9">
+          <Bot className="w-3.5 h-3.5" /> {showBots ? "Hide bots" : "Show bots"}
+        </Button>
+      }
+    >
 
       {loading && (
         <Card><CardContent className="pt-6 text-sm text-muted-foreground flex items-center gap-2">
@@ -293,7 +288,7 @@ export default function TeamPage() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </PageShell>
   );
 }
 

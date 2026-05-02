@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { ShieldAlert, Loader2, Phone, Clock, Timer, User as UserIcon, Headphones, AlertTriangle, ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageShell } from "@/components/dashboard/PageShell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -130,16 +131,12 @@ export default function QAReview() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <ShieldAlert className="w-6 h-6" />
-          QA review
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          AI-scored calls with the same 9-category rubric. Review flagged calls and sign off.
-        </p>
-      </div>
+    <PageShell
+      number="02"
+      eyebrow="QA"
+      title="QA review"
+      subtitle="AI-scored calls with the same 9-category rubric. Review flagged calls and sign off."
+    >
 
       <div className="flex gap-2 flex-wrap">
         {(["needs_review", "unsigned", "low", "high", "all"] as const).map((f) => (
@@ -317,6 +314,6 @@ export default function QAReview() {
           );
         })}
       </div>
-    </div>
+    </PageShell>
   );
 }

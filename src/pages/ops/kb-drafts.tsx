@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PageShell } from "@/components/dashboard/PageShell";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 
@@ -71,15 +72,13 @@ export default function KBDraftsReview() {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <BookOpen className="w-6 h-6" /> KB drafts review
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          AI-generated drafts from caller questions. Approve, edit, or reject — approved drafts get embedded and added to the searchable KB.
-        </p>
-      </div>
+    <PageShell
+      number="04"
+      eyebrow="KNOWLEDGE"
+      title="KB drafts review"
+      subtitle="AI-generated drafts from caller questions. Approve, edit, or reject — approved drafts get embedded and added to the searchable KB."
+      maxWidth={1200}
+    >
 
       <div className="flex gap-2 flex-wrap">
         {(["pending", "approved", "edited_and_approved", "rejected", "all"] as const).map((f) => (
@@ -109,7 +108,7 @@ export default function KBDraftsReview() {
           />
         ))}
       </div>
-    </div>
+    </PageShell>
   );
 }
 

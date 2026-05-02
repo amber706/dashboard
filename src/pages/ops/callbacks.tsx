@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { PageShell } from "@/components/dashboard/PageShell";
 
 type CbStatus = "pending" | "completed" | "skipped" | "unreachable";
 
@@ -149,15 +150,12 @@ export default function OpsCallbacks() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <PhoneOff className="w-6 h-6" /> Callback queue
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Missed, abandoned, and voicemail calls waiting to be returned. Mark each one as you work it.
-        </p>
-      </div>
+    <PageShell
+      number="01"
+      eyebrow="QUEUE"
+      title="Callback queue"
+      subtitle="Missed, abandoned, and voicemail calls waiting to be returned. Mark each one as you work it."
+    >
 
       {/* Top tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -311,7 +309,7 @@ export default function OpsCallbacks() {
           );
         })}
       </div>
-    </div>
+    </PageShell>
   );
 }
 

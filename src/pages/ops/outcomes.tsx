@@ -10,6 +10,7 @@ import { logAudit } from "@/lib/audit";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageShell } from "@/components/dashboard/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -138,17 +139,13 @@ export default function OpsOutcomes() {
   }, [leads]);
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <TrendingUp className="w-6 h-6" /> Outcome attribution
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Which calls, specialists, and sources actually drove patients into treatment.
-          Outcomes pull from Zoho lead stages; mappings are editable and additions are
-          treated as in-progress until classified.
-        </p>
-      </div>
+    <PageShell
+      number="01"
+      eyebrow="ATTRIBUTION"
+      title="Outcome attribution"
+      subtitle="Which calls, specialists, and sources actually drove patients into treatment. Outcomes pull from Zoho lead stages; mappings are editable and additions are treated as in-progress until classified."
+      maxWidth={1600}
+    >
 
       {/* Top rollup */}
       <Card>
@@ -280,7 +277,7 @@ export default function OpsOutcomes() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </PageShell>
   );
 }
 

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { PageShell } from "@/components/dashboard/PageShell";
 
 interface SpecialistOption {
   id: string;
@@ -107,21 +108,17 @@ export default function TrainingAssignments() {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <GraduationCap className="w-6 h-6" />
-            Training assignments
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Assign roleplay scenarios to specialists. Assignments show on their Training page until they complete and get scored.
-          </p>
-        </div>
-        <Button onClick={() => setCreating(true)} disabled={creating}>
+    <PageShell
+      number="01"
+      eyebrow="TRAINING"
+      title="Training assignments"
+      subtitle="Assign roleplay scenarios to specialists. Assignments show on their Training page until they complete and get scored."
+      actions={
+        <Button onClick={() => setCreating(true)} disabled={creating} className="h-9">
           <Plus className="w-4 h-4 mr-1.5" /> New assignment
         </Button>
-      </div>
+      }
+    >
 
       {creating && (
         <CreateAssignmentForm
@@ -211,7 +208,7 @@ export default function TrainingAssignments() {
           </Card>
         ))}
       </div>
-    </div>
+    </PageShell>
   );
 }
 

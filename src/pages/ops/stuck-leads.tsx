@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/dashboard/PageShell";
 
 // A "stuck" lead is one that:
 //  - is in_progress (not won/lost — closed leads are fine to be inactive)
@@ -131,15 +132,13 @@ export default function OpsStuckLeads() {
   }, [filtered]);
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Hourglass className="w-6 h-6" /> Stuck leads
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          In-progress leads that haven't moved stages in N days. Sitting in "Awaiting VOB" forever because nobody updated Zoho? They show up here.
-        </p>
-      </div>
+    <PageShell
+      number="02"
+      eyebrow="LEAKAGE"
+      eyebrowAccent="coral"
+      title="Stuck leads"
+      subtitle="In-progress leads that haven't moved stages in N days. Sitting in &quot;Awaiting VOB&quot; forever because nobody updated Zoho? They show up here."
+    >
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Tile label="Stuck leads" value={counts.total} accent={counts.total > 0 ? "amber" : undefined} />
@@ -248,7 +247,7 @@ export default function OpsStuckLeads() {
           );
         })}
       </div>
-    </div>
+    </PageShell>
   );
 }
 
