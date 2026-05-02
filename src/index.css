@@ -59,11 +59,43 @@
   --font-sans: var(--app-font-sans);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
+  --font-display: var(--app-font-display);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* === Cornerstone v2 brand tokens ===
+     Surfaces: deep midnight navy gradient.
+     Accent: signature sky-blue → lavender → coral gradient on dividers + icon rings.
+     These coexist with the legacy shadcn HSL tokens above; both work, but new
+     components should prefer these. */
+  --color-bg-base:    #050E24;
+  --color-bg-raised:  #0A1838;
+  --color-bg-sunken:  #02071A;
+  --color-bg-overlay: #0F2549;
+
+  --color-border-subtle:  #11244A;
+  --color-border-default: #1B335F;
+  --color-border-strong:  #2A4778;
+
+  --color-text-primary:   #F4EFE6;  /* CHC cream */
+  --color-text-secondary: #A6B5D0;
+  --color-text-muted:     #6E7E9E;
+  --color-text-disabled:  #3D4E6E;
+
+  --color-chc-blue:       #5BA3D4;
+  --color-chc-blue-deep:  #4A7FB8;
+  --color-chc-lavender:   #A98FA8;
+  --color-chc-coral:      #E89077;
+  --color-chc-coral-deep: #D87560;
+  --color-chc-cream:      #F4EFE6;
+
+  --color-chc-success: #10B981;
+  --color-chc-warning: #E5C879;  /* warm sand, softer than amber */
+  --color-chc-danger:  #E89077;  /* CHC coral as semantic danger */
+  --color-chc-info:    #5BA3D4;
 }
 
 :root {
@@ -120,7 +152,8 @@
 
   --app-font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --app-font-serif: Georgia, 'Times New Roman', serif;
-  --app-font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', monospace;
+  --app-font-mono: 'JetBrains Mono', 'Spline Sans Mono', ui-monospace, 'SF Mono', monospace;
+  --app-font-display: 'Fraunces', 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --radius: 0.625rem;
 
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.04);
@@ -261,4 +294,139 @@
   .calm-card:hover {
     @apply shadow-md border-border;
   }
+
+  /* === Cornerstone v2 utilities === */
+
+  /* CHC signature gradient — sky blue → lavender → coral.
+     Used on dividers, icon ring outlines, and "Act" buttons. */
+  .bg-chc-gradient {
+    background: linear-gradient(90deg, #5BA3D4 0%, #A98FA8 50%, #E89077 100%);
+  }
+  .bg-chc-gradient-diag {
+    background: linear-gradient(135deg, #5BA3D4 0%, #A98FA8 50%, #E89077 100%);
+  }
+  .text-chc-gradient {
+    background: linear-gradient(90deg, #5BA3D4 0%, #A98FA8 50%, #E89077 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .chc-divider {
+    height: 2px;
+    background: linear-gradient(90deg, #5BA3D4 0%, #A98FA8 50%, #E89077 100%);
+    border-radius: 999px;
+  }
+
+  /* Gradient ring outline (matches booklet icon-tile treatment) */
+  .chc-ring { position: relative; }
+  .chc-ring::before {
+    content: '';
+    position: absolute;
+    inset: -1.5px;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: linear-gradient(135deg, #5BA3D4 0%, #A98FA8 50%, #E89077 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .border-gradient-brand {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(rgba(15, 42, 85, 0.88), rgba(15, 42, 85, 0.88)) padding-box,
+      linear-gradient(135deg, rgba(91,163,212,0.7), rgba(232,144,119,0.6)) border-box;
+  }
+
+  /* Glassmorphism */
+  .glass {
+    background: rgba(10, 24, 56, 0.65);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    border: 1px solid rgba(244, 239, 230, 0.07);
+  }
+  .glass:hover {
+    background: rgba(15, 37, 73, 0.75);
+    border-color: rgba(244, 239, 230, 0.12);
+  }
+  .glass-sunken {
+    background: rgba(2, 7, 26, 0.75);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border-right: 1px solid rgba(244, 239, 230, 0.05);
+  }
+
+  /* Severity bars at the top of a metric card */
+  .severity-bar { position: absolute; top: 0; left: 0; right: 0; height: 1.5px; }
+  .severity-bar.info    { background: linear-gradient(90deg, transparent, #5BA3D4, transparent); }
+  .severity-bar.success { background: linear-gradient(90deg, transparent, #10B981, transparent); }
+  .severity-bar.warning { background: linear-gradient(90deg, transparent, #E5C879, transparent); }
+  .severity-bar.danger  { background: linear-gradient(90deg, transparent, #E89077, transparent); }
+  .severity-bar.brand   { background: linear-gradient(90deg, #5BA3D4 0%, #A98FA8 50%, #E89077 100%); }
+
+  /* Eyebrow label — JetBrains Mono micro-caps for section numbering (00 — COMMAND CENTER) */
+  .eyebrow {
+    font-family: var(--app-font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+
+  /* Display heading helper — Fraunces with proper letter-spacing */
+  .font-display {
+    font-family: var(--app-font-display);
+    font-feature-settings: "ss01", "ss02";
+    letter-spacing: -0.02em;
+  }
+
+  /* Pulsing dot — wraps a colored dot to add a soft expanding ring */
+  .pulse-dot { position: relative; }
+  .pulse-dot::after {
+    content: ''; position: absolute; inset: -2px; border-radius: 999px;
+    border: 2px solid currentColor; opacity: 0.5;
+    animation: pulse-ring 1.6s cubic-bezier(0.4,0,0.6,1) infinite;
+  }
+  @keyframes pulse-ring {
+    0%   { transform: scale(0.8); opacity: 0.6; }
+    100% { transform: scale(1.8); opacity: 0; }
+  }
+
+  .danger-glow {
+    box-shadow: 0 0 0 1px rgba(232,144,119,0.18), 0 0 32px rgba(232,144,119,0.10);
+  }
+
+  /* Active nav left bar */
+  .nav-active::before {
+    content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2.5px;
+    background: linear-gradient(180deg, #5BA3D4 0%, #A98FA8 50%, #E89077 100%);
+    border-radius: 2px;
+  }
 }
+
+/* === Cornerstone v2 body gradient ===
+   Smooth diagonal fade from deep blue corner into near-black midnight.
+   Applied site-wide. The .dark class on <html> opts the app into the
+   v2 visual; legacy light mode still works for any page that doesn't
+   apply the new tokens. */
+.dark body,
+html.dark body {
+  background-color: #01030E;
+  background-image: linear-gradient(135deg,
+    #0A1838 0%,
+    #071229 25%,
+    #050E24 50%,
+    #03081A 75%,
+    #01030E 100%);
+  background-attachment: fixed;
+  background-size: 100% 100%;
+  color: #F4EFE6;
+}
+
+/* Custom scrollbar matching the navy palette */
+.dark ::-webkit-scrollbar         { width: 8px; height: 8px; }
+.dark ::-webkit-scrollbar-track   { background: transparent; }
+.dark ::-webkit-scrollbar-thumb   { background: #274176; border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #3A5590; }
