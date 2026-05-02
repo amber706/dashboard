@@ -44,14 +44,16 @@ export function MetricCard({
   successCheck,
 }: MetricCardProps) {
   const tone = SEVERITY_TONE[severity];
-  const points = sparkline && sparkline.length > 1
-    ? sparkline
-    : Array.from({ length: 12 }, (_, i) => 50 + Math.sin(i / 1.6) * 15 + (i % 3) * 4);
-  const min = Math.min(...points);
-  const max = Math.max(...points);
+  // Only draw a sparkline when the caller passes real data. The earlier
+  // sine-wave placeholder was decorative-only and confused users into
+  // thinking each card had a trend.
+  const hasSparkline = !!(sparkline && sparkline.length > 1);
+  const points = hasSparkline ? sparkline! : [];
+  const min = hasSparkline ? Math.min(...points) : 0;
+  const max = hasSparkline ? Math.max(...points) : 0;
   const range = max - min || 1;
   const norm = points.map((p, i) => ({
-    x: (i / (points.length - 1)) * 50,
+    x: (i / Math.max(points.length - 1, 1)) * 50,
     y: 18 - ((p - min) / range) * 16,
   }));
   const path = norm.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
@@ -89,17 +91,19 @@ export function MetricCard({
           {showSuccessCheck && <Check className="w-4 h-4 text-[#10B981] mb-1" />}
         </div>
 
-        {/* Sparkline */}
-        <svg viewBox="0 0 50 20" className="w-[60px] h-[22px] shrink-0" aria-hidden="true">
-          <defs>
-            <linearGradient id={`spark-${label.replace(/\s+/g, "")}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={sparkColor} stopOpacity="0.35" />
-              <stop offset="100%" stopColor={sparkColor} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d={area} fill={`url(#spark-${label.replace(/\s+/g, "")})`} />
-          <path d={path} fill="none" stroke={sparkColor} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        {/* Sparkline — only when the caller supplies real data. */}
+        {hasSparkline && (
+          <svg viewBox="0 0 50 20" className="w-[60px] h-[22px] shrink-0" aria-hidden="true">
+            <defs>
+              <linearGradient id={`spark-${label.replace(/\s+/g, "")}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={sparkColor} stopOpacity="0.35" />
+                <stop offset="100%" stopColor={sparkColor} stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <path d={area} fill={`url(#spark-${label.replace(/\s+/g, "")})`} />
+            <path d={path} fill="none" stroke={sparkColor} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
       </div>
 
       {delta && (
