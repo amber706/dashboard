@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   AlertTriangle, ShieldAlert, BookOpen, GraduationCap, Phone, Inbox,
   TrendingUp, Loader2, Clock, Sparkles, Headphones, Zap, ChevronRight, Activity,
-  PhoneCall, Radio, Pin, X, PhoneOff, Voicemail, CheckCircle2,
+  PhoneCall, Radio, Pin, X, PhoneOff, Voicemail, CheckCircle2, ShieldCheck,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
@@ -33,6 +33,7 @@ interface HomeData {
   suggestions_top: Array<{ id: string; title: string; priority: string; suggestion_type: string }>;
   kb_drafts_pending: number;
   scenarios_pending_review: number;
+  vob_open: number;
   my_assignments: Array<{ id: string; scenario_id: string; scenario_title: string; due_at: string | null; manager_note: string | null }>;
   my_callbacks: Array<{ id: string; lead_id: string | null; caller_label: string; phone: string | null; status: string; started_at: string | null; ownership: "lead_owner" | "original_specialist" }>;
   my_outreach_owed: number;
@@ -187,6 +188,7 @@ export default function HomeV2() {
           suggestionsTopRes,
           { count: kbDraftsPending },
           { count: scenariosPending },
+          { count: vobOpen },
           myAssignmentsRes,
           recentCallsRes,
         ] = await Promise.all([
@@ -216,6 +218,7 @@ export default function HomeV2() {
             .limit(5),
           supabase.from("kb_drafts").select("id", { count: "exact", head: true }).eq("status", "pending"),
           supabase.from("training_scenarios").select("id", { count: "exact", head: true }).eq("status", "pending_review"),
+          supabase.from("leads").select("id", { count: "exact", head: true }).in("vob_status", ["pending", "in_progress"]),
           user?.id
             ? supabase
                 .from("training_assignments")
@@ -391,6 +394,7 @@ export default function HomeV2() {
             })),
             kb_drafts_pending: kbDraftsPending ?? 0,
             scenarios_pending_review: scenariosPending ?? 0,
+            vob_open: vobOpen ?? 0,
             my_assignments: myAssignments,
             my_callbacks: myCallbacks,
             my_outreach_owed: myOutreachOwed,
@@ -511,8 +515,9 @@ export default function HomeV2() {
       )}
 
       {/* Top stat row */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <StatLink href="/ops/alerts" icon={<AlertTriangle className="w-4 h-4" />} label="Pending alerts" value={data.alerts_pending} accent={data.alerts_pending > 0 ? "rose" : undefined} />
+        <StatLink href="/ops/vob" icon={<ShieldCheck className="w-4 h-4" />} label="VOBs to work" value={data.vob_open} accent={data.vob_open > 0 ? "amber" : undefined} />
         <StatLink href="/ops/qa-review" icon={<ShieldAlert className="w-4 h-4" />} label="QA needs review" value={data.scores_pending_review} accent={data.scores_pending_review > 0 ? "amber" : undefined} />
         <StatLink href="/ops/suggestions" icon={<Zap className="w-4 h-4" />} label="Open suggestions" value={data.suggestions_open} />
         <StatLink href="/ops/kb-drafts" icon={<BookOpen className="w-4 h-4" />} label="KB drafts pending" value={data.kb_drafts_pending} />
