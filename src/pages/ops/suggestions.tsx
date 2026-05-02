@@ -285,6 +285,29 @@ function OpsSuggestionsContent() {
                         </div>
                         <p className="text-xs text-muted-foreground">{suggestion.summary}</p>
 
+                        {suggestion.type === "assign_training_for_weakness" && (suggestion.scenario_title || suggestion.specialist_name) && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                            {suggestion.specialist_name && (
+                              <span className="inline-flex items-center gap-1 text-foreground">
+                                <Headphones className="w-3 h-3 text-muted-foreground" />
+                                <span className="font-medium">{suggestion.specialist_name}</span>
+                              </span>
+                            )}
+                            {suggestion.scenario_title && (
+                              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                                <FileText className="w-3 h-3" />
+                                {suggestion.scenario_title}
+                              </span>
+                            )}
+                            {suggestion.weakest_category && (
+                              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">
+                                {suggestion.weakest_category.replace(/_/g, " ")}
+                                {typeof suggestion.weakest_score === "number" && ` ${suggestion.weakest_score}/10`}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+
                         {ctx && !isExpanded && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground/80">
                             {ctx.caller_name && (

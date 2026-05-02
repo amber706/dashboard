@@ -43,6 +43,7 @@ async function getSuggestions(queryString: string): Promise<Response> {
       `id, suggestion_type, priority, title, summary, reasoning,
        recommended_action, recommended_owner, confidence,
        related_lead_id, related_rep_id, related_call_id,
+       source_signals,
        status, created_at,
        owner:profiles!suggestions_recommended_owner_fkey(full_name, email)`,
       { count: "exact" },
@@ -59,6 +60,10 @@ async function getSuggestions(queryString: string): Promise<Response> {
 
   const suggestions = (data ?? []).map((row) => {
     const owner = row.owner as { full_name: string | null; email: string | null } | null;
+    // The generate-suggestions Edge Function stuffs structured detail into
+    // source_signals (jsonb). For weakness drills this is where scenario_id,
+    // scenario_title, specialist_name, weakest_category, weakest_score live.
+    const signals = (row.source_signals ?? {}) as Record<string, unknown>;
     return {
       id: row.id,
       type: row.suggestion_type,
@@ -72,6 +77,13 @@ async function getSuggestions(queryString: string): Promise<Response> {
       related_lead_id: row.related_lead_id ?? undefined,
       related_rep_id: row.related_rep_id ?? undefined,
       related_call_id: row.related_call_id ?? undefined,
+      // Surfaced for the UI: scenario the drill targets, specialist the drill
+      // is for, and the rubric category that triggered the recommendation.
+      scenario_id: typeof signals.scenario_id === "string" ? signals.scenario_id : undefined,
+      scenario_title: typeof signals.scenario_title === "string" ? signals.scenario_title : undefined,
+      specialist_name: typeof signals.specialist_name === "string" ? signals.specialist_name : undefined,
+      weakest_category: typeof signals.weakest_category === "string" ? signals.weakest_category : undefined,
+      weakest_score: typeof signals.weakest_score === "number" ? signals.weakest_score : undefined,
       status: row.status,
       created_at: row.created_at,
       call_context: null,
@@ -362,6 +374,7 @@ async function getOpsOverview(): Promise<Response> {
         `id, suggestion_type, priority, title, summary, reasoning,
          recommended_action, recommended_owner, confidence,
          related_lead_id, related_rep_id, related_call_id,
+         source_signals,
          status, created_at,
          owner:profiles!suggestions_recommended_owner_fkey(full_name, email)`,
       )
@@ -461,6 +474,7 @@ async function getOpsOverview(): Promise<Response> {
       } : null,
     } : null;
 
+    const signals = (row.source_signals ?? {}) as Record<string, unknown>;
     return {
       id: row.id,
       type: row.suggestion_type,
@@ -474,6 +488,11 @@ async function getOpsOverview(): Promise<Response> {
       related_lead_id: row.related_lead_id ?? undefined,
       related_rep_id: row.related_rep_id ?? undefined,
       related_call_id: row.related_call_id ?? undefined,
+      scenario_id: typeof signals.scenario_id === "string" ? signals.scenario_id : undefined,
+      scenario_title: typeof signals.scenario_title === "string" ? signals.scenario_title : undefined,
+      specialist_name: typeof signals.specialist_name === "string" ? signals.specialist_name : undefined,
+      weakest_category: typeof signals.weakest_category === "string" ? signals.weakest_category : undefined,
+      weakest_score: typeof signals.weakest_score === "number" ? signals.weakest_score : undefined,
       status: row.status,
       created_at: row.created_at,
       call_context,

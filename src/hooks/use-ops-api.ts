@@ -114,6 +114,14 @@ export interface OpsSuggestion {
   related_lead_id?: string;
   related_rep_id?: string;
   related_call_id?: string;
+  // Surfaced from source_signals for assign_training_for_weakness rows so
+  // the UI can render scenario_title + specialist_name + targeted rubric
+  // category without dereferencing a JSON blob in the render path.
+  scenario_id?: string;
+  scenario_title?: string;
+  specialist_name?: string;
+  weakest_category?: string;
+  weakest_score?: number;
   status: string;
   created_at: string;
   call_context?: CallContext | null;
