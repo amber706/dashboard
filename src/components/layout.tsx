@@ -118,13 +118,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // TRAINING (curriculum + assignments — split out of Team for focus)
     { href: "/ops/training-assignments", label: "Assignments", icon: <GraduationCap className="w-4 h-4" />, section: "Training", roles: ["manager", "admin"] as const },
     { href: "/ops/training-paths", label: "Training Paths", icon: <Route className="w-4 h-4" />, section: "Training", roles: ["manager", "admin"] as const },
+    { href: "/ops/scenario-review", label: "Scenario Review", icon: <GraduationCap className="w-4 h-4" />, section: "Training", roles: ["manager", "admin"] as const },
 
     // INSIGHTS (analytics + content)
     { href: "/ops/outcomes", label: "Outcomes", icon: <Trophy className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
     { href: "/ops/attribution", label: "Attribution", icon: <Activity className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
     { href: "/ops/training-analytics", label: "Training Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
     { href: "/ops/kb-drafts", label: "KB Drafts", icon: <BookOpen className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
-    { href: "/ops/scenario-review", label: "Scenario Review", icon: <GraduationCap className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
 
     // ADMIN
     { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Admin", roles: ["manager", "admin"] as const },
