@@ -65,8 +65,8 @@ const STATUS_PILL: Record<Status, string> = {
   open:         "bg-[#5BA3D4]/12 border-[#5BA3D4]/30 text-[#5BA3D4]",
   acknowledged: "bg-[#A98FA8]/15 border-[#A98FA8]/35 text-[#A98FA8]",
   resolved:     "bg-[#10B981]/12 border-[#10B981]/35 text-[#10B981]",
-  closed:       "bg-[#3D4E6E]/30 border-[#3D4E6E]/50 text-[#A6B5D0]",
-  dismissed:    "bg-[#3D4E6E]/30 border-[#3D4E6E]/50 text-[#6E7E9E]",
+  closed:       "bg-[#3D4E6E]/30 border-[#3D4E6E]/50 text-[#C5D2E5]",
+  dismissed:    "bg-[#3D4E6E]/30 border-[#3D4E6E]/50 text-[#9AABC9]",
 };
 
 const SEVERITY_GLOW: Record<Severity, string> = {
@@ -91,7 +91,7 @@ function ChipRow({ chips, align = "left" }: { chips: MetaChip[]; align?: "left" 
       {chips.map((c, i) => {
         const Icon = c.icon;
         return (
-          <span key={i} className={`flex items-center gap-1 ${c.muted ? "text-[#6E7E9E]" : "text-[#A6B5D0]"} ${c.mono ? "font-mono" : ""}`}>
+          <span key={i} className={`flex items-center gap-1 ${c.muted ? "text-[#9AABC9]" : "text-[#C5D2E5]"} ${c.mono ? "font-mono" : ""}`}>
             {Icon && <Icon className="w-3 h-3" aria-hidden="true" />}
             {c.srLabel && <span className="sr-only">{c.srLabel}: </span>}
             {c.label}
@@ -149,7 +149,7 @@ export function IncidentCard({
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
-                className="text-[#6E7E9E] hover:text-[#F4EFE6] transition-colors -ml-1 mr-0.5"
+                className="text-[#9AABC9] hover:text-[#F4EFE6] transition-colors -ml-1 mr-0.5"
                 aria-expanded={expanded}
                 aria-label={expanded ? "Collapse" : "Expand"}
               >
@@ -157,7 +157,7 @@ export function IncidentCard({
               </button>
             )}
             <Pill tone={SEVERITY_PILL[severity]}>{severity}</Pill>
-            {category && <Pill tone="bg-[#0F2549] border-[#1B335F] text-[#A6B5D0]">{category}</Pill>}
+            {category && <Pill tone="bg-[#0F2549] border-[#1B335F] text-[#C5D2E5]">{category}</Pill>}
             {status && <Pill tone={STATUS_PILL[status]}>{status}</Pill>}
           </div>
           {timingChips && timingChips.length > 0 && <ChipRow chips={timingChips} align="right" />}
@@ -182,7 +182,7 @@ export function IncidentCard({
 
         {/* Pinned note (manager coaching, etc.) */}
         {pinnedNote && (
-          <div className="border-l-2 border-[#E5C879] pl-3 text-[12.5px] text-[#A6B5D0]">
+          <div className="border-l-2 border-[#E5C879] pl-3 text-[12.5px] text-[#C5D2E5]">
             {pinnedNote}
           </div>
         )}

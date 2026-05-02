@@ -30,7 +30,7 @@ interface PageShellProps {
 const EYEBROW_TONE: Record<string, string> = {
   blue:  "text-[#5BA3D4]",
   coral: "text-[#E89077]",
-  muted: "text-[#6E7E9E]",
+  muted: "text-[#9AABC9]",
 };
 
 /**
@@ -88,7 +88,7 @@ export function PageShell({
           {actions && <div className="shrink-0">{actions}</div>}
         </div>
         {subtitle && (
-          <p className="mt-3 text-[15px] text-[#A6B5D0] max-w-2xl leading-relaxed">{subtitle}</p>
+          <p className="mt-3 text-[15px] text-[#C5D2E5] max-w-2xl leading-relaxed">{subtitle}</p>
         )}
         <div className="chc-divider mt-6 max-w-md opacity-80" />
       </header>

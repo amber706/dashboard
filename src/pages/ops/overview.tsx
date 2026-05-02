@@ -264,7 +264,7 @@ function OpsOverviewContent() {
             <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
           </Button>
         </div>
-        <p className="mt-3 text-[15px] text-[#A6B5D0] max-w-2xl leading-relaxed">
+        <p className="mt-3 text-[15px] text-[#C5D2E5] max-w-2xl leading-relaxed">
           Real-time command center for admissions operations — live calls, callback queues, and AI-generated coaching across your team.
         </p>
         <div className="chc-divider mt-6 max-w-md opacity-80" />
@@ -272,7 +272,7 @@ function OpsOverviewContent() {
 
       {/* Top stat row — 10 metric cards, severity-mapped */}
       <section>
-        <div className="eyebrow text-[#6E7E9E] mb-3">01 — LIVE METRICS</div>
+        <div className="eyebrow text-[#9AABC9] mb-3">01 — LIVE METRICS</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <MetricCard
             label="Inbound Today"
@@ -385,8 +385,8 @@ function OpsOverviewContent() {
           {d.top_recommendations.length === 0 ? (
             <div className="glass rounded-2xl text-center py-12">
               <Zap className="w-8 h-8 mx-auto mb-3 text-[#3D4E6E]" />
-              <p className="text-sm text-[#A6B5D0]">No active recommendations</p>
-              <p className="text-xs text-[#6E7E9E] mt-1">Suggestions will appear here when the system detects actionable items</p>
+              <p className="text-sm text-[#C5D2E5]">No active recommendations</p>
+              <p className="text-xs text-[#9AABC9] mt-1">Suggestions will appear here when the system detects actionable items</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -400,7 +400,7 @@ function OpsOverviewContent() {
                         <div className="flex items-start gap-2.5 flex-1 min-w-0">
                           <button
                             onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
-                            className="mt-0.5 shrink-0 text-[#6E7E9E] hover:text-[#F4EFE6] transition-colors"
+                            className="mt-0.5 shrink-0 text-[#9AABC9] hover:text-[#F4EFE6] transition-colors"
                             aria-expanded={isExpanded}
                           >
                             {isExpanded
@@ -413,10 +413,10 @@ function OpsOverviewContent() {
                               <PriorityBadge priority={rec.priority} />
                               <h3 className="font-display text-[17px] font-normal tracking-[-0.005em] text-[#F4EFE6] leading-snug">{rec.title}</h3>
                             </div>
-                            <p className="text-[13px] text-[#A6B5D0] leading-relaxed">{rec.summary}</p>
+                            <p className="text-[13px] text-[#C5D2E5] leading-relaxed">{rec.summary}</p>
 
                             {ctx && !isExpanded && (
-                              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[#6E7E9E]">
+                              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[#9AABC9]">
                                 {ctx.caller_phone && (
                                   <span className="flex items-center gap-1 font-mono">
                                     <Phone className="w-3 h-3" /> {ctx.caller_phone}
@@ -450,7 +450,7 @@ function OpsOverviewContent() {
                       </div>
 
                       <div className="flex items-center justify-between pl-7">
-                        <div className="flex items-center gap-3 text-[11.5px] text-[#6E7E9E]">
+                        <div className="flex items-center gap-3 text-[11.5px] text-[#9AABC9]">
                           {rec.action_owner && (
                             <span className="flex items-center gap-1">
                               <Users className="w-3 h-3" /> {rec.action_owner}

@@ -173,11 +173,14 @@
 }
 
 .dark {
-  --button-outline: rgba(255,255,255, .08);
-  --badge-outline: rgba(255,255,255, .04);
+  /* Outlines bumped — old values were nearly invisible on the new lighter
+     card surfaces. Buttons and badges with variant="outline" now have a
+     visible edge without becoming heavy. */
+  --button-outline: rgba(255,255,255, .18);
+  --badge-outline: rgba(255,255,255, .14);
   --opaque-button-border-intensity: 8;
-  --elevate-1: rgba(255,255,255, .03);
-  --elevate-2: rgba(255,255,255, .06);
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .08);
 
   --background: 228 22% 9%;
   --foreground: 220 14% 96%;
@@ -203,8 +206,10 @@
   --secondary: 226 16% 18%;
   --secondary-foreground: 220 14% 96%;
 
-  --muted: 226 16% 15%;
-  --muted-foreground: 220 10% 58%;
+  --muted: 226 16% 22%;
+  /* muted-foreground bumped from 58% → 70% so secondary text on cards
+     stays readable on the new lighter card surfaces. */
+  --muted-foreground: 220 12% 70%;
 
   --accent: 200 80% 44%;
   --accent-foreground: 0 0% 100%;

@@ -49,7 +49,7 @@ export function RecommendationCard({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="mt-0.5 shrink-0 text-[#6E7E9E] hover:text-[#F4EFE6] transition-colors"
+            className="mt-0.5 shrink-0 text-[#9AABC9] hover:text-[#F4EFE6] transition-colors"
             aria-expanded={expanded}
             aria-label={expanded ? "Collapse recommendation" : "Expand recommendation"}
           >
@@ -63,9 +63,9 @@ export function RecommendationCard({
                 {title}
               </h3>
             </div>
-            <p className="text-[13.5px] text-[#A6B5D0] leading-relaxed">{summary}</p>
+            <p className="text-[13.5px] text-[#C5D2E5] leading-relaxed">{summary}</p>
             {meta && (
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[#6E7E9E]">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[#9AABC9]">
                 {meta}
               </div>
             )}
@@ -95,7 +95,7 @@ export function RecommendationCard({
                 type="button"
                 onClick={onAcknowledge}
                 disabled={loading === "acknowledge"}
-                className="border border-[#1B335F] text-[#A6B5D0] text-[12.5px] font-medium px-3.5 py-1.5 rounded-lg hover:bg-[#0F2549] hover:text-[#F4EFE6] disabled:opacity-50 transition-colors"
+                className="border border-[#1B335F] text-[#C5D2E5] text-[12.5px] font-medium px-3.5 py-1.5 rounded-lg hover:bg-[#0F2549] hover:text-[#F4EFE6] disabled:opacity-50 transition-colors"
               >
                 {loading === "acknowledge" ? <Loader2 className="w-3 h-3 animate-spin inline mr-1" /> : null}
                 Acknowledge
@@ -106,7 +106,7 @@ export function RecommendationCard({
                 type="button"
                 onClick={onDismiss}
                 disabled={loading === "dismiss"}
-                className="text-[#6E7E9E] hover:text-[#A6B5D0] text-[12.5px] font-medium px-2 py-1.5 disabled:opacity-50 transition-colors"
+                className="text-[#9AABC9] hover:text-[#C5D2E5] text-[12.5px] font-medium px-2 py-1.5 disabled:opacity-50 transition-colors"
               >
                 Dismiss
               </button>
@@ -131,13 +131,13 @@ export function ReasoningPanels({
       {reasoning && (
         <div className="bg-[#050E24]/60 border border-[#11244A] rounded-lg p-3">
           <div className="eyebrow text-[#5BA3D4] mb-2">AI Reasoning</div>
-          <div className="text-[12.5px] text-[#A6B5D0] leading-relaxed">{reasoning}</div>
+          <div className="text-[12.5px] text-[#C5D2E5] leading-relaxed">{reasoning}</div>
         </div>
       )}
       {transcript && (
         <div className="bg-[#050E24]/60 border border-[#11244A] rounded-lg p-3">
-          <div className="eyebrow text-[#A6B5D0] mb-2">Transcript Snippet</div>
-          <div className="text-[12.5px] text-[#A6B5D0] leading-relaxed">{transcript}</div>
+          <div className="eyebrow text-[#C5D2E5] mb-2">Transcript Snippet</div>
+          <div className="text-[12.5px] text-[#C5D2E5] leading-relaxed">{transcript}</div>
         </div>
       )}
     </div>

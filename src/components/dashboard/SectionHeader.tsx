@@ -19,7 +19,7 @@ interface SectionHeaderProps {
 const EYEBROW_TONE: Record<string, string> = {
   blue:  "text-[#5BA3D4]",
   coral: "text-[#E89077]",
-  muted: "text-[#6E7E9E]",
+  muted: "text-[#9AABC9]",
 };
 
 export function SectionHeader({
@@ -42,7 +42,7 @@ export function SectionHeader({
         <h2 className="font-display text-[28px] font-normal tracking-[-0.02em] text-[#F4EFE6] flex items-center gap-2.5">
           {title}
         </h2>
-        {subtitle && <p className="mt-1 text-[13.5px] text-[#A6B5D0]">{subtitle}</p>}
+        {subtitle && <p className="mt-1 text-[13.5px] text-[#C5D2E5]">{subtitle}</p>}
       </div>
       {actions && <div className="shrink-0">{actions}</div>}
     </div>

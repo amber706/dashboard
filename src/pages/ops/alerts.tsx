@@ -128,7 +128,7 @@ export default function AlertsQueue() {
             High-priority <GradientWord>alerts.</GradientWord>
           </h1>
         </div>
-        <p className="mt-3 text-[15px] text-[#A6B5D0] max-w-2xl leading-relaxed">
+        <p className="mt-3 text-[15px] text-[#C5D2E5] max-w-2xl leading-relaxed">
           Crisis-language signals flagged by the AI classifier. Review the excerpt, listen to the recording, and sign off so leadership knows it was handled.
         </p>
         <div className="chc-divider mt-6 max-w-md opacity-80" />
@@ -146,11 +146,11 @@ export default function AlertsQueue() {
               className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12.5px] font-medium transition-colors capitalize ${
                 active
                   ? "bg-[#5BA3D4] text-[#02071A] shadow-[0_0_0_1px_rgba(91,163,212,0.4),_0_4px_16px_rgba(91,163,212,0.25)]"
-                  : "bg-[#0F2549] border border-[#11244A] text-[#A6B5D0] hover:border-[#1B335F] hover:text-[#F4EFE6]"
+                  : "bg-[#0F2549] border border-[#11244A] text-[#C5D2E5] hover:border-[#1B335F] hover:text-[#F4EFE6]"
               }`}
             >
               <span>{f}</span>
-              <span className={`text-[10.5px] tabular-nums px-1.5 rounded-full ${active ? "bg-white/20" : "bg-[#02071A]/60 text-[#6E7E9E]"}`}>{count}</span>
+              <span className={`text-[10.5px] tabular-nums px-1.5 rounded-full ${active ? "bg-white/20" : "bg-[#02071A]/60 text-[#9AABC9]"}`}>{count}</span>
             </button>
           );
         })}
@@ -158,7 +158,7 @@ export default function AlertsQueue() {
 
       {/* States */}
       {loading && (
-        <div className="glass rounded-2xl p-6 text-sm text-[#A6B5D0] flex items-center gap-2">
+        <div className="glass rounded-2xl p-6 text-sm text-[#C5D2E5] flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading alerts…
         </div>
       )}
@@ -171,7 +171,7 @@ export default function AlertsQueue() {
             <ShieldCheck className="w-6 h-6" />
           </div>
           <p className="text-[15px] text-[#F4EFE6]">No alerts in this status.</p>
-          <p className="text-[13px] text-[#6E7E9E] mt-1">{statusFilter === "pending" ? "That's a good thing." : `Showing ${filterCount} alert${filterCount === 1 ? "" : "s"}.`}</p>
+          <p className="text-[13px] text-[#9AABC9] mt-1">{statusFilter === "pending" ? "That's a good thing." : `Showing ${filterCount} alert${filterCount === 1 ? "" : "s"}.`}</p>
         </div>
       )}
 
@@ -280,7 +280,7 @@ function AlertItem({
   const contextChips = [
     {
       icon: Phone,
-      label: <>{alert.call?.caller_phone_normalized ?? "—"}{callerLocation ? <span className="text-[#6E7E9E] ml-1">· {callerLocation}</span> : null}</>,
+      label: <>{alert.call?.caller_phone_normalized ?? "—"}{callerLocation ? <span className="text-[#9AABC9] ml-1">· {callerLocation}</span> : null}</>,
       mono: true,
       srLabel: "Caller phone",
     },
@@ -291,7 +291,7 @@ function AlertItem({
       ? [{ icon: UserIcon, label: <>Specialist: <span className="text-[#F4EFE6]">{agentName}</span></>, srLabel: "Specialist" }]
       : []),
     ...(alert.call?.ctm_call_id
-      ? [{ label: <>call <span className="text-[#A6B5D0]">{alert.call.ctm_call_id}</span></>, mono: true, muted: true, srLabel: "CTM call ID" }]
+      ? [{ label: <>call <span className="text-[#C5D2E5]">{alert.call.ctm_call_id}</span></>, mono: true, muted: true, srLabel: "CTM call ID" }]
       : []),
     ...(score?.composite_score != null
       ? [{
@@ -361,13 +361,13 @@ function AlertItem({
         </div>
       )}
       <div>
-        <div className="eyebrow text-[#A6B5D0] mb-2">Full transcript</div>
+        <div className="eyebrow text-[#C5D2E5] mb-2">Full transcript</div>
         {transcriptLoading ? (
-          <div className="text-sm text-[#A6B5D0] flex items-center gap-2">
+          <div className="text-sm text-[#C5D2E5] flex items-center gap-2">
             <Loader2 className="w-3 h-3 animate-spin" /> Loading transcript…
           </div>
         ) : !transcript || transcript.length === 0 ? (
-          <p className="text-sm text-[#6E7E9E]">No transcript available for this call.</p>
+          <p className="text-sm text-[#9AABC9]">No transcript available for this call.</p>
         ) : (
           <div className="max-h-80 overflow-y-auto space-y-2 bg-[#050E24]/60 border border-[#11244A] rounded-lg p-3 text-[13px] leading-relaxed">
             {transcript.map((t) => (
@@ -375,7 +375,7 @@ function AlertItem({
                 <span className="text-[11px] font-medium text-[#5BA3D4] mr-2 uppercase tracking-wide">
                   {t.speaker ?? "?"}
                 </span>
-                <span className="text-[#A6B5D0]">{t.content}</span>
+                <span className="text-[#C5D2E5]">{t.content}</span>
               </div>
             ))}
           </div>
@@ -384,13 +384,13 @@ function AlertItem({
 
       {alert.status !== "resolved" && (
         <div>
-          <div className="eyebrow text-[#A6B5D0] mb-2">Resolution notes</div>
+          <div className="eyebrow text-[#C5D2E5] mb-2">Resolution notes</div>
           <Textarea
             value={resolutionNotes}
             onChange={(e) => setResolutionNotes(e.target.value)}
             placeholder="What action was taken? E.g., warm transferred to clinical, called caller back, escalated to medical director…"
             rows={3}
-            className="bg-[#050E24]/60 border-[#11244A] text-[#F4EFE6] placeholder:text-[#6E7E9E]"
+            className="bg-[#050E24]/60 border-[#11244A] text-[#F4EFE6] placeholder:text-[#9AABC9]"
           />
         </div>
       )}
@@ -399,7 +399,7 @@ function AlertItem({
         <div>
           <div className="eyebrow text-[#10B981] mb-2">Resolution</div>
           <p className="text-[13px] text-[#F4EFE6] leading-relaxed">{alert.resolution_notes}</p>
-          <p className="text-[11.5px] text-[#6E7E9E] mt-1">Resolved {fmtTime(alert.resolved_at)}</p>
+          <p className="text-[11.5px] text-[#9AABC9] mt-1">Resolved {fmtTime(alert.resolved_at)}</p>
         </div>
       )}
 

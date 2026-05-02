@@ -24,13 +24,13 @@ const SEVERITY_TONE: Record<Severity, { bar: string; iconBg: string; iconText: s
   success: { bar: "success", iconBg: "bg-[#10B981]/10", iconText: "text-[#10B981]" },
   warning: { bar: "warning", iconBg: "bg-[#E5C879]/10", iconText: "text-[#E5C879]" },
   danger:  { bar: "danger",  iconBg: "bg-[#E89077]/10", iconText: "text-[#E89077]", glow: "danger-glow" },
-  neutral: { bar: "info",    iconBg: "bg-[#0F2549]",    iconText: "text-[#A6B5D0]" },
+  neutral: { bar: "info",    iconBg: "bg-[#0F2549]",    iconText: "text-[#C5D2E5]" },
 };
 
 const DELTA_COLOR: Record<string, string> = {
   up:   "text-[#10B981]",
   down: "text-[#E89077]",
-  flat: "text-[#6E7E9E]",
+  flat: "text-[#9AABC9]",
 };
 
 export function MetricCard({
@@ -73,7 +73,7 @@ export function MetricCard({
       <span className={`severity-bar ${tone.bar}`} aria-hidden="true" />
 
       <div className="flex items-start justify-between gap-2 mb-3">
-        <span className="text-[12px] text-[#A6B5D0] leading-snug">{label}</span>
+        <span className="text-[12px] text-[#C5D2E5] leading-snug">{label}</span>
         {Icon && (
           <span className={`w-7 h-7 rounded-md ${tone.iconBg} ${tone.iconText} flex items-center justify-center shrink-0`}>
             <Icon className="w-3.5 h-3.5" />
@@ -107,7 +107,7 @@ export function MetricCard({
           {delta.direction === "up" && <ChevronUp className="w-3 h-3" />}
           {delta.direction === "down" && <ChevronDown className="w-3 h-3" />}
           <span>{delta.value}</span>
-          {delta.vs && <span className="text-[#6E7E9E] font-normal">{delta.vs}</span>}
+          {delta.vs && <span className="text-[#9AABC9] font-normal">{delta.vs}</span>}
         </div>
       )}
     </Wrapper>
