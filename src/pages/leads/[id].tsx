@@ -308,20 +308,25 @@ export default function LeadDetail() {
                 <Badge className={`${OUTCOME_CLASS[cat]} border text-[10px] uppercase`} variant="outline">
                   {OUTCOME_LABEL[cat]}
                 </Badge>
-                {lead.lead_quality_tier && (
-                  <Badge
-                    variant="outline"
-                    title={lead.lead_quality_reason ?? `Quality score: ${lead.lead_quality_score ?? "—"}`}
-                    className={`text-[10px] font-semibold ${
-                      lead.lead_quality_tier === "A" ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
-                      : lead.lead_quality_tier === "B" ? "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10"
-                      : lead.lead_quality_tier === "C" ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
-                      : "border-zinc-500/40 text-zinc-600 dark:text-zinc-400 bg-zinc-500/10"
-                    }`}
-                  >
-                    Tier {lead.lead_quality_tier} · {lead.lead_quality_score ?? "—"}
-                  </Badge>
-                )}
+                {lead.lead_quality_tier && (() => {
+                  const label = lead.lead_quality_tier === "A" ? "Hot lead"
+                    : lead.lead_quality_tier === "B" ? "Warm lead"
+                    : lead.lead_quality_tier === "C" ? "Cool lead"
+                    : "Cold lead";
+                  const tone = lead.lead_quality_tier === "A" ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
+                    : lead.lead_quality_tier === "B" ? "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10"
+                    : lead.lead_quality_tier === "C" ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
+                    : "border-zinc-500/40 text-zinc-600 dark:text-zinc-400 bg-zinc-500/10";
+                  return (
+                    <Badge
+                      variant="outline"
+                      title={lead.lead_quality_reason ?? `Quality score: ${lead.lead_quality_score ?? "—"} of 100`}
+                      className={`text-[10px] font-semibold ${tone}`}
+                    >
+                      {label} · {lead.lead_quality_score ?? "—"}/100
+                    </Badge>
+                  );
+                })()}
                 {lead.stage && <Badge variant="outline" className="text-[10px]">stage: {lead.stage}</Badge>}
                 {lead.is_active === false && <Badge variant="outline" className="text-[10px] opacity-60">inactive</Badge>}
               </div>

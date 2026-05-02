@@ -44,11 +44,20 @@ interface QueueItem {
   sort_at: string;
 }
 
+// Descriptive labels (Hot / Warm / Cool / Cold) instead of opaque A–D
+// tier letters — sales-funnel vocabulary every admissions team already
+// uses internally, so the badge reads without needing a legend.
 const TIER_TONE: Record<string, string> = {
   A: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10",
   B: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
   C: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
   D: "border-zinc-500/40 text-zinc-600 dark:text-zinc-400 bg-zinc-500/10",
+};
+const TIER_LABEL: Record<string, string> = {
+  A: "Hot",
+  B: "Warm",
+  C: "Cool",
+  D: "Cold",
 };
 const TIER_RANK: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
 
@@ -445,10 +454,10 @@ export default function QueuePage() {
         <span className="mx-2 h-5 w-px bg-border" />
         <span className="text-xs text-muted-foreground">Sort:</span>
         <Button size="sm" variant={sortBy === "urgency" ? "default" : "outline"} onClick={() => setSortBy("urgency")} className="h-8">
-          Urgency
+          Most urgent
         </Button>
         <Button size="sm" variant={sortBy === "quality" ? "default" : "outline"} onClick={() => setSortBy("quality")} className="h-8">
-          Quality
+          Hottest first
         </Button>
       </div>
 
@@ -495,8 +504,8 @@ function QueueRow({ item, showOwner }: { item: QueueItem; showOwner: boolean }) 
               <Icon className="w-3 h-3" /> {TYPE_LABEL[item.type]}
             </Badge>
             {item.lead_quality_tier && (
-              <Badge variant="outline" className={`text-[10px] font-semibold ${TIER_TONE[item.lead_quality_tier]}`} title={`Quality score: ${item.lead_quality_score ?? "—"}`}>
-                Tier {item.lead_quality_tier}
+              <Badge variant="outline" className={`text-[10px] font-semibold ${TIER_TONE[item.lead_quality_tier]}`} title={`Quality score: ${item.lead_quality_score ?? "—"} of 100`}>
+                {TIER_LABEL[item.lead_quality_tier]}
               </Badge>
             )}
             <div className="flex-1 min-w-0">
