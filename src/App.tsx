@@ -47,6 +47,7 @@ import OpsStuckLeads from "@/pages/ops/stuck-leads";
 import OpsVOB from "@/pages/ops/vob";
 import OpsIntakes from "@/pages/ops/intakes";
 import OpsTrainingPaths from "@/pages/ops/training-paths";
+import QueuePage from "@/pages/queue";
 import OpsDispositions from "@/pages/ops/dispositions";
 import SpecialistDeepDive from "@/pages/ops/specialist/[id]";
 import AdminLeads from "@/pages/admin/leads";
@@ -112,6 +113,7 @@ function AppRoutes() {
         <Route path="/ops/vob" component={OpsVOB} />
         <Route path="/ops/intakes" component={OpsIntakes} />
         <Route path="/ops/training-paths" component={OpsTrainingPaths} />
+        <Route path="/queue" component={QueuePage} />
         <Route path="/ops/dispositions" component={OpsDispositions} />
         <Route path="/ops/specialist/:id" component={SpecialistDeepDive} />
         <Route path="/admin/leads" component={AdminLeads} />

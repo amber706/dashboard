@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route,
+  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -82,25 +82,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" />, section: "Overview", roles: ["rep", "manager", "admin"] as const },
     { href: "/me", label: "My Coaching", icon: <Award className="w-4 h-4" />, section: "Overview", roles: ["rep", "manager", "admin"] as const },
 
-    // WORKFLOW (specialist daily work — including the callback queue,
-    // which is core daily work, not a manager-monitoring surface)
+    // WORKFLOW (specialist daily work) — Queue is the unified follow-up
+    // surface that replaces six individual queue pages.
     { href: "/ctm-calls", label: "Live Calls", icon: <Phone className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const, pulse: true },
-    { href: "/ops/callbacks", label: "Callback Queue", icon: <PhoneOff className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
+    { href: "/queue", label: "Queue", icon: <Inbox className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/kb", label: "Knowledge Base", icon: <Search className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/training", label: "Practice", icon: <GraduationCap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
 
-    // ALERTS (urgent flags — surfaced as their own section so they don't
-    // get lost in the Live Ops scroll)
+    // ALERTS (urgent flags — narrow, only the truly urgent)
     { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const, pulse: true },
-    { href: "/ops/abandoned-calls", label: "Abandoned Calls", icon: <PhoneOff className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const },
     { href: "/ops/supervisor-review", label: "Supervisor Review", icon: <Eye className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const },
 
-    // LIVE OPS (manager — what's happening right now, minus alerts/callbacks)
+    // LIVE OPS — Overview is the manager command center; Suggestions kept
+    // as a separate link because it has its own act/dismiss workflow.
+    // (Callbacks, VOB, Intake, Outreach, Stuck, Abandoned are now all in /queue.)
     { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
-    { href: "/ops/outreach", label: "Outreach Gaps", icon: <PhoneIncoming className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
-    { href: "/ops/stuck-leads", label: "Stuck Leads", icon: <Hourglass className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
-    { href: "/ops/vob", label: "VOB Queue", icon: <ShieldCheck className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
-    { href: "/ops/intakes", label: "Intake Schedule", icon: <Calendar className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
 
     // QUALITY (review + coaching)
