@@ -25,16 +25,37 @@ const POLL_INTERVAL_MS = 15_000;
 // Who's working right now + what they're doing.
 // =============================================================================
 
+type AgentStatus = "available" | "on_call" | "wrap_up" | "busy" | "away" | "offline";
+
 interface AgentRow {
   id: string;
   full_name: string | null;
   email: string | null;
   is_ai_agent: boolean;
-  status: "on_call" | "available" | "offline";
+  status: AgentStatus;
+  status_set_at: string | null;
   current_call_id: string | null;
   current_call_started_at: string | null;
   current_caller_label: string | null;
 }
+
+const STATUS_DOT: Record<AgentStatus, string> = {
+  on_call: "bg-emerald-500",
+  available: "bg-emerald-400",
+  wrap_up: "bg-amber-500",
+  busy: "bg-rose-500",
+  away: "bg-zinc-400",
+  offline: "bg-zinc-600",
+};
+
+const STATUS_LABEL: Record<AgentStatus, string> = {
+  on_call: "on call",
+  available: "available",
+  wrap_up: "wrapping",
+  busy: "busy",
+  away: "away",
+  offline: "offline",
+};
 
 interface ActiveCall {
   id: string;
@@ -75,7 +96,7 @@ export function LiveFloor() {
         .order("started_at", { ascending: true }),
       supabase
         .from("profiles")
-        .select("id, full_name, email, is_ai_agent")
+        .select("id, full_name, email, is_ai_agent, availability_status, availability_status_set_at")
         .eq("is_active", true)
         .in("role", ["specialist", "manager"]),
     ]);
@@ -104,28 +125,41 @@ export function LiveFloor() {
       specialist_name: c.specialist_id ? nameById.get(c.specialist_id) ?? null : null,
     }));
 
-    // Build agent presence by joining active calls back onto profiles.
+    // Build agent presence. Status comes from profiles.availability_status
+    // (synced from CTM /users by sync-ctm-presence). If a specialist has an
+    // active call we override to "on_call" — call_sessions truth wins over
+    // any lag in the CTM presence poll.
     const onCallSpecIds = new Set(specIds);
     const agentList: AgentRow[] = ((agentsRes.data ?? []) as any[]).map((p) => {
       const onCall = onCallSpecIds.has(p.id);
       const myCall = activeCallList.find((c) => c.specialist_id === p.id);
+      // CTM-reported status (or default "offline" when CTM presence sync
+      // hasn't run yet). AI agents are always "available" since they
+      // auto-pick-up.
+      const ctmStatus = (p.availability_status ?? "offline") as AgentStatus;
+      const status: AgentStatus = onCall
+        ? "on_call"
+        : p.is_ai_agent ? "available"
+        : ctmStatus;
       return {
         id: p.id,
         full_name: p.full_name,
         email: p.email,
         is_ai_agent: !!p.is_ai_agent,
-        status: onCall ? "on_call"
-          : p.is_ai_agent ? "available" // AI agents are always "on" — they pick up automatically
-          : "available",
+        status,
+        status_set_at: p.availability_status_set_at ?? null,
         current_call_id: myCall?.id ?? null,
         current_call_started_at: myCall?.started_at ?? null,
         current_caller_label: myCall?.caller_name ?? myCall?.caller_phone_normalized ?? null,
       };
     });
-    // Sort: on-call first (active = most interesting), then alpha
+    // Sort by status priority (on call → available → wrap → busy → away → offline), then alpha.
+    const statusRank: Record<AgentStatus, number> = {
+      on_call: 0, available: 1, wrap_up: 2, busy: 3, away: 4, offline: 5,
+    };
     agentList.sort((a, b) => {
-      if (a.status === "on_call" && b.status !== "on_call") return -1;
-      if (b.status === "on_call" && a.status !== "on_call") return 1;
+      const rankDiff = statusRank[a.status] - statusRank[b.status];
+      if (rankDiff !== 0) return rankDiff;
       return (a.full_name ?? a.email ?? "").localeCompare(b.full_name ?? b.email ?? "");
     });
 
@@ -146,24 +180,32 @@ export function LiveFloor() {
     return () => clearInterval(i);
   }, []);
 
-  const onCall = agents.filter((a) => a.status === "on_call");
-  const available = agents.filter((a) => a.status === "available" && !a.is_ai_agent);
+  const counts: Record<AgentStatus, number> = {
+    on_call: 0, available: 0, wrap_up: 0, busy: 0, away: 0, offline: 0,
+  };
+  for (const a of agents) {
+    if (a.is_ai_agent) continue;
+    counts[a.status]++;
+  }
   const aiAgents = agents.filter((a) => a.is_ai_agent);
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center justify-between">
+        <CardTitle className="text-base flex items-center justify-between flex-wrap gap-2">
           <span className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-emerald-500" />
             Live floor
           </span>
-          <span className="text-xs text-muted-foreground font-normal flex items-center gap-3">
+          <span className="text-xs text-muted-foreground font-normal flex items-center gap-3 flex-wrap">
             <span className="inline-flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {onCall.length} on call
+              {counts.on_call} on call
             </span>
-            <span>{available.length} available</span>
+            <span>{counts.available} available</span>
+            {counts.wrap_up > 0 && <span className="text-amber-600 dark:text-amber-400">{counts.wrap_up} wrapping</span>}
+            {counts.away > 0 && <span>{counts.away} away</span>}
+            {counts.busy > 0 && <span className="text-rose-600 dark:text-rose-400">{counts.busy} busy</span>}
             <span>{activeCalls.length} active call{activeCalls.length === 1 ? "" : "s"}</span>
           </span>
         </CardTitle>
@@ -217,14 +259,20 @@ export function LiveFloor() {
                   <Link key={a.id} href={`/ops/specialist/${a.id}`} className="block">
                     <div className="border rounded-md p-2 text-xs hover:bg-accent/30 transition-colors flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.status === "on_call" ? "bg-emerald-500" : "bg-zinc-500"}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[a.status]} ${a.status === "on_call" ? "animate-pulse" : ""}`} />
                         <span className="truncate">{a.full_name ?? a.email}</span>
                       </div>
-                      {a.status === "on_call" && a.current_call_started_at && (
-                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
-                          {fmtElapsed(a.current_call_started_at)}
-                        </span>
-                      )}
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        {a.status === "on_call" && a.current_call_started_at ? (
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 tabular-nums">
+                            {fmtElapsed(a.current_call_started_at)}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground capitalize">
+                            {STATUS_LABEL[a.status]}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </Link>
                 ))}

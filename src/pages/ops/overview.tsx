@@ -270,17 +270,22 @@ function OpsOverviewContent() {
         </p>
       </header>
 
-      {/* Live floor — agents on calls + active calls + queue depth */}
-      <LiveFloor />
+      {/* Page hierarchy follows F-pattern reading: small at-a-glance KPIs
+          first, then the most urgent issues, then live operational state,
+          then slower-moving training/coaching signals. */}
 
-      {/* Today's numbers — 4 KPIs */}
+      {/* 1. KPI strip — at-a-glance small cards across the top */}
       <TodayKpis />
 
-      {/* Two parallel attention surfaces */}
+      {/* 2. Two-column row — most urgent: what needs me NOW alongside
+             what's happening NOW on the floor */}
       <div className="grid lg:grid-cols-2 gap-5">
         <AttentionStrip />
-        <TrainingWatchlist />
+        <LiveFloor />
       </div>
+
+      {/* 3. Slower-moving signal — coaching/training watchlist */}
+      <TrainingWatchlist />
 
       {activeDrill && (
         <DrillDownPanel
