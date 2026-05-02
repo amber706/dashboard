@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { PriorConversationsPanel } from "@/components/calls/prior-conversations-panel";
+import { LeadDocumentsPanel } from "@/components/leads/lead-documents-panel";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -433,6 +434,11 @@ export default function LeadDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* 4b. DOCUMENTS — releases of info, court docs, insurance cards,
+              intake forms. Sits below extractions because uploaded docs
+              are a meaningful per-lead artifact, not a passing detail. */}
+      <LeadDocumentsPanel leadId={lead.id} />
 
       {/* 5. MARKETING ATTRIBUTION — only when populated. */}
       {(lead.first_touch_source_category || lead.first_touch_campaign) && (
