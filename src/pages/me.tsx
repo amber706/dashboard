@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   TrendingUp, TrendingDown, Award, AlertTriangle, GraduationCap,
   Phone, Loader2, Trophy, Clock, ChevronRight, Activity, Sparkles,
-  PhoneOff, Voicemail, PhoneCall,
+  PhoneOff, Voicemail, PhoneCall, ShieldCheck,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/lib/supabase";
@@ -82,6 +82,16 @@ interface OutreachOwed {
   outbound_count: number;
 }
 
+interface VobOwed {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  primary_phone_normalized: string | null;
+  insurance_provider: string | null;
+  urgency: string | null;
+  vob_status: "pending" | "in_progress";
+}
+
 const RUBRIC_CATEGORIES: Array<{ key: keyof CallScoreRow; label: string }> = [
   { key: "qualification_completeness", label: "Qualification" },
   { key: "rapport_and_empathy", label: "Rapport" },
@@ -117,6 +127,7 @@ export default function MyCoaching() {
   const [attributedLeads, setAttributedLeads] = useState<AttributedLead[]>([]);
   const [callbacks, setCallbacks] = useState<PendingCallback[]>([]);
   const [outreachOwed, setOutreachOwed] = useState<OutreachOwed[]>([]);
+  const [vobOwed, setVobOwed] = useState<VobOwed[]>([]);
   const [teamConversionRate, setTeamConversionRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -281,6 +292,26 @@ export default function MyCoaching() {
       setOutreachOwed([]);
     }
 
+    // VOBs I owe — leads I own where insurance is on file but VOB hasn't
+    // been worked yet. Capped at 50 because a normal specialist will never
+    // legitimately have more than that pending at once.
+    const { data: vobLeads } = await supabase
+      .from("leads")
+      .select("id, first_name, last_name, primary_phone_normalized, insurance_provider, urgency, vob_status")
+      .eq("owner_id", user.id)
+      .in("vob_status", ["pending", "in_progress"])
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setVobOwed(((vobLeads ?? []) as any[]).map((l) => ({
+      id: l.id,
+      first_name: l.first_name,
+      last_name: l.last_name,
+      primary_phone_normalized: l.primary_phone_normalized,
+      insurance_provider: l.insurance_provider,
+      urgency: l.urgency,
+      vob_status: l.vob_status,
+    })));
+
     // Team-wide conversion rate (last 30d) for benchmarking.
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const [{ count: teamWon }, { count: teamLost }] = await Promise.all([
@@ -434,8 +465,8 @@ export default function MyCoaching() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Open work</div>
-                    <div className="text-2xl font-semibold tabular-nums mt-0.5">{callbacks.length + outreachOwed.length + assignments.length}</div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">{callbacks.length} cb · {outreachOwed.length} outreach · {assignments.length} train</div>
+                    <div className="text-2xl font-semibold tabular-nums mt-0.5">{callbacks.length + outreachOwed.length + vobOwed.length + assignments.length}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{callbacks.length} cb · {outreachOwed.length} outreach · {vobOwed.length} VOB · {assignments.length} train</div>
                   </div>
                 </div>
               </CardContent>
@@ -576,6 +607,58 @@ export default function MyCoaching() {
                   {outreachOwed.length > 8 && (
                     <div className="text-xs text-muted-foreground text-center pt-1">
                       +{outreachOwed.length - 8} more
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* VOBs I owe — leads I own with insurance pending verification. */}
+          {vobOwed.length > 0 && (
+            <Card className="border-l-4 border-l-amber-500">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-amber-600" /> VOBs to verify</span>
+                  <Badge variant="outline" className="text-[10px]">{vobOwed.length}</Badge>
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Your leads need insurance verification before intake. Call the carrier, capture benefits, mark verified.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {vobOwed.slice(0, 8).map((l) => {
+                    const name = [l.first_name, l.last_name].filter(Boolean).join(" ") || l.primary_phone_normalized || "Unknown";
+                    return (
+                      <Link key={l.id} href={`/leads/${l.id}`} className="block">
+                        <div className="border rounded-md p-2.5 text-sm hover:bg-accent/50 transition-colors flex items-start gap-3">
+                          <ShieldCheck className={`w-4 h-4 ${l.vob_status === "in_progress" ? "text-blue-500" : "text-amber-500"} shrink-0 mt-0.5`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium truncate">{name}</span>
+                              <Badge variant="outline" className={`text-[10px] ${l.vob_status === "in_progress" ? "border-blue-500/40 text-blue-700 dark:text-blue-400" : "border-amber-500/40 text-amber-700 dark:text-amber-400"}`}>
+                                {l.vob_status === "in_progress" ? "in progress" : "pending"}
+                              </Badge>
+                              {l.urgency === "high" && (
+                                <Badge variant="outline" className="text-[10px] border-rose-500/40 text-rose-700 dark:text-rose-400">high urgency</Badge>
+                              )}
+                              {l.insurance_provider && (
+                                <Badge variant="outline" className="text-[10px]">{l.insurance_provider}</Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+                              {l.primary_phone_normalized && <span><Phone className="w-3 h-3 inline-block" /> {l.primary_phone_normalized}</span>}
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                        </div>
+                      </Link>
+                    );
+                  })}
+                  {vobOwed.length > 8 && (
+                    <div className="text-xs text-muted-foreground text-center pt-1">
+                      +{vobOwed.length - 8} more
                     </div>
                   )}
                 </div>

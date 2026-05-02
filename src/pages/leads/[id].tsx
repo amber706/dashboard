@@ -4,7 +4,7 @@ import {
   User as UserIcon, Phone, Loader2, ChevronRight, Clock, History,
   Sparkles, Activity, Trophy, XCircle, ArrowLeft, ExternalLink,
   CheckCircle2, AlertTriangle, Send, Edit3, Save, X as XIcon,
-  PhoneOff, ShieldAlert, Voicemail, Headphones,
+  PhoneOff, ShieldAlert, Voicemail, Headphones, ShieldCheck, AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,15 @@ import { useAuditView } from "@/lib/audit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+
+type VobStatus =
+  | "pending"
+  | "in_progress"
+  | "verified_in_network"
+  | "verified_out_of_network"
+  | "self_pay"
+  | "not_required"
+  | "unable_to_verify";
 
 interface Lead {
   id: string;
@@ -43,6 +52,16 @@ interface Lead {
   owner_id: string | null;
   created_at: string;
   updated_at: string;
+  vob_status: VobStatus | null;
+  vob_notes: string | null;
+  vob_completed_at: string | null;
+  vob_authorization_required: boolean | null;
+  vob_plan_name: string | null;
+  vob_member_id_verified: string | null;
+  vob_copay_cents: number | null;
+  vob_deductible_cents: number | null;
+  vob_deductible_remaining_cents: number | null;
+  vob_oop_max_cents: number | null;
   owner: { id: string; full_name: string | null; email: string | null } | null;
 }
 
@@ -322,6 +341,8 @@ export default function LeadDetail() {
         {/* Right: facts (editable) + extractions + notes */}
         <div className="space-y-4">
           <EditableLeadFacts lead={lead} onSaved={(updated) => setLead(updated)} />
+
+          <VobPanel lead={lead} />
 
           {(lead.first_touch_source_category || lead.first_touch_campaign) && (
             <Card>
@@ -830,6 +851,141 @@ function FieldPair({ label, children }: { label: string; children: React.ReactNo
       <div className="text-xs text-muted-foreground mb-1">{label}</div>
       {children}
     </div>
+  );
+}
+
+// Compact VOB (verification of benefits) summary card for the lead detail
+// right column. Status-driven: pending/in_progress show a CTA to the queue,
+// verified shows the captured plan + benefits, self_pay/not_required just
+// show the badge so the rep doesn't waste a phone call to the carrier.
+const VOB_STATUS_LABEL: Record<VobStatus, string> = {
+  pending: "VOB pending",
+  in_progress: "VOB in progress",
+  verified_in_network: "Verified — in network",
+  verified_out_of_network: "Verified — out of network",
+  self_pay: "Self pay",
+  not_required: "Not required (AHCCCS)",
+  unable_to_verify: "Unable to verify",
+};
+
+const VOB_STATUS_TONE: Record<VobStatus, string> = {
+  pending: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/20",
+  in_progress: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/20",
+  verified_in_network: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  verified_out_of_network: "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/20",
+  self_pay: "bg-zinc-500/15 text-zinc-700 dark:text-zinc-400 border-zinc-500/20",
+  not_required: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  unable_to_verify: "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/20",
+};
+
+function fmtVobMoney(cents: number | null): string {
+  if (cents == null) return "—";
+  return `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
+function VobPanel({ lead }: { lead: Lead }) {
+  // No insurance on file at all — nothing for VOB to chew on yet.
+  if (!lead.insurance_provider && !lead.vob_status) return null;
+
+  const status = lead.vob_status ?? "pending";
+  const isVerified = status === "verified_in_network" || status === "verified_out_of_network";
+  const hasBenefits = lead.vob_copay_cents != null
+    || lead.vob_deductible_cents != null
+    || lead.vob_oop_max_cents != null;
+
+  return (
+    <Card className={`border ${VOB_STATUS_TONE[status]}`}>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" />
+            Verification of Benefits
+          </span>
+          <Badge variant="secondary" className={VOB_STATUS_TONE[status]}>{VOB_STATUS_LABEL[status]}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {lead.insurance_provider && (
+          <div className="flex justify-between gap-3">
+            <span className="text-muted-foreground">Carrier</span>
+            <span className="text-right">{lead.insurance_provider}</span>
+          </div>
+        )}
+        {lead.vob_plan_name && (
+          <div className="flex justify-between gap-3">
+            <span className="text-muted-foreground">Plan</span>
+            <span className="text-right">{lead.vob_plan_name}</span>
+          </div>
+        )}
+        {(lead.vob_member_id_verified || lead.member_id) && (
+          <div className="flex justify-between gap-3">
+            <span className="text-muted-foreground">Member ID</span>
+            <span className="text-right font-mono text-xs">{lead.vob_member_id_verified ?? lead.member_id}</span>
+          </div>
+        )}
+
+        {isVerified && hasBenefits && (
+          <div className="border-t pt-2 mt-2 space-y-1.5">
+            {lead.vob_copay_cents != null && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Copay</span>
+                <span className="text-right">{fmtVobMoney(lead.vob_copay_cents)}</span>
+              </div>
+            )}
+            {lead.vob_deductible_cents != null && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Deductible</span>
+                <span className="text-right">
+                  {fmtVobMoney(lead.vob_deductible_cents)}
+                  {lead.vob_deductible_remaining_cents != null && (
+                    <span className="text-muted-foreground"> ({fmtVobMoney(lead.vob_deductible_remaining_cents)} left)</span>
+                  )}
+                </span>
+              </div>
+            )}
+            {lead.vob_oop_max_cents != null && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">OOP max</span>
+                <span className="text-right">{fmtVobMoney(lead.vob_oop_max_cents)}</span>
+              </div>
+            )}
+            {lead.vob_authorization_required != null && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Prior auth</span>
+                <span className={`text-right inline-flex items-center gap-1 ${lead.vob_authorization_required ? "text-amber-700 dark:text-amber-400" : ""}`}>
+                  {lead.vob_authorization_required && <AlertCircle className="w-3 h-3" />}
+                  {lead.vob_authorization_required ? "Required" : "Not required"}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {lead.vob_notes && (
+          <div className="border-t pt-2 mt-2 text-xs text-muted-foreground whitespace-pre-wrap">
+            {lead.vob_notes}
+          </div>
+        )}
+
+        {lead.vob_completed_at && (
+          <div className="text-[10px] text-muted-foreground flex items-center gap-1 pt-1">
+            <Clock className="w-3 h-3" /> Verified {new Date(lead.vob_completed_at).toLocaleString(undefined, { month: "short", day: "numeric" })}
+          </div>
+        )}
+
+        <div className="pt-2">
+          <Link href="/ops/vob">
+            <Button size="sm" variant="outline" className="w-full gap-1.5 h-8">
+              <Edit3 className="w-3 h-3" />
+              {status === "pending" ? "Start VOB"
+                : status === "in_progress" ? "Continue VOB"
+                : isVerified ? "Edit VOB"
+                : "Open VOB queue"}
+            </Button>
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
