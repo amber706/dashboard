@@ -32,9 +32,22 @@ interface LeadRow {
   first_touch_call_id: string | null;
   owner_id: string | null;
   created_at: string;
+  lost_reason: string | null;
   last_touch_call: { id: string; ctm_call_id: string; started_at: string | null; ctm_raw_payload: any; specialist_id: string | null } | null;
   owner: { id: string; full_name: string | null; email: string | null } | null;
 }
+
+const LOST_REASON_LABEL: Record<string, string> = {
+  insurance_denied: "Insurance denied / OON",
+  price_or_cost: "Price or cost",
+  went_to_competitor: "Went to competitor",
+  no_longer_seeking_treatment: "No longer seeking treatment",
+  wrong_fit: "Wrong fit (LOC/specialty)",
+  no_response: "No response — went cold",
+  do_not_call: "Asked to be removed",
+  spam_or_invalid: "Spam / invalid",
+  other: "Other",
+};
 
 const CATEGORY_LABEL: Record<Category, string> = {
   won: "Admitted",
@@ -72,6 +85,7 @@ export default function OpsOutcomes() {
         id, first_name, last_name, primary_phone_normalized, stage,
         outcome_category, outcome_set_at, first_touch_source_category, insurance_provider,
         last_touch_call_id, first_touch_call_id, owner_id, created_at,
+        lost_reason,
         last_touch_call:call_sessions!leads_last_touch_call_id_fkey(id, ctm_call_id, started_at, ctm_raw_payload, specialist_id),
         owner:profiles!leads_owner_id_fkey(id, full_name, email)
       `)
@@ -94,15 +108,24 @@ export default function OpsOutcomes() {
   }, [windowDays, filter]);
 
   // Rollups across the loaded leads.
-  const { totals, conversionPct, bySpecialist, bySource, byInsurance } = useMemo(() => {
+  const { totals, conversionPct, bySpecialist, bySource, byInsurance, byLostReason, lostMissingReason } = useMemo(() => {
     const t: Record<Category, number> = { won: 0, lost: 0, in_progress: 0 };
     const spec = new Map<string, { name: string; won: number; lost: number; in_progress: number }>();
     const src = new Map<string, { won: number; lost: number; in_progress: number }>();
     const ins = new Map<string, { won: number; lost: number; in_progress: number }>();
+    const lost = new Map<string, number>();
+    let missing = 0;
 
     for (const l of leads) {
       const cat = l.outcome_category ?? "in_progress";
       t[cat]++;
+      if (cat === "lost") {
+        if (l.lost_reason) {
+          lost.set(l.lost_reason, (lost.get(l.lost_reason) ?? 0) + 1);
+        } else {
+          missing++;
+        }
+      }
 
       // Specialist credit goes to the last_touch_call's specialist (if any),
       // else the lead owner. Reps with neither are bucketed as "Unattributed".
@@ -135,6 +158,10 @@ export default function OpsOutcomes() {
       bySpecialist: [...spec.entries()].map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.won + b.lost) - (a.won + a.lost)),
       bySource: [...src.entries()].map(([source, v]) => ({ source, ...v })).sort((a, b) => (b.won + b.lost) - (a.won + a.lost)),
       byInsurance: [...ins.entries()].map(([insurance, v]) => ({ insurance, ...v })).sort((a, b) => (b.won + b.lost) - (a.won + a.lost)),
+      byLostReason: [...lost.entries()]
+        .map(([key, count]) => ({ key, label: LOST_REASON_LABEL[key] ?? key, count }))
+        .sort((a, b) => b.count - a.count),
+      lostMissingReason: missing,
     };
   }, [leads]);
 
@@ -199,6 +226,53 @@ export default function OpsOutcomes() {
           onToggle={() => setExpandedSection(expandedSection === "insurance" ? null : "insurance")}
         />
       </div>
+
+      {/* Lost reasons — only show when there are lost leads in the window */}
+      {totals.lost > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2"><XCircle className="w-4 h-4 text-rose-600" /> Why we lost ({totals.lost} churned)</span>
+              {lostMissingReason > 0 && (
+                <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">
+                  {lostMissingReason} missing reason
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {byLostReason.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No lost reasons captured yet. Open a churned lead and pick a reason to start the cohort.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {byLostReason.map((r) => {
+                  const pct = Math.round((r.count / totals.lost) * 100);
+                  return (
+                    <div key={r.key} className="flex items-center gap-3">
+                      <div className="text-sm w-56 shrink-0">{r.label}</div>
+                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-rose-500/70" style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className="text-xs text-muted-foreground tabular-nums w-16 text-right">
+                        {r.count} · {pct}%
+                      </div>
+                    </div>
+                  );
+                })}
+                {lostMissingReason > 0 && (
+                  <div className="text-xs text-muted-foreground pt-2 border-t mt-2">
+                    {lostMissingReason} lost {lostMissingReason === 1 ? "lead is" : "leads are"} missing a reason.
+                    {" "}<Link href="/admin/leads" className="underline">Backfill them</Link>{" "}
+                    to make this chart trustworthy.
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stage mapping editor */}
       <StageMappingEditor onChanged={load} />

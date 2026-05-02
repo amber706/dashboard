@@ -18,6 +18,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+type LostReason =
+  | "insurance_denied"
+  | "price_or_cost"
+  | "went_to_competitor"
+  | "no_longer_seeking_treatment"
+  | "wrong_fit"
+  | "no_response"
+  | "do_not_call"
+  | "spam_or_invalid"
+  | "other";
+
 type VobStatus =
   | "pending"
   | "in_progress"
@@ -70,6 +81,9 @@ interface Lead {
   intake_no_show_at: string | null;
   intake_location: string | null;
   intake_notes: string | null;
+  lost_reason: LostReason | null;
+  lost_reason_notes: string | null;
+  lost_reason_set_at: string | null;
   owner: { id: string; full_name: string | null; email: string | null } | null;
 }
 
@@ -353,6 +367,8 @@ export default function LeadDetail() {
           <VobPanel lead={lead} />
 
           <IntakeSchedulePanel lead={lead} onSaved={(updated) => setLead(updated)} />
+
+          <LostReasonPanel lead={lead} onSaved={(updated) => setLead(updated)} />
 
           {(lead.first_touch_source_category || lead.first_touch_campaign) && (
             <Card>
@@ -1187,6 +1203,155 @@ function IntakeSchedulePanel({ lead, onSaved }: { lead: Lead; onSaved: (l: Lead)
             Save
           </Button>
           {lead.intake_scheduled_at && (
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={saving} className="h-8">
+              Cancel
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Lost-reason capture for leads that have been marked outcome=lost.
+// Without this signal, Cornerstone can't tell apart lost-to-insurance vs
+// lost-to-competitor vs lost-to-ghosting — three completely different
+// problems with completely different fixes. The panel only renders when
+// outcome_category === 'lost'.
+const LOST_REASON_LABEL: Record<LostReason, string> = {
+  insurance_denied: "Insurance denied / out of network",
+  price_or_cost: "Price or cost",
+  went_to_competitor: "Went to competitor",
+  no_longer_seeking_treatment: "No longer seeking treatment",
+  wrong_fit: "Wrong fit (LOC/specialty)",
+  no_response: "No response — went cold",
+  do_not_call: "Asked to be removed",
+  spam_or_invalid: "Spam / invalid",
+  other: "Other",
+};
+
+const LOST_REASON_ORDER: LostReason[] = [
+  "insurance_denied",
+  "price_or_cost",
+  "went_to_competitor",
+  "no_response",
+  "no_longer_seeking_treatment",
+  "wrong_fit",
+  "do_not_call",
+  "spam_or_invalid",
+  "other",
+];
+
+function LostReasonPanel({ lead, onSaved }: { lead: Lead; onSaved: (l: Lead) => void }) {
+  const { user } = useAuth();
+  const [editing, setEditing] = useState(!lead.lost_reason);
+  const [reason, setReason] = useState<LostReason | "">(lead.lost_reason ?? "");
+  const [notes, setNotes] = useState(lead.lost_reason_notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (lead.outcome_category !== "lost") return null;
+
+  async function save() {
+    if (!reason) {
+      setErr("Pick a reason.");
+      return;
+    }
+    setSaving(true); setErr(null);
+    const update: Record<string, unknown> = {
+      lost_reason: reason,
+      lost_reason_notes: notes.trim() || null,
+      lost_reason_set_at: new Date().toISOString(),
+      lost_reason_set_by: user?.id ?? null,
+    };
+    const { data, error } = await supabase
+      .from("leads")
+      .update(update)
+      .eq("id", lead.id)
+      .select(`*, owner:profiles!leads_owner_id_fkey(full_name, email)`)
+      .single();
+    setSaving(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    onSaved(data as unknown as Lead);
+    setEditing(false);
+  }
+
+  // Read-only summary
+  if (lead.lost_reason && !editing) {
+    return (
+      <Card className="border-rose-500/20">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2"><XCircle className="w-4 h-4 text-rose-600" /> Lost reason</span>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(true)} className="h-7 text-xs gap-1">
+              <Edit3 className="w-3 h-3" /> Edit
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <Badge variant="secondary" className="bg-rose-500/15 text-rose-700 dark:text-rose-400">
+            {LOST_REASON_LABEL[lead.lost_reason]}
+          </Badge>
+          {lead.lost_reason_notes && (
+            <div className="text-xs text-muted-foreground whitespace-pre-wrap border-t pt-2 mt-2">
+              {lead.lost_reason_notes}
+            </div>
+          )}
+          {lead.lost_reason_set_at && (
+            <div className="text-[10px] text-muted-foreground flex items-center gap-1 pt-1">
+              <Clock className="w-3 h-3" /> Captured {new Date(lead.lost_reason_set_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Edit / empty-state form
+  return (
+    <Card className="border-rose-500/40">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-rose-600" /> Why was this lead lost?
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          One signal turns "we lost it" into "here's the pattern." Pick the closest reason.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="space-y-1.5">
+          {LOST_REASON_ORDER.map((r) => (
+            <Button
+              key={r}
+              size="sm"
+              variant={reason === r ? "default" : "outline"}
+              onClick={() => setReason(r)}
+              className="h-8 text-xs justify-start w-full"
+            >
+              {LOST_REASON_LABEL[r]}
+            </Button>
+          ))}
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">Notes (optional)</label>
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+            placeholder="Anything specific the team should know"
+            className="text-sm"
+          />
+        </div>
+        {err && <div className="text-xs text-destructive">{err}</div>}
+        <div className="flex gap-2">
+          <Button size="sm" onClick={save} disabled={saving || !reason} className="flex-1 h-8 gap-1">
+            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+            Save
+          </Button>
+          {lead.lost_reason && (
             <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={saving} className="h-8">
               Cancel
             </Button>
