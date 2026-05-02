@@ -531,95 +531,26 @@ export default function HomeV2() {
         </Card>
       )}
 
-      {/* Top stat row */}
-      <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
-        <StatLink href="/ops/alerts" icon={<AlertTriangle className="w-4 h-4" />} label="Pending alerts" value={data.alerts_pending} accent={data.alerts_pending > 0 ? "rose" : undefined} />
-        <StatLink href="/ops/intakes" icon={<CalendarIcon className="w-4 h-4" />} label="Intakes today" value={data.intakes_today} accent={data.intakes_today > 0 ? "amber" : undefined} />
-        <StatLink href="/ops/vob" icon={<ShieldCheck className="w-4 h-4" />} label="VOBs to work" value={data.vob_open} accent={data.vob_open > 0 ? "amber" : undefined} />
-        <StatLink href="/ops/qa-review" icon={<ShieldAlert className="w-4 h-4" />} label="QA needs review" value={data.scores_pending_review} accent={data.scores_pending_review > 0 ? "amber" : undefined} />
-        <StatLink href="/ops/suggestions" icon={<Zap className="w-4 h-4" />} label="Open suggestions" value={data.suggestions_open} />
-        <StatLink href="/ops/kb-drafts" icon={<BookOpen className="w-4 h-4" />} label="KB drafts pending" value={data.kb_drafts_pending} />
-        <StatLink href="/ops/scenario-review" icon={<GraduationCap className="w-4 h-4" />} label="Scenarios pending" value={data.scenarios_pending_review} />
-      </div>
-
-      {/* Today's call activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Activity className="w-4 h-4" /> Call activity
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <Link href="/ctm-calls?date=today" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
-              <div className="text-xs text-muted-foreground">Calls today</div>
-              <div className="text-2xl font-semibold tabular-nums">{data.calls_today}</div>
-            </Link>
-            <Link href="/ctm-calls?date=24h" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
-              <div className="text-xs text-muted-foreground">Calls last 24h</div>
-              <div className="text-2xl font-semibold tabular-nums">{data.calls_24h}</div>
-            </Link>
-            <Link href="/ctm-calls?date=24h&has_transcript=true" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
-              <div className="text-xs text-muted-foreground">With transcript</div>
-              <div className="text-2xl font-semibold tabular-nums">{data.calls_with_transcript}</div>
-            </Link>
-            <Link href="/ops/qa-review" className="block rounded-md -m-1 p-1 hover:bg-accent/50 transition-colors cursor-pointer">
-              <div className="text-xs text-muted-foreground">Avg QA score (24h)</div>
-              <div className={`text-2xl font-semibold tabular-nums ${scoreColor(data.avg_score_24h)}`}>{data.avg_score_24h ?? "—"}</div>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Big CTA: open the unified queue. Specialists' callbacks, owed
+          outreach, and assigned VOBs/intakes all live there now — keeping
+          the home page focused on personal context (training, recent
+          calls, undispositioned wrap-ups). */}
+      <Link href="/queue" className="block">
+        <Card className="border-l-4 border-l-blue-500 hover:bg-accent/30 transition-colors">
+          <CardContent className="pt-4 pb-4 flex items-center gap-3">
+            <Inbox className="w-5 h-5 text-blue-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium">Your queue</div>
+              <div className="text-xs text-muted-foreground">
+                Callbacks, VOBs, intakes today, owed outreach, stuck leads — everything that needs follow-up in one place.
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+          </CardContent>
+        </Card>
+      </Link>
 
       <div className="grid lg:grid-cols-2 gap-4">
-        {/* Critical alerts */}
-        {data.alerts_critical.length > 0 && (
-          <Card className="border-l-4 border-l-rose-500">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-rose-600" /> Critical alerts ({data.alerts_critical.length})</span>
-                <Link href="/ops/alerts" className="text-xs text-primary hover:underline">All →</Link>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {data.alerts_critical.map((a) => (
-                <Link key={a.id} href={`/live/${a.call_id}`} className="block">
-                  <div className="border rounded-md p-2.5 text-sm hover:bg-accent/50 transition-colors">
-                    <Badge variant="outline" className="text-xs mb-1.5">{a.alert_type.replace(/_/g, " ")}</Badge>
-                    <p className="text-muted-foreground">"{a.trigger_excerpt.slice(0, 200)}"</p>
-                  </div>
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Top suggestions */}
-        {data.suggestions_top.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span className="flex items-center gap-2"><Sparkles className="w-4 h-4" /> Top suggestions</span>
-                <Link href="/ops/suggestions" className="text-xs text-primary hover:underline">All {data.suggestions_open} →</Link>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {data.suggestions_top.map((s) => (
-                <Link key={s.id} href="/ops/suggestions" className="block">
-                  <div className="border rounded-md p-2.5 text-sm hover:bg-accent/50 transition-colors flex items-start gap-2">
-                    <Badge className={priorityClass[s.priority] ?? ""} variant="secondary">{s.priority}</Badge>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{s.title}</div>
-                      <div className="text-xs text-muted-foreground">{s.suggestion_type.replace(/_/g, " ")}</div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-
         {/* Calls awaiting disposition — quick wrap-up reminder */}
         {data.my_undispositioned.length > 0 && (
           <Card className="border-l-4 border-l-amber-500">
@@ -646,70 +577,6 @@ export default function HomeV2() {
                 <div className="text-xs text-muted-foreground text-center pt-1">
                   +{data.my_undispositioned.length - 5} more
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Outreach owed (one-liner — full list lives on /me) */}
-        {data.my_outreach_owed > 0 && (
-          <Link href="/me" className="block">
-            <Card className="border-l-4 border-l-rose-500 hover:bg-accent/30 transition-colors">
-              <CardContent className="pt-3 pb-3 flex items-center gap-3">
-                <PhoneCall className="w-4 h-4 text-rose-600 shrink-0" />
-                <div className="flex-1 min-w-0 text-sm">
-                  <span className="font-semibold">{data.my_outreach_owed}</span>
-                  <span className="text-muted-foreground"> {data.my_outreach_owed === 1 ? "lead" : "leads"} you own with no outbound contact in 3+ days</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </CardContent>
-            </Card>
-          </Link>
-        )}
-
-        {/* My callbacks owed */}
-        {data.my_callbacks.length > 0 && (
-          <Card className="border-l-4 border-l-amber-500">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span className="flex items-center gap-2"><PhoneOff className="w-4 h-4 text-amber-600" /> Callbacks to make</span>
-                <Badge variant="outline" className="text-[10px]">{data.my_callbacks.length}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {data.my_callbacks.slice(0, 6).map((c) => {
-                const ageMs = c.started_at ? Date.now() - new Date(c.started_at).getTime() : 0;
-                const breached = ageMs > 60 * 60 * 1000;
-                const Icon = c.status === "voicemail" ? Voicemail : PhoneOff;
-                const iconColor = c.status === "voicemail" ? "text-blue-500" : "text-rose-500";
-                const href = c.lead_id ? `/leads/${c.lead_id}` : `/live/${c.id}`;
-                return (
-                  <Link key={c.id} href={href} className="block">
-                    <div className="border rounded-md p-2.5 text-sm hover:bg-accent/50 transition-colors flex items-start gap-3">
-                      <Icon className={`w-4 h-4 ${iconColor} shrink-0 mt-0.5`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium truncate">{c.caller_label}</span>
-                          <Badge variant="outline" className="text-[10px]">{c.status}</Badge>
-                          {c.ownership === "lead_owner" && (
-                            <Badge variant="outline" className="text-[10px] border-blue-500/40 text-blue-700 dark:text-blue-400">your lead</Badge>
-                          )}
-                          {breached && (
-                            <Badge variant="outline" className="text-[10px] border-rose-500/40 text-rose-700 dark:text-rose-400">&gt;1h</Badge>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {c.phone && <>{c.phone} · </>}{c.started_at ? new Date(c.started_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-              {data.my_callbacks.length > 6 && (
-                <Link href="/me" className="block text-xs text-primary hover:underline text-center pt-1">
-                  +{data.my_callbacks.length - 6} more on My coaching →
-                </Link>
               )}
             </CardContent>
           </Card>

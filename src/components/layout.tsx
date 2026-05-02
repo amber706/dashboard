@@ -99,9 +99,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
 
-    // QUALITY (review + coaching)
+    // QUALITY (review surfaces — Coaching Feed dropped because /ops/overview
+    // Attention Strip + Watchlist already surface trending-down specialists,
+    // compliance flags, and worst-call coaching opportunities)
     { href: "/ops/qa-review", label: "QA Review", icon: <ShieldAlert className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
-    { href: "/ops/coaching", label: "Coaching Feed", icon: <Award className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
     { href: "/ops/dispositions", label: "Dispositions", icon: <ClipboardCheck className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
     { href: "/ops/ai-bot-feedback", label: "AI Bot Feedback", icon: <Bot className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
 
