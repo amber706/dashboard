@@ -204,11 +204,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
     <div className="min-h-screen flex w-full">
       <aside className="w-[15.5rem] glass-sunken text-[#A6B5D0] flex-col hidden md:flex shrink-0 relative z-10" role="navigation" aria-label="Main navigation">
-        <div className="px-5 pt-6 pb-3 flex items-center justify-center">
+        <div className="px-5 pt-6 pb-3">
           <img
             src="/brand/cornerstone-wordmark.png"
             alt="Cornerstone Healing Center"
-            className="h-4 w-auto opacity-95"
+            className="w-full h-auto max-w-[200px] mx-auto block opacity-95"
           />
         </div>
         <div className="px-5 mb-3 flex items-center justify-center">
@@ -230,11 +230,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
             role="navigation"
             aria-label="Mobile navigation"
           >
-            <div className="flex items-center justify-between px-5 pt-6 pb-3">
+            <div className="flex items-center justify-between px-5 pt-6 pb-3 gap-3">
               <img
                 src="/brand/cornerstone-wordmark.png"
                 alt="Cornerstone Healing Center"
-                className="h-4 w-auto opacity-95"
+                className="h-5 w-auto opacity-95"
               />
               <button
                 onClick={() => setDrawerOpen(false)}
@@ -266,7 +266,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <img
               src="/brand/cornerstone-wordmark.png"
               alt="Cornerstone Healing Center"
-              className="h-3.5 w-auto opacity-95"
+              className="h-4 w-auto opacity-95"
             />
           </div>
           <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#0F2549] border border-[#11244A]">
