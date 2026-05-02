@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   AlertTriangle, ShieldAlert, BookOpen, GraduationCap, Phone, Inbox,
   TrendingUp, Loader2, Clock, Sparkles, Headphones, Zap, ChevronRight, Activity,
@@ -75,7 +75,17 @@ interface ActiveCall {
 export default function HomeV2() {
   const { user } = useAuth();
   const { role } = useRole();
+  const [, setLocation] = useLocation();
   const canPin = role === "manager" || role === "admin";
+
+  // Managers and admins get the manager command center as their landing
+  // page — no need to render a redundant home view for them. Specialists
+  // and reps stay on this page, which is their "today" surface.
+  useEffect(() => {
+    if (role === "manager" || role === "admin") {
+      setLocation("/ops/overview");
+    }
+  }, [role, setLocation]);
   const [data, setData] = useState<HomeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
