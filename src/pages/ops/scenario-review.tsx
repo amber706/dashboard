@@ -60,7 +60,7 @@ export default function ScenarioReview() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<ScenarioStatus | "all">("pending_review");
+  const [filter, setFilter] = useState<ScenarioStatus | "all" | "changes_requested">("pending_review");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
 
@@ -71,7 +71,14 @@ export default function ScenarioReview() {
       .select("*")
       .order("created_at", { ascending: false })
       .limit(100);
-    if (filter !== "all") q = q.eq("status", filter);
+    if (filter === "changes_requested") {
+      // analyze-scenario-effectiveness flags published scenarios with
+      // negative real-call lift. They stay published but managers should
+      // revisit them. This filter is the dedicated review surface.
+      q = q.eq("manager_review_status", "changes_requested");
+    } else if (filter !== "all") {
+      q = q.eq("status", filter);
+    }
     const { data, error } = await q;
     if (error) setError(error.message);
     else setScenarios((data ?? []) as Scenario[]);
@@ -102,9 +109,9 @@ export default function ScenarioReview() {
       />
 
       <div className="flex gap-2 flex-wrap">
-        {(["pending_review", "published", "draft", "retired", "all"] as const).map((f) => (
+        {(["pending_review", "changes_requested", "published", "draft", "retired", "all"] as const).map((f) => (
           <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} onClick={() => setFilter(f)}>
-            {f.replace(/_/g, " ")}
+            {f === "changes_requested" ? "needs review" : f.replace(/_/g, " ")}
           </Button>
         ))}
       </div>
@@ -180,13 +187,22 @@ function ScenarioRow({
   }
 
   return (
-    <Card className={scenario.status === "pending_review" ? "border-l-4 border-l-amber-500" : ""}>
+    <Card className={
+      scenario.manager_review_status === "changes_requested"
+        ? "border-l-4 border-l-rose-500"
+        : scenario.status === "pending_review" ? "border-l-4 border-l-amber-500" : ""
+    }>
       <CardHeader className="cursor-pointer" onClick={onToggle}>
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1.5 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               <Badge className={statusClass[scenario.status]} variant="secondary">{scenario.status.replace(/_/g, " ")}</Badge>
+              {scenario.manager_review_status === "changes_requested" && (
+                <Badge variant="outline" className="text-[10px] gap-1 border-rose-500/40 text-rose-700 dark:text-rose-400">
+                  <AlertTriangle className="w-3 h-3" /> low real-call lift — review
+                </Badge>
+              )}
               <Badge className={difficultyClass[scenario.difficulty] ?? ""} variant="secondary">{scenario.difficulty}</Badge>
               {scenario.is_crisis_tagged && (
                 <Badge variant="outline" className="gap-1"><AlertTriangle className="w-3 h-3" /> crisis</Badge>
