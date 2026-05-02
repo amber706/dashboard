@@ -516,6 +516,230 @@ export function AttentionStrip() {
 }
 
 // =============================================================================
+// REP WORKLOAD CARDS
+// Per-rep today snapshot: status, calls handled, missed/abandoned, avg QA,
+// callbacks owed. One card per active specialist; sorted on-call first then
+// by call volume so the busiest rep is at the top.
+// =============================================================================
+
+interface RepCard {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  status: AgentStatus;
+  is_on_call: boolean;
+  current_call_started_at: string | null;
+  calls_today: number;
+  missed_today: number;
+  avg_qa_today: number | null;
+  callbacks_pending: number;
+}
+
+export function RepWorkloadCards() {
+  const [reps, setReps] = useState<RepCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  // Re-render every second to keep on-call elapsed timer fresh.
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+      const startISO = startOfDay.toISOString();
+
+      const [profilesRes, todayCallsRes, todayScoresRes, callbacksRes, activeCallsRes] = await Promise.all([
+        // Active specialists (skip AI agents — they get their own line)
+        supabase.from("profiles")
+          .select("id, full_name, email, availability_status")
+          .eq("is_active", true)
+          .neq("is_ai_agent", true)
+          .in("role", ["specialist", "manager"]),
+        // Today's calls grouped by specialist (we'll bucket client-side)
+        supabase.from("call_sessions")
+          .select("specialist_id, status")
+          .gte("started_at", startISO)
+          .not("specialist_id", "is", null),
+        // Today's QA scores
+        supabase.from("call_scores")
+          .select("composite_score, call:call_sessions(specialist_id)")
+          .gte("created_at", startISO),
+        // Pending callbacks per specialist
+        supabase.from("call_sessions")
+          .select("specialist_id")
+          .eq("callback_status", "pending")
+          .not("specialist_id", "is", null),
+        // Active calls (in-progress) for the on-call indicator + timer
+        supabase.from("call_sessions")
+          .select("specialist_id, started_at")
+          .gte("started_at", new Date(Date.now() - 60 * 60 * 1000).toISOString())
+          .is("ended_at", null)
+          .not("specialist_id", "is", null),
+      ]);
+      if (cancelled) return;
+
+      // Roll up today's calls
+      const callsBySpec = new Map<string, { total: number; missed: number }>();
+      for (const c of (todayCallsRes.data ?? []) as any[]) {
+        if (!c.specialist_id) continue;
+        const cur = callsBySpec.get(c.specialist_id) ?? { total: 0, missed: 0 };
+        cur.total++;
+        if (c.status === "missed" || c.status === "abandoned" || c.status === "no_answer") {
+          cur.missed++;
+        }
+        callsBySpec.set(c.specialist_id, cur);
+      }
+
+      // Roll up today's avg QA
+      const scoresBySpec = new Map<string, number[]>();
+      for (const s of (todayScoresRes.data ?? []) as any[]) {
+        const call = Array.isArray(s.call) ? s.call[0] : s.call;
+        const sId = call?.specialist_id;
+        if (!sId || s.composite_score == null) continue;
+        const arr = scoresBySpec.get(sId) ?? [];
+        arr.push(s.composite_score);
+        scoresBySpec.set(sId, arr);
+      }
+
+      // Roll up pending callbacks
+      const callbacksBySpec = new Map<string, number>();
+      for (const c of (callbacksRes.data ?? []) as any[]) {
+        if (!c.specialist_id) continue;
+        callbacksBySpec.set(c.specialist_id, (callbacksBySpec.get(c.specialist_id) ?? 0) + 1);
+      }
+
+      // Active calls (for live elapsed timer)
+      const activeBySpec = new Map<string, string>();
+      for (const c of (activeCallsRes.data ?? []) as any[]) {
+        if (!c.specialist_id || !c.started_at) continue;
+        // Latest start wins if a rep somehow has two open rows
+        const cur = activeBySpec.get(c.specialist_id);
+        if (!cur || c.started_at > cur) activeBySpec.set(c.specialist_id, c.started_at);
+      }
+
+      const list: RepCard[] = ((profilesRes.data ?? []) as any[]).map((p) => {
+        const calls = callsBySpec.get(p.id) ?? { total: 0, missed: 0 };
+        const scoreList = scoresBySpec.get(p.id) ?? [];
+        const avg = scoreList.length > 0 ? Math.round(scoreList.reduce((a, b) => a + b, 0) / scoreList.length) : null;
+        const onCallStartedAt = activeBySpec.get(p.id) ?? null;
+        const ctmStatus = (p.availability_status ?? "offline") as AgentStatus;
+        const status: AgentStatus = onCallStartedAt ? "on_call" : ctmStatus;
+        return {
+          id: p.id,
+          full_name: p.full_name,
+          email: p.email,
+          status,
+          is_on_call: !!onCallStartedAt,
+          current_call_started_at: onCallStartedAt,
+          calls_today: calls.total,
+          missed_today: calls.missed,
+          avg_qa_today: avg,
+          callbacks_pending: callbacksBySpec.get(p.id) ?? 0,
+        };
+      });
+
+      // Sort: on-call first (active = most interesting), then by call volume
+      // descending, then alpha. Reps with zero activity sink to the bottom.
+      list.sort((a, b) => {
+        if (a.is_on_call && !b.is_on_call) return -1;
+        if (b.is_on_call && !a.is_on_call) return 1;
+        if (a.calls_today !== b.calls_today) return b.calls_today - a.calls_today;
+        return (a.full_name ?? a.email ?? "").localeCompare(b.full_name ?? b.email ?? "");
+      });
+
+      setReps(list);
+      setLoading(false);
+    }
+    load();
+    const i = setInterval(load, POLL_INTERVAL_MS);
+    return () => { cancelled = true; clearInterval(i); };
+  }, []);
+
+  // Tick once per second for on-call elapsed timers
+  useEffect(() => {
+    const i = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(i);
+  }, []);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center justify-between flex-wrap gap-2">
+          <span className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-blue-500" />
+            Rep workload today
+          </span>
+          <span className="text-xs text-muted-foreground font-normal">
+            {reps.length} {reps.length === 1 ? "specialist" : "specialists"}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="text-sm text-muted-foreground flex items-center gap-2 py-4">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading workload…
+          </div>
+        ) : reps.length === 0 ? (
+          <div className="text-sm text-muted-foreground py-2">No active specialists.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+            {reps.map((r) => (
+              <Link key={r.id} href={`/ops/specialist/${r.id}`} className="block">
+                <div className="border rounded-lg p-3 hover:bg-accent/30 transition-colors h-full">
+                  <div className="flex items-center justify-between gap-2 mb-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[r.status]} ${r.is_on_call ? "animate-pulse" : ""}`} />
+                      <span className="text-sm font-medium truncate">{r.full_name ?? r.email}</span>
+                    </div>
+                    {r.is_on_call && r.current_call_started_at ? (
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">
+                        {fmtElapsed(r.current_call_started_at)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground shrink-0 capitalize">
+                        {STATUS_LABEL[r.status]}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div>
+                      <div className="text-lg font-semibold tabular-nums leading-tight">{r.calls_today}</div>
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">calls</div>
+                    </div>
+                    <div>
+                      <div className={`text-lg font-semibold tabular-nums leading-tight ${r.missed_today > 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
+                        {r.missed_today}
+                      </div>
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">missed</div>
+                    </div>
+                    <div>
+                      <div className={`text-lg font-semibold tabular-nums leading-tight ${
+                        r.avg_qa_today == null ? "text-muted-foreground"
+                          : r.avg_qa_today >= 80 ? "text-emerald-600 dark:text-emerald-400"
+                          : r.avg_qa_today >= 60 ? "text-amber-600 dark:text-amber-400"
+                          : "text-rose-600 dark:text-rose-400"
+                      }`}>
+                        {r.avg_qa_today ?? "—"}
+                      </div>
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">avg QA</div>
+                    </div>
+                    <div>
+                      <div className={`text-lg font-semibold tabular-nums leading-tight ${r.callbacks_pending > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                        {r.callbacks_pending}
+                      </div>
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">cb owed</div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// =============================================================================
 // TRAINING WATCHLIST
 // New hires (first 30d) with completion %, overdue assignees, low scorers.
 // =============================================================================

@@ -8,7 +8,7 @@ import { OpsRoleGuard } from "@/components/ops/role-guard";
 import { DrillDownPanel, type ColumnDef } from "@/components/drill-down-panel";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { SectionHeader } from "@/components/dashboard/SectionHeader";
-import { LiveFloor, TodayKpis, AttentionStrip, TrainingWatchlist } from "@/components/ops/manager-command-center";
+import { LiveFloor, TodayKpis, AttentionStrip, RepWorkloadCards } from "@/components/ops/manager-command-center";
 import { RecommendationCard, ReasoningPanels } from "@/components/dashboard/RecommendationCard";
 import { PriorityBadge } from "@/components/dashboard/PriorityBadge";
 import { useToast } from "@/hooks/use-toast";
@@ -284,8 +284,11 @@ function OpsOverviewContent() {
         <LiveFloor />
       </div>
 
-      {/* 3. Slower-moving signal — coaching/training watchlist */}
-      <TrainingWatchlist />
+      {/* 3. Per-rep workload today — calls, missed, avg QA, callbacks owed.
+             More directly actionable than the slower-moving training watchlist
+             at this position; coaching/training signals stay surfaced via the
+             AttentionStrip (trending down + overdue training counts). */}
+      <RepWorkloadCards />
 
       {activeDrill && (
         <DrillDownPanel
