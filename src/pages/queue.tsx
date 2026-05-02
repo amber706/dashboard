@@ -44,20 +44,25 @@ interface QueueItem {
   sort_at: string;
 }
 
-// Descriptive labels (Hot / Warm / Cool / Cold) instead of opaque A–D
-// tier letters — sales-funnel vocabulary every admissions team already
-// uses internally, so the badge reads without needing a legend.
+// Three priority levels using clinical-team vocabulary:
+//   Urgent       — work first (tier A: AHCCCS + high urgency + clinical risk)
+//   High priority — work next (tier B)
+//   Routine      — fits where it fits (tiers C + D)
+//
+// The DB still stores 4 tiers (A/B/C/D) for fine-grained sort precision;
+// we just collapse C and D into "Routine" in the UI so reps don't have
+// to internalize four buckets when three is enough.
 const TIER_TONE: Record<string, string> = {
-  A: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10",
-  B: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
-  C: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
+  A: "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10",
+  B: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
+  C: "border-zinc-500/40 text-zinc-600 dark:text-zinc-400 bg-zinc-500/10",
   D: "border-zinc-500/40 text-zinc-600 dark:text-zinc-400 bg-zinc-500/10",
 };
 const TIER_LABEL: Record<string, string> = {
-  A: "Hot",
-  B: "Warm",
-  C: "Cool",
-  D: "Cold",
+  A: "Urgent",
+  B: "High priority",
+  C: "Routine",
+  D: "Routine",
 };
 const TIER_RANK: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
 
@@ -453,11 +458,11 @@ export default function QueuePage() {
 
         <span className="mx-2 h-5 w-px bg-border" />
         <span className="text-xs text-muted-foreground">Sort:</span>
-        <Button size="sm" variant={sortBy === "urgency" ? "default" : "outline"} onClick={() => setSortBy("urgency")} className="h-8">
-          Most urgent
-        </Button>
         <Button size="sm" variant={sortBy === "quality" ? "default" : "outline"} onClick={() => setSortBy("quality")} className="h-8">
-          Hottest first
+          By priority
+        </Button>
+        <Button size="sm" variant={sortBy === "urgency" ? "default" : "outline"} onClick={() => setSortBy("urgency")} className="h-8">
+          Oldest first
         </Button>
       </div>
 

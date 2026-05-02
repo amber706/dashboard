@@ -309,13 +309,14 @@ export default function LeadDetail() {
                   {OUTCOME_LABEL[cat]}
                 </Badge>
                 {lead.lead_quality_tier && (() => {
-                  const label = lead.lead_quality_tier === "A" ? "Hot lead"
-                    : lead.lead_quality_tier === "B" ? "Warm lead"
-                    : lead.lead_quality_tier === "C" ? "Cool lead"
-                    : "Cold lead";
-                  const tone = lead.lead_quality_tier === "A" ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
-                    : lead.lead_quality_tier === "B" ? "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10"
-                    : lead.lead_quality_tier === "C" ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
+                  // Three-bucket display (Urgent / High priority / Routine)
+                  // backed by the four-tier DB column. Color follows
+                  // urgency-temperature: rose → amber → zinc.
+                  const label = lead.lead_quality_tier === "A" ? "Urgent"
+                    : lead.lead_quality_tier === "B" ? "High priority"
+                    : "Routine";
+                  const tone = lead.lead_quality_tier === "A" ? "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10"
+                    : lead.lead_quality_tier === "B" ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
                     : "border-zinc-500/40 text-zinc-600 dark:text-zinc-400 bg-zinc-500/10";
                   return (
                     <Badge
