@@ -8,6 +8,7 @@ import { OpsRoleGuard } from "@/components/ops/role-guard";
 import { DrillDownPanel, type ColumnDef } from "@/components/drill-down-panel";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { SectionHeader } from "@/components/dashboard/SectionHeader";
+import { LiveFloor, TodayKpis, AttentionStrip, TrainingWatchlist } from "@/components/ops/manager-command-center";
 import { RecommendationCard, ReasoningPanels } from "@/components/dashboard/RecommendationCard";
 import { PriorityBadge } from "@/components/dashboard/PriorityBadge";
 import { useToast } from "@/hooks/use-toast";
@@ -269,93 +270,17 @@ function OpsOverviewContent() {
         </p>
       </header>
 
-      {/* Top stat row — 10 metric cards, severity-mapped */}
-      <section>
-        <div className="eyebrow text-[#9AABC9] mb-3">01 — LIVE METRICS</div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <MetricCard
-            label="Inbound Today"
-            value={d.inbound_calls_today}
-            severity="info"
-            icon={Phone}
-            onClick={() => setDrillDown("inbound")}
-          />
-          <MetricCard
-            label="Answered"
-            value={d.answered_today}
-            severity={answerRate >= 80 ? "success" : answerRate >= 50 ? "warning" : "warning"}
-            icon={Phone}
-            delta={d.inbound_calls_today > 0
-              ? { value: `${answerRate}% rate`, direction: answerRate >= 80 ? "up" : "flat" }
-              : undefined}
-            onClick={() => setDrillDown("answered")}
-          />
-          <MetricCard
-            label="Missed"
-            value={d.missed_today}
-            severity={d.missed_today > 5 ? "danger" : d.missed_today > 0 ? "warning" : "success"}
-            icon={PhoneMissed}
-            successCheck
-            onClick={() => setDrillDown("missed")}
-          />
-          <MetricCard
-            label="Callback Backlog"
-            value={d.callback_backlog}
-            severity={d.callback_backlog > 10 ? "danger" : d.callback_backlog > 0 ? "warning" : "success"}
-            icon={Clock}
-            successCheck
-            onClick={() => setDrillDown("callback-backlog")}
-          />
-          <MetricCard
-            label="Awaiting 1st Contact"
-            value={d.leads_awaiting_first_contact}
-            severity={d.leads_awaiting_first_contact > 0 ? "warning" : "success"}
-            icon={Target}
-            successCheck
-            onClick={() => setDrillDown("awaiting-first-contact")}
-          />
-          <MetricCard
-            label="Overdue Follow-ups"
-            value={d.overdue_followups}
-            severity={d.overdue_followups > 5 ? "danger" : d.overdue_followups > 0 ? "warning" : "success"}
-            icon={AlertTriangle}
-            successCheck
-            onClick={() => setDrillDown("overdue")}
-          />
-          <MetricCard
-            label="Attribution Conflicts"
-            value={d.attribution_conflicts}
-            severity={d.attribution_conflicts > 0 ? "warning" : "success"}
-            icon={Activity}
-            successCheck
-            onClick={() => setDrillDown("attribution")}
-          />
-          <MetricCard
-            label="QA Review Queue"
-            value={d.qa_review_queue}
-            severity="info"
-            icon={ShieldAlert}
-            onClick={() => setDrillDown("qa-review")}
-          />
-          <MetricCard
-            label="Supervisor Queue"
-            value={d.supervisor_review_queue}
-            severity={d.supervisor_review_queue > 3 ? "warning" : "info"}
-            icon={Eye}
-            onClick={() => setDrillDown("supervisor")}
-          />
-          <MetricCard
-            label="Rep Capacity Warnings"
-            value={d.rep_capacity_warnings}
-            severity={d.rep_capacity_warnings > 0 ? "danger" : "success"}
-            icon={UserX}
-            successCheck
-            onClick={() => setDrillDown("rep-capacity")}
-          />
-        </div>
-      </section>
+      {/* Live floor — agents on calls + active calls + queue depth */}
+      <LiveFloor />
 
-      <CallLossSummary />
+      {/* Today's numbers — 4 KPIs */}
+      <TodayKpis />
+
+      {/* Two parallel attention surfaces */}
+      <div className="grid lg:grid-cols-2 gap-5">
+        <AttentionStrip />
+        <TrainingWatchlist />
+      </div>
 
       {activeDrill && (
         <DrillDownPanel
