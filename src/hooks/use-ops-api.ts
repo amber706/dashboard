@@ -77,6 +77,14 @@ export interface OpsRecommendation {
   related_lead_id?: string;
   related_rep_id?: string;
   related_call_id?: string;
+  // Surfaced from source_signals when type='assign_training_for_weakness'
+  // so the UI can group by specialist and label by scenario without
+  // dereferencing a JSON blob.
+  scenario_id?: string;
+  scenario_title?: string;
+  specialist_name?: string;
+  weakest_category?: string;
+  weakest_score?: number;
   status: string;
   created_at: string;
   call_context?: CallContext | null;

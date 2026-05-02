@@ -389,8 +389,9 @@ function OpsOverviewContent() {
               <p className="text-xs text-[#9AABC9] mt-1">Suggestions will appear here when the system detects actionable items</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {d.top_recommendations.slice(0, 5).map((rec: OpsRecommendation) => {
+            <NestedRecommendations
+              recs={d.top_recommendations}
+              renderRec={(rec: OpsRecommendation) => {
                 const ctx = rec.call_context;
                 const isExpanded = expandedRecId === rec.id;
                 return (
@@ -662,8 +663,8 @@ function OpsOverviewContent() {
                     )}
                   </div>
                 );
-              })}
-            </div>
+              }}
+            />
           )}
         </div>
       </section>
@@ -768,6 +769,137 @@ function CallLossSummary() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// =============================================================================
+// Nested recommendations: priority → rep → suggestion
+//
+// Cornerstone managers were drowning in flat lists of "Drill recommended for X"
+// rows that all looked identical at the surface level. Nest them so the eye
+// can scan: priority bucket counts up top, expand to see which reps are
+// flagged, expand a rep to see their actual drills.
+// =============================================================================
+
+const PRIORITY_ORDER = ["critical", "high", "medium", "low"] as const;
+const PRIORITY_TONE: Record<string, { bg: string; text: string; bar: string }> = {
+  critical: { bg: "bg-rose-500/15",   text: "text-rose-300",     bar: "bg-rose-500" },
+  high:     { bg: "bg-rose-500/10",   text: "text-rose-300",     bar: "bg-rose-500" },
+  medium:   { bg: "bg-amber-500/10",  text: "text-amber-300",    bar: "bg-amber-500" },
+  low:      { bg: "bg-zinc-500/10",   text: "text-zinc-300",     bar: "bg-zinc-500" },
+};
+
+function repLabelFor(rec: OpsRecommendation): string {
+  return rec.specialist_name
+    ?? rec.call_context?.rep_name
+    ?? rec.action_owner
+    ?? "Unassigned";
+}
+
+function NestedRecommendations({
+  recs,
+  renderRec,
+}: {
+  recs: OpsRecommendation[];
+  renderRec: (rec: OpsRecommendation) => React.ReactNode;
+}) {
+  // Group by priority then by rep label
+  const byPriority = new Map<string, Map<string, OpsRecommendation[]>>();
+  for (const r of recs) {
+    const pri = (r.priority ?? "medium").toLowerCase();
+    const rep = repLabelFor(r);
+    if (!byPriority.has(pri)) byPriority.set(pri, new Map());
+    const repMap = byPriority.get(pri)!;
+    if (!repMap.has(rep)) repMap.set(rep, []);
+    repMap.get(rep)!.push(r);
+  }
+
+  const priorityKeys = PRIORITY_ORDER.filter((p) => byPriority.has(p));
+  // Auto-expand the highest priority by default
+  const [openPriorities, setOpenPriorities] = useState<Set<string>>(
+    () => new Set(priorityKeys.length > 0 ? [priorityKeys[0]] : []),
+  );
+  const [openReps, setOpenReps] = useState<Set<string>>(new Set());
+
+  function togglePriority(p: string) {
+    const next = new Set(openPriorities);
+    if (next.has(p)) next.delete(p);
+    else next.add(p);
+    setOpenPriorities(next);
+  }
+  function toggleRep(key: string) {
+    const next = new Set(openReps);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setOpenReps(next);
+  }
+
+  return (
+    <div className="space-y-3">
+      {priorityKeys.map((p) => {
+        const repMap = byPriority.get(p)!;
+        const totalRecs = Array.from(repMap.values()).reduce((s, r) => s + r.length, 0);
+        const tone = PRIORITY_TONE[p];
+        const isOpen = openPriorities.has(p);
+        return (
+          <div key={p} className="glass rounded-2xl overflow-hidden">
+            {/* Priority header */}
+            <button
+              onClick={() => togglePriority(p)}
+              className="w-full flex items-center gap-3 p-4 text-left hover:bg-accent/20 transition-colors"
+              aria-expanded={isOpen}
+            >
+              {isOpen ? <ChevronDown className="w-4 h-4 text-[#9AABC9]" /> : <ChevronRight className="w-4 h-4 text-[#9AABC9]" />}
+              <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${tone.bg} ${tone.text}`}>
+                {p}
+              </span>
+              <span className="text-sm font-medium text-[#F4EFE6]">
+                {totalRecs} suggestion{totalRecs === 1 ? "" : "s"} across {repMap.size} {repMap.size === 1 ? "rep" : "reps"}
+              </span>
+            </button>
+
+            {/* Reps inside this priority */}
+            {isOpen && (
+              <div className="border-t border-border/40 divide-y divide-border/40">
+                {Array.from(repMap.entries())
+                  .sort((a, b) => b[1].length - a[1].length)
+                  .map(([rep, repRecs]) => {
+                    const repKey = `${p}::${rep}`;
+                    const repOpen = openReps.has(repKey);
+                    return (
+                      <div key={repKey}>
+                        <button
+                          onClick={() => toggleRep(repKey)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/20 transition-colors"
+                          aria-expanded={repOpen}
+                        >
+                          {repOpen ? <ChevronDown className="w-4 h-4 text-[#9AABC9]" /> : <ChevronRight className="w-4 h-4 text-[#9AABC9]" />}
+                          <span className="flex items-center gap-2 flex-1 min-w-0">
+                            <Headphones className="w-3.5 h-3.5 text-[#9AABC9]" />
+                            <span className="text-sm text-[#F4EFE6] truncate">{rep}</span>
+                          </span>
+                          <span className="text-xs text-[#9AABC9] tabular-nums shrink-0">
+                            {repRecs.length} {repRecs.length === 1 ? "drill" : "drills"}
+                          </span>
+                        </button>
+
+                        {/* Actual recs for this rep */}
+                        {repOpen && (
+                          <div className="px-3 pb-4 space-y-3">
+                            {repRecs.map((rec) => (
+                              <div key={rec.id}>{renderRec(rec)}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
