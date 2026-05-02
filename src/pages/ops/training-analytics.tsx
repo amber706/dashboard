@@ -40,6 +40,17 @@ interface CompanyStats {
   real_call_count_30d: number;
 }
 
+interface PathStat {
+  id: string;
+  title: string;
+  total_scenarios: number;
+  specialists_assigned: number;
+  specialists_completed: number;
+  avg_completion_pct: number;       // 0-100
+  real_call_lift: number | null;    // post-completion vs pre-completion lift
+  lift_sample_n: number;
+}
+
 const RUBRIC_LABELS: Record<string, string> = {
   qualification_completeness: "Qualification",
   rapport_and_empathy: "Rapport",
@@ -62,6 +73,7 @@ function scoreColor(n: number | null): string {
 export default function TrainingAnalytics() {
   const [specialists, setSpecialists] = useState<SpecialistStat[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioStat[]>([]);
+  const [paths, setPaths] = useState<PathStat[]>([]);
   const [company, setCompany] = useState<CompanyStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -232,6 +244,108 @@ export default function TrainingAnalytics() {
         );
 
         if (!cancelled) setScenarios(scenarioStats);
+
+        // ===== Per-path stats =====
+        // For each published path: how many specialists are assigned, how
+        // many have completed every scenario in the path, average completion
+        // pct, and real-call lift (avg composite 14d after path completion
+        // minus 14d before).
+        const { data: pathRows } = await supabase
+          .from("training_paths")
+          .select("id, title, scenario_ids")
+          .eq("is_published", true);
+
+        const pathsArr = (pathRows ?? []) as Array<{ id: string; title: string; scenario_ids: string[] }>;
+        const pathStats: PathStat[] = [];
+        for (const p of pathsArr) {
+          // All assignments tied to this path (source_path_id) gives us the
+          // assigned-via-path specialists. We also count "implicit" path
+          // progress when a specialist has completed every scenario in the
+          // path even if individual scenarios weren't assigned via path.
+          const { data: pathAssignments } = await supabase
+            .from("training_assignments")
+            .select("specialist_id, scenario_id, status, completed_at")
+            .eq("source_path_id", p.id);
+
+          const specToCompletedScenarios = new Map<string, Set<string>>();
+          const specSet = new Set<string>();
+          for (const a of (pathAssignments ?? []) as Array<{ specialist_id: string; scenario_id: string; status: string; completed_at: string | null }>) {
+            specSet.add(a.specialist_id);
+            if (a.status === "completed" && a.scenario_id) {
+              const s = specToCompletedScenarios.get(a.specialist_id) ?? new Set<string>();
+              s.add(a.scenario_id);
+              specToCompletedScenarios.set(a.specialist_id, s);
+            }
+          }
+
+          const completionPcts: number[] = [];
+          let specialistsCompleted = 0;
+          for (const sId of specSet) {
+            const completedScenarios = specToCompletedScenarios.get(sId) ?? new Set<string>();
+            const completedInPath = p.scenario_ids.filter((id) => completedScenarios.has(id)).length;
+            const pct = p.scenario_ids.length > 0 ? (completedInPath / p.scenario_ids.length) * 100 : 0;
+            completionPcts.push(pct);
+            if (completedInPath === p.scenario_ids.length && p.scenario_ids.length > 0) {
+              specialistsCompleted++;
+            }
+          }
+          const avgCompletionPct = completionPcts.length > 0
+            ? Math.round(completionPcts.reduce((a, b) => a + b, 0) / completionPcts.length)
+            : 0;
+
+          // Lift: for each specialist who completed the path, find the most
+          // recent completed_at among the path's scenarios as their "path
+          // completion date." Then average their composite call_scores 14d
+          // before vs 14d after.
+          const completionDates = new Map<string, string>();
+          for (const a of (pathAssignments ?? []) as Array<{ specialist_id: string; scenario_id: string; status: string; completed_at: string | null }>) {
+            if (a.status !== "completed" || !a.completed_at) continue;
+            const completedScenarios = specToCompletedScenarios.get(a.specialist_id) ?? new Set<string>();
+            const inPath = p.scenario_ids.filter((id) => completedScenarios.has(id)).length;
+            if (inPath !== p.scenario_ids.length) continue; // only fully-completed
+            const cur = completionDates.get(a.specialist_id);
+            if (!cur || a.completed_at > cur) completionDates.set(a.specialist_id, a.completed_at);
+          }
+
+          const liftDeltas: number[] = [];
+          for (const [sId, dateIso] of completionDates) {
+            const t = new Date(dateIso).getTime();
+            const beforeLo = new Date(t - 14 * 24 * 60 * 60 * 1000).toISOString();
+            const afterHi = new Date(t + 14 * 24 * 60 * 60 * 1000).toISOString();
+            const { data: scoreCalls } = await supabase
+              .from("call_scores")
+              .select("composite_score, created_at, call:call_sessions(specialist_id)")
+              .gte("created_at", beforeLo)
+              .lte("created_at", afterHi);
+            const myCalls = ((scoreCalls ?? []) as any[]).filter((sc) => {
+              const c = Array.isArray(sc.call) ? sc.call[0] : sc.call;
+              return c?.specialist_id === sId;
+            });
+            const before = myCalls.filter((sc) => sc.created_at < dateIso).map((sc) => sc.composite_score).filter((n: number | null): n is number => typeof n === "number");
+            const after = myCalls.filter((sc) => sc.created_at >= dateIso).map((sc) => sc.composite_score).filter((n: number | null): n is number => typeof n === "number");
+            if (before.length === 0 || after.length === 0) continue;
+            const beforeAvg = before.reduce((a, b) => a + b, 0) / before.length;
+            const afterAvg = after.reduce((a, b) => a + b, 0) / after.length;
+            liftDeltas.push(afterAvg - beforeAvg);
+          }
+
+          const lift = liftDeltas.length > 0
+            ? Math.round(liftDeltas.reduce((a, b) => a + b, 0) / liftDeltas.length)
+            : null;
+
+          pathStats.push({
+            id: p.id,
+            title: p.title,
+            total_scenarios: p.scenario_ids.length,
+            specialists_assigned: specSet.size,
+            specialists_completed: specialistsCompleted,
+            avg_completion_pct: avgCompletionPct,
+            real_call_lift: lift,
+            lift_sample_n: liftDeltas.length,
+          });
+        }
+
+        if (!cancelled) setPaths(pathStats);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -353,6 +467,61 @@ export default function TrainingAnalytics() {
           )}
         </CardContent>
       </Card>
+
+      {paths.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Per-path</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Path effectiveness — completion rate across assigned specialists
+              and real-call lift after path completion. Path lift is harder
+              to read than per-scenario lift (longer time horizons, more
+              confounding signals); treat as directional.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[720px]">
+                <thead className="text-xs text-muted-foreground uppercase tracking-wide">
+                  <tr>
+                    <th className="text-left py-2 pr-3">Path</th>
+                    <th className="text-right py-2 pr-3">Scenarios</th>
+                    <th className="text-right py-2 pr-3">Assigned</th>
+                    <th className="text-right py-2 pr-3">Completed (full path)</th>
+                    <th className="text-right py-2 pr-3">Avg completion</th>
+                    <th className="text-right py-2 pr-3">Real-call lift</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paths.map((p) => {
+                    const liftColor = p.real_call_lift == null ? "text-muted-foreground"
+                      : p.real_call_lift >= 5 ? "text-emerald-700 dark:text-emerald-400"
+                      : p.real_call_lift >= 0 ? "text-amber-700 dark:text-amber-400"
+                      : "text-rose-700 dark:text-rose-400";
+                    return (
+                      <tr key={p.id} className="border-t">
+                        <td className="py-2 pr-3 font-medium">{p.title}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{p.total_scenarios}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{p.specialists_assigned}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{p.specialists_completed}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{p.avg_completion_pct}%</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${liftColor}`}>
+                          {p.real_call_lift == null ? <span className="text-xs">insufficient data</span> : (
+                            <>
+                              {p.real_call_lift > 0 ? "+" : ""}{p.real_call_lift}
+                              <span className="text-[10px] text-muted-foreground ml-1">n={p.lift_sample_n}</span>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </PageShell>
   );
 }
