@@ -112,25 +112,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const navContent = (
     <>
-      <div className="px-4 py-3 border-b border-sidebar-border/60 space-y-2">
-        <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-sidebar-accent/40">
-          <div className={`w-2 h-2 rounded-full ${modeInfo.color} ${mode === "live-call" ? "animate-pulse" : ""}`} />
-          <span className="text-xs font-medium text-sidebar-foreground/70">{modeInfo.label} Mode</span>
+      <div className="px-4 py-3 space-y-2">
+        <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#0F2549] border border-[#11244A]">
+          <div className={`w-1.5 h-1.5 rounded-full ${modeInfo.color} ${mode === "live-call" ? "animate-pulse" : ""}`} />
+          <span className="eyebrow text-[#A6B5D0]">{modeInfo.label} MODE</span>
         </div>
         <button
           onClick={() => setSearchOpen(true)}
-          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg bg-sidebar-accent/30 hover:bg-sidebar-accent/60 transition-colors text-left text-xs text-sidebar-foreground/70"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg bg-[#0F2549] border border-[#11244A] hover:border-[#1B335F] focus:border-[#5BA3D4] focus:ring-2 focus:ring-[#5BA3D4]/30 transition-colors text-left text-xs text-[#A6B5D0]"
         >
           <Search className="w-3.5 h-3.5" />
           <span className="flex-1">Search…</span>
-          <kbd className="text-[10px] font-mono bg-sidebar-accent/60 px-1.5 py-0.5 rounded">⌘K</kbd>
+          <kbd className="text-[10px] font-mono bg-[#02071A]/80 px-1.5 py-0.5 rounded text-[#6E7E9E]">⌘K</kbd>
         </button>
       </div>
 
       <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
         {sections.map((section) => (
           <div key={section}>
-            <div className="text-[10px] font-semibold text-sidebar-foreground/35 mt-5 mb-2 px-3 uppercase tracking-[0.1em]">
+            <div className="eyebrow text-[#6E7E9E] mt-5 mb-2 px-3">
               {section}
             </div>
             {filteredItems.filter((i) => i.section === section).map((item) => {
@@ -139,18 +139,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <Link
                   key={item.href + item.label}
                   href={item.href}
+                  aria-current={isActive ? "page" : undefined}
                   onClick={() => setDrawerOpen(false)}
-                  className={`flex items-center justify-between px-3 py-2 min-h-[40px] rounded-lg text-[13px] transition-all duration-150 ${
+                  className={`relative flex items-center justify-between pl-4 pr-3 py-2 min-h-[36px] rounded-lg text-[13px] transition-all duration-150 ${
                     isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                      : "text-sidebar-foreground/55 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground/90"
+                      ? "nav-active bg-[#0F2549] text-[#F4EFE6] font-medium"
+                      : "text-[#A6B5D0] hover:bg-[#0F2549]/60 hover:text-[#F4EFE6]"
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
                     {item.icon}
                     {item.label}
                   </div>
-                  {item.pulse && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />}
+                  {item.pulse && <span className="w-1.5 h-1.5 rounded-full bg-[#E89077] animate-pulse" />}
                 </Link>
               );
             })}
@@ -158,29 +159,29 @@ export function Layout({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border/60 space-y-2">
+      <div className="p-4 border-t border-[#11244A] space-y-2">
         <button
           onClick={() => setShowUserMenu(!showUserMenu)}
-          className="w-full flex items-center gap-2.5 px-2.5 py-2 min-h-[44px] rounded-lg hover:bg-sidebar-accent/30 transition-all duration-150 text-left"
+          className="w-full flex items-center gap-2.5 px-2.5 py-2 min-h-[44px] rounded-lg hover:bg-[#0F2549]/60 transition-all duration-150 text-left"
         >
-          <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-xs font-semibold shrink-0 text-sidebar-accent-foreground">
+          <div className="w-8 h-8 rounded-full bg-[#0F2549] border border-[#1B335F] flex items-center justify-center text-xs font-semibold shrink-0 text-[#F4EFE6]">
             {userName ? userName.split(" ").map((n: string) => n[0]).join("").toUpperCase() : "?"}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-medium truncate">{userName}</div>
-            <div className="text-[11px] text-sidebar-foreground/40 flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <div className="text-[13px] font-medium truncate text-[#F4EFE6]">{userName}</div>
+            <div className="text-[11px] text-[#6E7E9E] flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
               {role === "admin" ? "Administrator" : role === "manager" ? "Manager" : "Representative"}
             </div>
           </div>
-          <ChevronDown className={`w-3.5 h-3.5 text-sidebar-foreground/30 transition-transform ${showUserMenu ? "rotate-180" : ""}`} />
+          <ChevronDown className={`w-3.5 h-3.5 text-[#6E7E9E] transition-transform ${showUserMenu ? "rotate-180" : ""}`} />
         </button>
 
         {showUserMenu && (
-          <div className="bg-sidebar-accent/20 rounded-lg p-1.5">
+          <div className="bg-[#0F2549]/40 border border-[#11244A] rounded-lg p-1.5">
             <button
               onClick={() => { logout(); setShowUserMenu(false); setDrawerOpen(false); }}
-              className="w-full text-left text-xs px-3 py-2.5 min-h-[40px] rounded-md text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors"
+              className="w-full text-left text-xs px-3 py-2.5 min-h-[40px] rounded-md text-[#E89077] hover:bg-[#E89077]/10 flex items-center gap-2 transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" />
               Sign Out
@@ -189,7 +190,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         )}
 
         <div className="flex items-center justify-center px-2">
-          <button className="text-[10px] text-sidebar-foreground/25 hover:text-sidebar-foreground/50 transition-colors flex items-center gap-1.5 min-h-[36px]" title="Press ? for shortcuts">
+          <button className="text-[10px] text-[#3D4E6E] hover:text-[#6E7E9E] transition-colors flex items-center gap-1.5 min-h-[36px]" title="Press ? for shortcuts">
             <Keyboard className="w-3 h-3" />
             Press ? for shortcuts
           </button>
@@ -201,14 +202,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <>
     <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
-    <div className="min-h-screen flex bg-background w-full">
-      <aside className="w-[15.5rem] bg-sidebar text-sidebar-foreground border-r border-sidebar-border/60 flex-col hidden md:flex shrink-0" role="navigation" aria-label="Main navigation">
-        <div className="h-14 flex items-center px-5 font-semibold border-b border-sidebar-border/60 text-sidebar-primary-foreground tracking-tight gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-sidebar-primary/20 flex items-center justify-center">
-            <Activity className="w-4 h-4 text-sidebar-primary" />
-          </div>
-          <span className="text-[13px] font-semibold">Admissions Copilot</span>
+    <div className="min-h-screen flex w-full">
+      <aside className="w-[15.5rem] glass-sunken text-[#A6B5D0] flex-col hidden md:flex shrink-0 relative z-10" role="navigation" aria-label="Main navigation">
+        <div className="px-5 pt-6 pb-3 flex items-center justify-center">
+          <img
+            src="/brand/cornerstone-wordmark.png"
+            alt="Cornerstone Healing Center"
+            className="h-4 w-auto opacity-95"
+          />
         </div>
+        <div className="px-5 mb-3 flex items-center justify-center">
+          <span className="font-display text-[13px] text-[#5BA3D4]/90 tracking-[-0.005em]">Admissions Copilot</span>
+        </div>
+        <div className="mx-5 chc-divider opacity-60 mb-2" />
         {navContent}
       </aside>
 
@@ -220,48 +226,52 @@ export function Layout({ children }: { children: React.ReactNode }) {
             aria-label="Close navigation"
           />
           <aside
-            className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground border-r border-sidebar-border/60 flex flex-col animate-in slide-in-from-left duration-300"
+            className="absolute inset-y-0 left-0 w-72 max-w-[85vw] glass-sunken text-[#A6B5D0] flex flex-col animate-in slide-in-from-left duration-300"
             role="navigation"
             aria-label="Mobile navigation"
           >
-            <div className="h-14 flex items-center justify-between px-5 font-semibold border-b border-sidebar-border/60 text-sidebar-primary-foreground tracking-tight">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-sidebar-primary/20 flex items-center justify-center">
-                  <Activity className="w-4 h-4 text-sidebar-primary" />
-                </div>
-                <span className="text-[13px] font-semibold">Admissions Copilot</span>
-              </div>
+            <div className="flex items-center justify-between px-5 pt-6 pb-3">
+              <img
+                src="/brand/cornerstone-wordmark.png"
+                alt="Cornerstone Healing Center"
+                className="h-4 w-auto opacity-95"
+              />
               <button
                 onClick={() => setDrawerOpen(false)}
-                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-sidebar-accent/30 transition-colors"
+                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[#0F2549]/60 transition-colors"
                 aria-label="Close menu"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+            <div className="px-5 mb-3 flex items-center">
+              <span className="font-display text-[13px] text-[#5BA3D4]/90 tracking-[-0.005em]">Admissions Copilot</span>
+            </div>
+            <div className="mx-5 chc-divider opacity-60 mb-2" />
             {navContent}
           </aside>
         </div>
       )}
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-12 bg-background border-b border-border/60 flex items-center px-4 justify-between shrink-0 md:hidden">
+        <header className="h-12 backdrop-blur-xl border-b border-white/5 flex items-center px-4 justify-between shrink-0 md:hidden">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setDrawerOpen(true)}
-              className="w-10 h-10 flex items-center justify-center -ml-2 rounded-lg hover:bg-accent/30 transition-colors"
+              className="w-10 h-10 flex items-center justify-center -ml-2 rounded-lg hover:bg-[#0F2549]/60 transition-colors text-[#A6B5D0]"
               aria-label="Open navigation menu"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="font-semibold flex items-center gap-2 text-foreground tracking-tight text-sm">
-              <Activity className="w-4 h-4 text-primary" />
-              Copilot
-            </div>
+            <img
+              src="/brand/cornerstone-wordmark.png"
+              alt="Cornerstone Healing Center"
+              className="h-3.5 w-auto opacity-95"
+            />
           </div>
-          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-muted/50">
-            <div className={`w-2 h-2 rounded-full ${modeInfo.color} ${mode === "live-call" ? "animate-pulse" : ""}`} />
-            <span className="text-xs text-muted-foreground font-medium">{modeInfo.label}</span>
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#0F2549] border border-[#11244A]">
+            <div className={`w-1.5 h-1.5 rounded-full ${modeInfo.color} ${mode === "live-call" ? "animate-pulse" : ""}`} />
+            <span className="eyebrow text-[#A6B5D0]">{modeInfo.label}</span>
           </div>
         </header>
         <div className="flex-1 overflow-y-auto" role="main">
