@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown,
+  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, MessageSquare,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -123,6 +123,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/attribution", label: "Attribution", icon: <Activity className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
     { href: "/ops/training-analytics", label: "Training Analytics", icon: <BarChart3 className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
     { href: "/ops/kb-drafts", label: "KB Drafts", icon: <BookOpen className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
+    { href: "/ops/objections", label: "Objection Mining", icon: <MessageSquare className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
 
     // ADMIN
     { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Admin", roles: ["manager", "admin"] as const },
