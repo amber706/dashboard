@@ -82,20 +82,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" />, section: "Overview", roles: ["rep", "manager", "admin"] as const },
     { href: "/me", label: "My Coaching", icon: <Award className="w-4 h-4" />, section: "Overview", roles: ["rep", "manager", "admin"] as const },
 
-    // WORKFLOW (specialist daily work)
+    // WORKFLOW (specialist daily work — including the callback queue,
+    // which is core daily work, not a manager-monitoring surface)
     { href: "/ctm-calls", label: "Live Calls", icon: <Phone className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const, pulse: true },
+    { href: "/ops/callbacks", label: "Callback Queue", icon: <PhoneOff className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/kb", label: "Knowledge Base", icon: <Search className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/training", label: "Training", icon: <GraduationCap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
 
-    // LIVE OPS (manager — what's happening right now)
+    // ALERTS (urgent flags — surfaced as their own section so they don't
+    // get lost in the Live Ops scroll)
+    { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const, pulse: true },
+    { href: "/ops/abandoned-calls", label: "Abandoned Calls", icon: <PhoneOff className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const },
+    { href: "/ops/supervisor-review", label: "Supervisor Review", icon: <Eye className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const },
+
+    // LIVE OPS (manager — what's happening right now, minus alerts/callbacks)
     { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
-    { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const, pulse: true },
-    { href: "/ops/callbacks", label: "Callback Queue", icon: <PhoneOff className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/outreach", label: "Outreach Gaps", icon: <PhoneIncoming className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/stuck-leads", label: "Stuck Leads", icon: <Hourglass className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/vob", label: "VOB Queue", icon: <ShieldCheck className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/intakes", label: "Intake Schedule", icon: <Calendar className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
-    { href: "/ops/abandoned-calls", label: "Abandoned Calls", icon: <PhoneOff className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
 
     // QUALITY (review + coaching)
@@ -103,14 +108,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/coaching", label: "Coaching Feed", icon: <Award className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
     { href: "/ops/dispositions", label: "Dispositions", icon: <ClipboardCheck className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
     { href: "/ops/ai-bot-feedback", label: "AI Bot Feedback", icon: <Bot className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
-    { href: "/ops/supervisor-review", label: "Supervisor Review", icon: <Eye className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
 
-    // TEAM (people + capacity)
-    { href: "/ops/team", label: "Team", icon: <Users className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
-    { href: "/ops/staffing", label: "Staffing Schedule", icon: <Calendar className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
-    { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
-    { href: "/ops/training-assignments", label: "Training Assignments", icon: <GraduationCap className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
-    { href: "/ops/training-paths", label: "Training Paths", icon: <Route className="w-4 h-4" />, section: "Team", roles: ["manager", "admin"] as const },
+    // STAFFING (people, schedule, capacity — was "Team" but everything in
+    // it was about staffing capacity, so name it for what it is)
+    { href: "/ops/team", label: "Team Roster", icon: <Users className="w-4 h-4" />, section: "Staffing", roles: ["manager", "admin"] as const },
+    { href: "/ops/staffing", label: "Staffing Schedule", icon: <Calendar className="w-4 h-4" />, section: "Staffing", roles: ["manager", "admin"] as const },
+    { href: "/ops/workload", label: "Rep Workload", icon: <UserCheck className="w-4 h-4" />, section: "Staffing", roles: ["manager", "admin"] as const },
+
+    // TRAINING (curriculum + assignments — split out of Team for focus)
+    { href: "/ops/training-assignments", label: "Assignments", icon: <GraduationCap className="w-4 h-4" />, section: "Training", roles: ["manager", "admin"] as const },
+    { href: "/ops/training-paths", label: "Training Paths", icon: <Route className="w-4 h-4" />, section: "Training", roles: ["manager", "admin"] as const },
 
     // INSIGHTS (analytics + content)
     { href: "/ops/outcomes", label: "Outcomes", icon: <Trophy className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
