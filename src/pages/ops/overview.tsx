@@ -7,7 +7,7 @@ import { SuggestionActions } from "@/components/ops/suggestion-actions";
 import { OpsRoleGuard } from "@/components/ops/role-guard";
 import { DrillDownPanel, type ColumnDef } from "@/components/drill-down-panel";
 import { MetricCard } from "@/components/dashboard/MetricCard";
-import { SectionHeader, GradientWord } from "@/components/dashboard/SectionHeader";
+import { SectionHeader } from "@/components/dashboard/SectionHeader";
 import { RecommendationCard, ReasoningPanels } from "@/components/dashboard/RecommendationCard";
 import { PriorityBadge } from "@/components/dashboard/PriorityBadge";
 import { useToast } from "@/hooks/use-toast";
@@ -210,12 +210,10 @@ function OpsOverviewContent() {
 
   if (error && !data) {
     return (
-      <div className="px-4 sm:px-6 lg:px-8 py-8 max-w-[1600px] mx-auto">
-        <header className="mb-6">
-          <div className="eyebrow text-[#5BA3D4] mb-1.5">00 — COMMAND CENTER</div>
-          <h1 className="font-display text-[44px] font-normal leading-[0.98] tracking-[-0.025em] text-[#F4EFE6]">
-            Operations <GradientWord>Overview.</GradientWord>
-          </h1>
+      <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1600px] mx-auto">
+        <header className="mb-6 space-y-1">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Command center</div>
+          <h1 className="text-2xl font-semibold">Operations Overview</h1>
         </header>
         <Card>
           <CardContent className="p-12 text-center">
@@ -252,22 +250,23 @@ function OpsOverviewContent() {
     : 0;
 
   return (
-    <div className="px-4 sm:px-6 lg:px-8 py-8 max-w-[1600px] mx-auto space-y-10">
-      {/* Page header — gradient-emphasis Operations title with brand divider + refresh action */}
-      <header>
-        <div className="mb-3"><span className="eyebrow text-[#5BA3D4]">00 — COMMAND CENTER</span></div>
-        <div className="flex items-end justify-between gap-4 flex-wrap">
-          <h1 className="font-display text-[44px] sm:text-[52px] font-normal leading-[0.98] tracking-[-0.025em] text-[#F4EFE6]">
-            Operations <GradientWord>Overview.</GradientWord>
-          </h1>
+    <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1600px] mx-auto space-y-6">
+      {/* Page header — same shape as the home dashboard: small uppercase
+          eyebrow, text-2xl font-semibold title, muted subtitle. No gradient,
+          no decorative serif, no brand divider. */}
+      <header className="space-y-1">
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Command center
+        </div>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h1 className="text-2xl font-semibold">Operations Overview</h1>
           <Button variant="outline" size="sm" className="h-9" onClick={refetch}>
             <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
           </Button>
         </div>
-        <p className="mt-3 text-[15px] text-[#C5D2E5] max-w-2xl leading-relaxed">
+        <p className="text-sm text-muted-foreground max-w-3xl">
           Real-time command center for admissions operations — live calls, callback queues, and AI-generated coaching across your team.
         </p>
-        <div className="chc-divider mt-6 max-w-md opacity-80" />
       </header>
 
       {/* Top stat row — 10 metric cards, severity-mapped */}

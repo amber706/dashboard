@@ -28,21 +28,24 @@ export function SectionHeader({
   title,
   subtitle,
   actions,
-  eyebrowAccent = "blue",
+  eyebrowAccent: _eyebrowAccent,
 }: SectionHeaderProps) {
+  void _eyebrowAccent; // accent kept on the type for caller compatibility
+  // Plain Inter, matches the home dashboard. No serif, no gradient, no
+  // numbered prefix — the eyebrow is just a small uppercased label.
   const eyebrowText = number && eyebrow ? `${number} — ${eyebrow}` : (eyebrow ?? number);
   return (
-    <div className="flex items-end justify-between gap-3 flex-wrap">
-      <div>
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div className="space-y-1">
         {eyebrowText && (
-          <div className={`eyebrow ${EYEBROW_TONE[eyebrowAccent]} mb-1.5`}>
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {eyebrowText}
           </div>
         )}
-        <h2 className="font-display text-[28px] font-normal tracking-[-0.02em] text-[#F4EFE6] flex items-center gap-2.5">
+        <h2 className="text-base font-semibold flex items-center gap-2">
           {title}
         </h2>
-        {subtitle && <p className="mt-1 text-[13.5px] text-[#C5D2E5]">{subtitle}</p>}
+        {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {actions && <div className="shrink-0">{actions}</div>}
     </div>
