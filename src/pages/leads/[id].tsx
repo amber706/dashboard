@@ -364,86 +364,113 @@ export default function LeadDetail() {
         </CardContent>
       </Card>
 
-      <div className="grid lg:grid-cols-3 gap-4">
-        {/* Left: unified timeline */}
-        <div className="lg:col-span-2 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <History className="w-4 h-4" /> Timeline
-                <Badge variant="outline" className="text-[10px] ml-1">{timeline.length}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {timeline.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">No activity recorded for this lead yet.</p>
-              ) : (
-                <Timeline events={timeline} />
-              )}
-            </CardContent>
-          </Card>
+      {/* Page reads top-to-bottom in the rep's natural workflow. Sidebar
+          gone — primary actions don't belong in a side rail.
+            1. Action band: VOB | Intake | Lost reason — only the cards
+               relevant to this lead's state, side by side
+            2. Timeline: history full-width
+            3. Captured from calls: extracted facts in a dense grid
+            4. Facts on file: editable reference data
+            5. Marketing attribution: only if present
+      */}
 
-          {/* Captured from calls — moved into the left column so the
-              chronological + extracted content live together, and so
-              the Timeline card isn't an island in a tall page. */}
-          {extractions.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" /> Captured from calls
-                  <Badge variant="outline" className="text-[10px] ml-1">{extractions.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                  {extractions.slice(0, 18).map((f, i) => (
-                    <div key={`${f.field_name}-${i}`} className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs text-muted-foreground capitalize">{f.field_name.replace(/_/g, " ")}</div>
-                        <div className="truncate">{f.extracted_value}</div>
-                      </div>
-                    </div>
-                  ))}
+      {/* 1. ACTION BAND — at most three cards, side by side, only the
+             ones that actually apply to this lead. Each panel's empty
+             state already invites the action, so a missing card means
+             the action isn't relevant (no insurance → no VOB card). */}
+      <ActionBand lead={lead} setLead={setLead} />
+
+      {/* 2. TIMELINE — full width, primary content. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <History className="w-4 h-4" /> Timeline
+            <Badge variant="outline" className="text-[10px] ml-1">{timeline.length}</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {timeline.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No activity recorded for this lead yet.</p>
+          ) : (
+            <Timeline events={timeline} />
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 3. CAPTURED FROM CALLS — dense 3-column grid full width when
+             extractions exist, hidden entirely when they don't. */}
+      {extractions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sparkles className="w-4 h-4" /> Captured from calls
+              <Badge variant="outline" className="text-[10px] ml-1">{extractions.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5 text-sm">
+              {extractions.slice(0, 24).map((f, i) => (
+                <div key={`${f.field_name}-${i}`} className="flex items-start gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-muted-foreground capitalize">{f.field_name.replace(/_/g, " ")}</div>
+                    <div className="truncate">{f.extracted_value}</div>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-        {/* Right: state + actions, stacked in workflow order:
-            1. Facts on file (editable) — compact, empty fields collapsed
-            2. VOB panel (only renders when there's insurance to verify)
-            3. Intake schedule (always renders — primary call-to-action)
-            4. Lost reason (only renders when outcome=lost)
-            5. Marketing attribution (only renders when present) */}
-        <div className="space-y-4">
-          <EditableLeadFacts lead={lead} onSaved={(updated) => setLead(updated)} />
+      {/* 4. FACTS ON FILE — reference card, editable, lives below the
+             action + timeline because it's not what reps come here to do. */}
+      <EditableLeadFacts lead={lead} onSaved={(updated) => setLead(updated)} />
 
-          <VobPanel lead={lead} />
+      {/* 5. MARKETING ATTRIBUTION — only when populated. */}
+      {(lead.first_touch_source_category || lead.first_touch_campaign) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Marketing attribution</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {lead.first_touch_source_category && (
+              <FactRow label="First touch" value={`${lead.first_touch_source_category}${lead.first_touch_medium ? ` / ${lead.first_touch_medium}` : ""}`} />
+            )}
+            {lead.first_touch_campaign && (
+              <FactRow label="Campaign" value={lead.first_touch_campaign} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
 
-          <IntakeSchedulePanel lead={lead} onSaved={(updated) => setLead(updated)} />
+// Action band — VOB / Intake / Lost reason — rendered side by side
+// when multiple apply, full-width when only one does. Each underlying
+// panel still owns its own empty/edit-mode logic; this just decides
+// whether to render it and how to lay them out.
+function ActionBand({ lead, setLead }: { lead: Lead; setLead: (l: Lead) => void }) {
+  // VOB only applies when there's insurance OR a VOB has already been
+  // started. (VobPanel returns null otherwise — we duplicate the check
+  // here to know how many to render in the band.)
+  const showVob = !!(lead.insurance_provider || lead.vob_status);
+  // Intake schedule always renders — it's the primary call-to-action,
+  // and even an empty state should prompt the rep to schedule.
+  const showIntake = true;
+  // Lost reason only applies after an outcome flip.
+  const showLost = lead.outcome_category === "lost";
 
-          <LostReasonPanel lead={lead} onSaved={(updated) => setLead(updated)} />
+  const cards = [showVob, showIntake, showLost].filter(Boolean).length;
+  // 3 cards → 3 columns, 2 → 2 columns, 1 → full width.
+  const grid = cards >= 3 ? "lg:grid-cols-3" : cards === 2 ? "lg:grid-cols-2" : "lg:grid-cols-1";
 
-          {(lead.first_touch_source_category || lead.first_touch_campaign) && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Marketing attribution</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                {lead.first_touch_source_category && (
-                  <FactRow label="First touch" value={`${lead.first_touch_source_category}${lead.first_touch_medium ? ` / ${lead.first_touch_medium}` : ""}`} />
-                )}
-                {lead.first_touch_campaign && (
-                  <FactRow label="Campaign" value={lead.first_touch_campaign} />
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-        </div>
-      </div>
+  return (
+    <div className={`grid grid-cols-1 ${grid} gap-4`}>
+      {showVob && <VobPanel lead={lead} />}
+      {showIntake && <IntakeSchedulePanel lead={lead} onSaved={(updated) => setLead(updated)} />}
+      {showLost && <LostReasonPanel lead={lead} onSaved={(updated) => setLead(updated)} />}
     </div>
   );
 }
