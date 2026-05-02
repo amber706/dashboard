@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Search, Plus, MessageSquarePlus, Sparkles, Save, CheckCircle2, Inbox } from "lucide-react";
+import { Loader2, Search, Plus, MessageSquarePlus, Sparkles, Save, CheckCircle2, Inbox, ChevronRight, ShieldCheck, Building2, FileText, DollarSign, Phone, Brain } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,130 @@ import { useAuth } from "@/lib/auth-context";
 import { useRole } from "@/lib/role-context";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+
+// Curated KB quicklinks. Each row pre-fills the search and runs it, so
+// a specialist can hit the most common topics in one click without
+// remembering exact phrasing. Grouped into operational buckets.
+//
+// Add or remove entries here as the KB evolves; nothing else needs to change.
+interface QuickLink {
+  label: string;
+  query: string;
+  description: string;
+}
+interface QuickLinkSection {
+  title: string;
+  icon: typeof ShieldCheck;
+  links: QuickLink[];
+}
+
+const KB_QUICKLINKS: QuickLinkSection[] = [
+  {
+    title: "Insurance & coverage",
+    icon: ShieldCheck,
+    links: [
+      { label: "What insurance does Cornerstone accept?",
+        query: "what insurance does Cornerstone accept",
+        description: "Full list of in-network carriers + AHCCCS plans" },
+      { label: "AHCCCS plans we cover",
+        query: "AHCCCS plans Mercy Care Banner Molina",
+        description: "Arizona Medicaid plan details" },
+      { label: "Out-of-network / single-case agreements",
+        query: "out of network single case agreement OON",
+        description: "What to do when a carrier isn't in-network" },
+      { label: "Self-pay pricing",
+        query: "self pay private pay cost pricing",
+        description: "Cost structure for uninsured patients" },
+    ],
+  },
+  {
+    title: "Programs & levels of care",
+    icon: Building2,
+    links: [
+      { label: "BHRF / residential",
+        query: "BHRF residential inpatient",
+        description: "Highest level of care — 24/7 supervised housing" },
+      { label: "PHP — Partial Hospitalization",
+        query: "PHP partial hospitalization program",
+        description: "5+ days/week, structured daytime program" },
+      { label: "IOP — Intensive Outpatient",
+        query: "IOP intensive outpatient three day five day",
+        description: "3-day or 5-day weekly intensive outpatient" },
+      { label: "Virtual IOP / telehealth",
+        query: "virtual IOP VIOP telehealth remote",
+        description: "Online intensive outpatient option" },
+      { label: "Court-ordered DUI / DV",
+        query: "court ordered DUI DV violation",
+        description: "Court services and judge-ordered intake" },
+    ],
+  },
+  {
+    title: "Intake & scripting",
+    icon: FileText,
+    links: [
+      { label: "Pre-assessment checklist",
+        query: "pre-assessment intake checklist",
+        description: "What to capture before scheduling intake" },
+      { label: "Crisis / safety screening",
+        query: "crisis safety suicide self harm screening",
+        description: "When to escalate vs continue intake" },
+      { label: "Withdrawal / detox triage",
+        query: "withdrawal detox medical alcohol benzo opioid",
+        description: "Symptoms that need detox before residential" },
+      { label: "Scheduling intake",
+        query: "schedule intake admit appointment",
+        description: "Walk-in vs. scheduled, address, what to bring" },
+    ],
+  },
+  {
+    title: "Caller scenarios",
+    icon: Phone,
+    links: [
+      { label: "Caller is on probation",
+        query: "probation court paper court ordered treatment",
+        description: "Court paperwork, signature loops, judge requirements" },
+      { label: "Family member calling",
+        query: "family member calling on behalf relationship to patient",
+        description: "What to do when caller isn't the patient" },
+      { label: "Polysubstance use",
+        query: "polysubstance multiple substances opioid alcohol",
+        description: "Triage when caller uses more than one substance" },
+      { label: "SMI / serious mental illness",
+        query: "SMI serious mental illness schizophrenia bipolar",
+        description: "Co-occurring mental health and SUD" },
+    ],
+  },
+  {
+    title: "Pricing & policies",
+    icon: DollarSign,
+    links: [
+      { label: "Refund / cancellation policy",
+        query: "refund cancellation policy",
+        description: "What happens if a patient leaves early" },
+      { label: "Service animals / ESA",
+        query: "service animal emotional support animal ESA",
+        description: "What we accept on the housing side" },
+      { label: "Children in state foster care",
+        query: "children state foster care Arizona",
+        description: "Special intake handling for foster kids" },
+    ],
+  },
+  {
+    title: "Clinical & other",
+    icon: Brain,
+    links: [
+      { label: "Suboxone / MAT continuity",
+        query: "Suboxone MAT medication assisted continuity",
+        description: "Patients already on MAT — what to confirm" },
+      { label: "Psychiatric meds at admission",
+        query: "psychiatric medications Seroquel current meds admission",
+        description: "What to capture for the intake nurse" },
+      { label: "Adolescent / minor intake",
+        query: "adolescent minor under 18 parent guardian",
+        description: "Consent + guardian requirements for minors" },
+    ],
+  },
+];
 
 export default function KnowledgeBase() {
   const { user } = useAuth();
@@ -115,7 +239,7 @@ export default function KnowledgeBase() {
   }, [noResults, isExplicitSubmit, searchedQuery, user?.id]);
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Knowledge Base</h1>
@@ -147,6 +271,49 @@ export default function KnowledgeBase() {
           <span className="ml-2">Search</span>
         </Button>
       </form>
+
+      {/* Quicklinks — show when there's no active search to give specialists
+          a fast path to the most common questions without remembering the
+          exact phrasing. Hidden as soon as a search runs. */}
+      {!searchedQuery && !queryKb.isPending && !queryKb.data && (
+        <div className="space-y-5">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Quick links
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {KB_QUICKLINKS.map((section) => {
+              const Icon = section.icon;
+              return (
+                <Card key={section.title}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <Icon className="w-4 h-4 text-muted-foreground" />
+                      {section.title}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="divide-y divide-border">
+                      {section.links.map((l) => (
+                        <button
+                          key={l.query}
+                          onClick={() => { setQuery(l.query); runSearch(l.query, true); }}
+                          className="w-full text-left py-2.5 first:pt-0 last:pb-0 flex items-start gap-3 group hover:bg-accent/30 -mx-3 px-3 rounded-md transition-colors"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium group-hover:text-foreground">{l.label}</div>
+                            <div className="text-xs text-muted-foreground mt-0.5">{l.description}</div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 group-hover:translate-x-0.5 transition-transform" />
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {queryKb.error && (
         <Card className="border-destructive">
