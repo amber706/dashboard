@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Link } from "wouter";
 import {
   BookOpen, Loader2, CheckCircle2, XCircle, Edit3, ChevronDown, ChevronRight,
-  Phone, FileText, Sparkles,
+  Phone, FileText, Sparkles, Zap, Clock,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
@@ -76,9 +76,11 @@ export default function KBDraftsReview() {
       number="04"
       eyebrow="KNOWLEDGE"
       title="KB drafts review"
-      subtitle="AI-generated drafts from caller questions. Approve, edit, or reject — approved drafts get embedded and added to the searchable KB."
+      subtitle="AI-generated drafts from caller questions. Approve, edit, or reject — approved drafts get embedded and added to the searchable KB. Auto-runs every 4 hours."
       maxWidth={1200}
     >
+
+      <KbDraftsQueueStrip onProcessed={load} />
 
       <div className="flex gap-2 flex-wrap">
         {(["pending", "approved", "edited_and_approved", "rejected", "all"] as const).map((f) => (
@@ -92,7 +94,7 @@ export default function KBDraftsReview() {
       {error && <Card className="border-destructive"><CardContent className="pt-6 text-sm text-destructive">{error}</CardContent></Card>}
       {!loading && !error && drafts.length === 0 && (
         <Card><CardContent className="pt-8 text-center text-sm text-muted-foreground">
-          No drafts in this filter. {filter === "pending" && "(Drafts populate from the daily 6 AM scheduled run.)"}
+          No drafts in this filter. {filter === "pending" && "Click 'Process new calls now' above to scan unprocessed transcripts immediately."}
         </CardContent></Card>
       )}
 
@@ -293,6 +295,129 @@ function DraftRow({
           )}
         </CardContent>
       )}
+    </Card>
+  );
+}
+
+// Queue strip — shows when the auto-run last produced drafts, how many
+// transcripted calls are still unprocessed, and a Process now button so
+// managers don't have to wait for the next cron tick.
+function KbDraftsQueueStrip({ onProcessed }: { onProcessed: () => void }) {
+  const [latestDraftAt, setLatestDraftAt] = useState<string | null>(null);
+  const [eligibleCount, setEligibleCount] = useState<number | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    // Latest draft created → proxy for "last auto-run produced output"
+    const { data: latest } = await supabase
+      .from("kb_drafts")
+      .select("created_at")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    setLatestDraftAt((latest?.[0] as any)?.created_at ?? null);
+
+    // Eligibility count: calls in last 14d with talk >= 60 AND has transcript
+    // AND no kb_drafts referencing them. Computed approximately client-side
+    // because doing the exact join would need a SQL function.
+    const lookback = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+    const [callsRes, draftedRes, chunksRes] = await Promise.all([
+      supabase.from("call_sessions").select("id").gte("talk_seconds", 60).gte("created_at", lookback),
+      supabase.from("kb_drafts").select("source_call_ids"),
+      supabase.from("transcript_chunks").select("call_session_id").gte("created_at", lookback),
+    ]);
+    const callIds = new Set(((callsRes.data ?? []) as any[]).map((c) => c.id));
+    const drafted = new Set<string>();
+    for (const r of (draftedRes.data ?? []) as any[]) {
+      for (const id of r.source_call_ids ?? []) drafted.add(id);
+    }
+    const withTranscript = new Set<string>();
+    for (const r of (chunksRes.data ?? []) as any[]) withTranscript.add(r.call_session_id);
+
+    let eligible = 0;
+    for (const id of callIds) {
+      if (drafted.has(id)) continue;
+      if (!withTranscript.has(id)) continue;
+      eligible++;
+    }
+    setEligibleCount(eligible);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function processNow() {
+    setProcessing(true);
+    setLastResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-kb-drafts-batch`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        setLastResult(`Error: ${json.error ?? "unknown"}`);
+        return;
+      }
+      setLastResult(
+        `Processed ${json.processed} call${json.processed === 1 ? "" : "s"} · ` +
+        `${json.total_drafts_created} new draft${json.total_drafts_created === 1 ? "" : "s"} ` +
+        `(skipped ${json.skipped_no_transcript} no-transcript, ${json.skipped_already_processed} already-done)`,
+      );
+      // Refresh the underlying drafts list and the queue stats.
+      onProcessed();
+      load();
+    } catch (e) {
+      setLastResult(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  function fmtRelative(iso: string | null): string {
+    if (!iso) return "never";
+    const ms = Date.now() - new Date(iso).getTime();
+    const min = Math.floor(ms / 60000);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const days = Math.floor(hr / 24);
+    return `${days}d ago`;
+  }
+
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-4 text-sm flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-muted-foreground">Last new draft</span>
+            <span className="font-medium">{fmtRelative(latestDraftAt)}</span>
+          </div>
+          <span className="h-4 w-px bg-border" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Eligible calls in queue</span>
+            <span className={`font-semibold tabular-nums ${eligibleCount && eligibleCount > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>
+              {eligibleCount ?? "—"}
+            </span>
+          </div>
+          {lastResult && (
+            <>
+              <span className="h-4 w-px bg-border" />
+              <span className="text-xs text-muted-foreground">{lastResult}</span>
+            </>
+          )}
+        </div>
+        <Button size="sm" onClick={processNow} disabled={processing} className="gap-1.5 h-8">
+          {processing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+          {processing ? "Processing…" : "Process new calls now"}
+        </Button>
+      </CardContent>
     </Card>
   );
 }
