@@ -85,7 +85,8 @@ export function MetricCard({
 
       <div className="flex items-end justify-between gap-3">
         <div className="flex items-baseline gap-1.5">
-          <span className="font-display text-[42px] font-normal tracking-[-0.02em] leading-none text-[#F4EFE6] tabular-nums">
+          {/* Matches home dashboard StatLink — plain Inter, text-2xl, semibold. */}
+          <span className="text-2xl font-semibold text-[#F4EFE6] tabular-nums">
             {value}
           </span>
           {showSuccessCheck && <Check className="w-4 h-4 text-[#10B981] mb-1" />}

@@ -49,48 +49,43 @@ const EYEBROW_TONE: Record<string, string> = {
 export function PageShell({
   number,
   eyebrow,
-  eyebrowAccent = "blue",
+  eyebrowAccent = "muted",
   title,
-  emphasizeLastWord = true,
+  emphasizeLastWord: _emphasizeLastWord = false, // ignored — kept for prop compatibility
   subtitle,
   actions,
   children,
   maxWidth = 1400,
 }: PageShellProps) {
+  // Render rules match the home dashboard: plain Inter, text-2xl, semibold.
+  // No GradientWord, no big serif headline, no brand divider — just a
+  // standard page header. The eyebrow stays as a small uppercased label
+  // for context.
+  void _emphasizeLastWord;
+  void GradientWord; // keep import alive for callers that still consume it
   const eyebrowText = number && eyebrow ? `${number} — ${eyebrow}` : (eyebrow ?? number);
-  const renderedTitle = (() => {
-    if (typeof title !== "string") return title;
-    if (!emphasizeLastWord) return title;
-    const words = title.trim().split(/\s+/);
-    if (words.length < 2) return <GradientWord>{title}.</GradientWord>;
-    const last = words.pop()!;
-    return (
-      <>
-        {words.join(" ")} <GradientWord>{last}.</GradientWord>
-      </>
-    );
-  })();
 
   const widthClass = maxWidth === 1200 ? "max-w-[1200px]"
     : maxWidth === 1600 ? "max-w-[1600px]"
     : "max-w-[1400px]";
 
   return (
-    <div className={`px-4 sm:px-6 lg:px-8 py-8 ${widthClass} mx-auto space-y-8`}>
-      <header>
+    <div className={`px-4 sm:px-6 lg:px-8 py-6 ${widthClass} mx-auto space-y-6`}>
+      <header className="space-y-1">
         {eyebrowText && (
-          <div className="mb-3"><span className={`eyebrow ${EYEBROW_TONE[eyebrowAccent]}`}>{eyebrowText}</span></div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {eyebrowText}
+          </div>
         )}
-        <div className="flex items-end justify-between gap-4 flex-wrap">
-          <h1 className="font-display text-[40px] sm:text-[48px] font-normal leading-[0.98] tracking-[-0.025em] text-[#F4EFE6]">
-            {renderedTitle}
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h1 className="text-2xl font-semibold">
+            {typeof title === "string" ? title : title}
           </h1>
           {actions && <div className="shrink-0">{actions}</div>}
         </div>
         {subtitle && (
-          <p className="mt-3 text-[15px] text-[#C5D2E5] max-w-2xl leading-relaxed">{subtitle}</p>
+          <p className="text-sm text-muted-foreground max-w-3xl">{subtitle}</p>
         )}
-        <div className="chc-divider mt-6 max-w-md opacity-80" />
       </header>
       {children}
     </div>
