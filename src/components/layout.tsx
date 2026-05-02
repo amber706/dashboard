@@ -94,6 +94,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/outreach", label: "Outreach Gaps", icon: <PhoneIncoming className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/stuck-leads", label: "Stuck Leads", icon: <Hourglass className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/vob", label: "VOB Queue", icon: <ShieldCheck className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+    { href: "/ops/intakes", label: "Intake Schedule", icon: <Calendar className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/abandoned-calls", label: "Abandoned Calls", icon: <PhoneOff className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
     { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
 

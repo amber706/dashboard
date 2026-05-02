@@ -5,7 +5,9 @@ import {
   Sparkles, Activity, Trophy, XCircle, ArrowLeft, ExternalLink,
   CheckCircle2, AlertTriangle, Send, Edit3, Save, X as XIcon,
   PhoneOff, ShieldAlert, Voicemail, Headphones, ShieldCheck, AlertCircle,
+  Calendar as CalendarIcon,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,6 +64,12 @@ interface Lead {
   vob_deductible_cents: number | null;
   vob_deductible_remaining_cents: number | null;
   vob_oop_max_cents: number | null;
+  intake_scheduled_at: string | null;
+  intake_status: "scheduled" | "completed" | "no_show" | "rescheduled" | "cancelled" | null;
+  intake_completed_at: string | null;
+  intake_no_show_at: string | null;
+  intake_location: string | null;
+  intake_notes: string | null;
   owner: { id: string; full_name: string | null; email: string | null } | null;
 }
 
@@ -343,6 +351,8 @@ export default function LeadDetail() {
           <EditableLeadFacts lead={lead} onSaved={(updated) => setLead(updated)} />
 
           <VobPanel lead={lead} />
+
+          <IntakeSchedulePanel lead={lead} onSaved={(updated) => setLead(updated)} />
 
           {(lead.first_touch_source_category || lead.first_touch_campaign) && (
             <Card>
@@ -983,6 +993,204 @@ function VobPanel({ lead }: { lead: Lead }) {
                 : "Open VOB queue"}
             </Button>
           </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Intake scheduling panel. Edits flow back into leads.intake_* directly;
+// no Edge Function in the loop. Once an intake is "completed" the manager
+// is the one who decides whether to flip outcome_category to 'won' (kept
+// manual so we don't auto-conflate "showed up" with "successfully placed").
+type IntakeStatus = "scheduled" | "completed" | "no_show" | "rescheduled" | "cancelled";
+
+const INTAKE_STATUS_LABEL: Record<IntakeStatus, string> = {
+  scheduled: "Scheduled",
+  completed: "Completed",
+  no_show: "No-show",
+  rescheduled: "Rescheduled",
+  cancelled: "Cancelled",
+};
+
+const INTAKE_STATUS_TONE: Record<IntakeStatus, string> = {
+  scheduled: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
+  completed: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+  no_show: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
+  rescheduled: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  cancelled: "bg-zinc-500/15 text-zinc-700 dark:text-zinc-400",
+};
+
+// Convert a `<input type="datetime-local">` value to an ISO string.
+// `datetime-local` returns local time without a zone, so re-interpret
+// it through Date which adopts the browser's local zone.
+function localInputToIso(v: string): string | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  // YYYY-MM-DDTHH:MM (no seconds)
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function IntakeSchedulePanel({ lead, onSaved }: { lead: Lead; onSaved: (l: Lead) => void }) {
+  const { user } = useAuth();
+  const [editing, setEditing] = useState(!lead.intake_scheduled_at);
+  const [scheduledAt, setScheduledAt] = useState(isoToLocalInput(lead.intake_scheduled_at));
+  const [status, setStatus] = useState<IntakeStatus>(lead.intake_status ?? "scheduled");
+  const [location, setLocation] = useState(lead.intake_location ?? "");
+  const [notes, setNotes] = useState(lead.intake_notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true); setErr(null);
+    const iso = localInputToIso(scheduledAt);
+    if (!iso) {
+      setErr("Pick a valid date and time.");
+      setSaving(false);
+      return;
+    }
+    const update: Record<string, unknown> = {
+      intake_scheduled_at: iso,
+      intake_status: status,
+      intake_location: location.trim() || null,
+      intake_notes: notes.trim() || null,
+    };
+    // Only stamp scheduled_by on first save so we preserve the original
+    // scheduler when other people edit downstream.
+    if (!lead.intake_scheduled_at) {
+      update.intake_scheduled_by = user?.id ?? null;
+    }
+    if (status === "completed" && !lead.intake_completed_at) {
+      update.intake_completed_at = new Date().toISOString();
+      update.intake_completed_by = user?.id ?? null;
+    } else if (status === "no_show" && !lead.intake_no_show_at) {
+      update.intake_no_show_at = new Date().toISOString();
+    }
+
+    const { data, error } = await supabase
+      .from("leads")
+      .update(update)
+      .eq("id", lead.id)
+      .select(`*, owner:profiles!leads_owner_id_fkey(full_name, email)`)
+      .single();
+    setSaving(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    onSaved(data as unknown as Lead);
+    setEditing(false);
+  }
+
+  // Read-only summary when an intake is on the books and not currently being edited.
+  if (lead.intake_scheduled_at && !editing) {
+    const isPast = new Date(lead.intake_scheduled_at).getTime() < Date.now();
+    const cur = lead.intake_status ?? "scheduled";
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2"><CalendarIcon className="w-4 h-4" /> Intake</span>
+            <Badge variant="secondary" className={INTAKE_STATUS_TONE[cur]}>{INTAKE_STATUS_LABEL[cur]}</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="flex justify-between gap-3">
+            <span className="text-muted-foreground">When</span>
+            <span className="text-right">
+              {new Date(lead.intake_scheduled_at).toLocaleString(undefined, {
+                weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+              })}
+            </span>
+          </div>
+          {lead.intake_location && (
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">Location</span>
+              <span className="text-right">{lead.intake_location}</span>
+            </div>
+          )}
+          {lead.intake_notes && (
+            <div className="text-xs text-muted-foreground border-t pt-2 mt-2 whitespace-pre-wrap">
+              {lead.intake_notes}
+            </div>
+          )}
+          <div className="flex gap-2 pt-1">
+            {cur === "scheduled" && isPast && (
+              <>
+                <Button size="sm" variant="default" className="flex-1 h-8 gap-1" onClick={() => { setStatus("completed"); save(); }}>
+                  <CheckCircle2 className="w-3 h-3" /> Done
+                </Button>
+                <Button size="sm" variant="outline" className="flex-1 h-8 gap-1" onClick={() => { setStatus("no_show"); save(); }}>
+                  <XCircle className="w-3 h-3" /> No-show
+                </Button>
+              </>
+            )}
+            <Button size="sm" variant="outline" className={`${cur === "scheduled" && isPast ? "" : "flex-1"} h-8 gap-1`} onClick={() => setEditing(true)}>
+              <Edit3 className="w-3 h-3" /> Edit
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Edit mode (also the empty-state form).
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <CalendarIcon className="w-4 h-4" /> {lead.intake_scheduled_at ? "Edit intake" : "Schedule intake"}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">Date &amp; time</label>
+          <Input
+            type="datetime-local"
+            value={scheduledAt}
+            onChange={(e) => setScheduledAt(e.target.value)}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">Status</label>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as IntakeStatus)}
+            className="h-8 px-2 rounded-md border bg-background text-sm w-full"
+          >
+            {(["scheduled", "completed", "no_show", "rescheduled", "cancelled"] as IntakeStatus[]).map((s) => (
+              <option key={s} value={s}>{INTAKE_STATUS_LABEL[s]}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">Location (optional)</label>
+          <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Main, Outpatient, Telehealth…" className="h-8 text-sm" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">Notes (optional)</label>
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Anything the intake team should know" className="text-sm" />
+        </div>
+        {err && <div className="text-xs text-destructive">{err}</div>}
+        <div className="flex gap-2">
+          <Button size="sm" onClick={save} disabled={saving} className="flex-1 h-8 gap-1">
+            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+            Save
+          </Button>
+          {lead.intake_scheduled_at && (
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={saving} className="h-8">
+              Cancel
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
