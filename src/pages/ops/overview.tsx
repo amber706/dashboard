@@ -2,13 +2,14 @@ import { useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PageHeader } from "@/components/section-header";
-import { StatCard } from "@/components/ops/stat-card";
-import { PriorityBadge } from "@/components/ops/priority-badge";
 import { ConfidenceIndicator } from "@/components/ops/confidence-indicator";
 import { SuggestionActions } from "@/components/ops/suggestion-actions";
 import { OpsRoleGuard } from "@/components/ops/role-guard";
 import { DrillDownPanel, type ColumnDef } from "@/components/drill-down-panel";
+import { MetricCard } from "@/components/dashboard/MetricCard";
+import { SectionHeader, GradientWord } from "@/components/dashboard/SectionHeader";
+import { RecommendationCard, ReasoningPanels } from "@/components/dashboard/RecommendationCard";
+import { PriorityBadge } from "@/components/dashboard/PriorityBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useOpsOverview, actOnSuggestion, fetchDrillDownData, usePollingFetch, type OpsRecommendation } from "@/hooks/use-ops-api";
 import { Link, useLocation } from "wouter";
@@ -209,8 +210,13 @@ function OpsOverviewContent() {
 
   if (error && !data) {
     return (
-      <div className="p-5 md:p-8 lg:p-10 max-w-7xl mx-auto">
-        <PageHeader title="Operations Overview" subtitle="Manager command center" />
+      <div className="px-4 sm:px-6 lg:px-8 py-8 max-w-[1600px] mx-auto">
+        <header className="mb-6">
+          <div className="eyebrow text-[#5BA3D4] mb-1.5">00 — COMMAND CENTER</div>
+          <h1 className="font-display text-[44px] font-normal leading-[0.98] tracking-[-0.025em] text-[#F4EFE6]">
+            Operations <GradientWord>Overview.</GradientWord>
+          </h1>
+        </header>
         <Card>
           <CardContent className="p-12 text-center">
             <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto mb-3" />
@@ -238,99 +244,117 @@ function OpsOverviewContent() {
     top_recommendations: [],
   };
 
+  // Severity mapping per the design spec — drives the colored top-edge bar
+  // and icon-tile color on every MetricCard. Tweaks the tone based on actual
+  // values for the cards where the spec uses thresholds (success when 0).
+  const answerRate = d.inbound_calls_today > 0
+    ? Math.round((d.answered_today / d.inbound_calls_today) * 100)
+    : 0;
+
   return (
-    <div className="p-5 md:p-8 lg:p-10 max-w-7xl mx-auto space-y-6 md:space-y-8">
-      <PageHeader
-        title="Operations Overview"
-        subtitle="Real-time command center for admissions operations"
-        actions={
-          <Button variant="outline" size="sm" className="h-11 md:h-8" onClick={refetch}>
+    <div className="px-4 sm:px-6 lg:px-8 py-8 max-w-[1600px] mx-auto space-y-10">
+      {/* Page header — gradient-emphasis Operations title with brand divider + refresh action */}
+      <header>
+        <div className="mb-3"><span className="eyebrow text-[#5BA3D4]">00 — COMMAND CENTER</span></div>
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <h1 className="font-display text-[44px] sm:text-[52px] font-normal leading-[0.98] tracking-[-0.025em] text-[#F4EFE6]">
+            Operations <GradientWord>Overview.</GradientWord>
+          </h1>
+          <Button variant="outline" size="sm" className="h-9" onClick={refetch}>
             <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
           </Button>
-        }
-      />
+        </div>
+        <p className="mt-3 text-[15px] text-[#A6B5D0] max-w-2xl leading-relaxed">
+          Real-time command center for admissions operations — live calls, callback queues, and AI-generated coaching across your team.
+        </p>
+        <div className="chc-divider mt-6 max-w-md opacity-80" />
+      </header>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-        <StatCard
-          label="Inbound Today"
-          value={d.inbound_calls_today}
-          icon={<Phone className="w-4 h-4 text-blue-400" />}
-          loading={loading && !data}
-          onClick={() => setDrillDown("inbound")}
-        />
-        <StatCard
-          label="Answered"
-          value={d.answered_today}
-          icon={<Phone className="w-4 h-4 text-emerald-400" />}
-          change={d.inbound_calls_today > 0 ? `${Math.round((d.answered_today / d.inbound_calls_today) * 100)}% rate` : undefined}
-          changeType="positive"
-          loading={loading && !data}
-          onClick={() => setDrillDown("answered")}
-        />
-        <StatCard
-          label="Missed"
-          value={d.missed_today}
-          icon={<PhoneMissed className="w-4 h-4 text-red-400" />}
-          changeType={d.missed_today > 5 ? "negative" : "neutral"}
-          loading={loading && !data}
-          onClick={() => setDrillDown("missed")}
-        />
-        <StatCard
-          label="Callback Backlog"
-          value={d.callback_backlog}
-          icon={<Clock className="w-4 h-4 text-amber-400" />}
-          changeType={d.callback_backlog > 10 ? "negative" : "neutral"}
-          loading={loading && !data}
-          onClick={() => setDrillDown("callback-backlog")}
-        />
-        <StatCard
-          label="Awaiting 1st Contact"
-          value={d.leads_awaiting_first_contact}
-          icon={<Target className="w-4 h-4 text-violet-400" />}
-          loading={loading && !data}
-          onClick={() => setDrillDown("awaiting-first-contact")}
-        />
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-        <StatCard
-          label="Overdue Follow-ups"
-          value={d.overdue_followups}
-          icon={<AlertTriangle className="w-4 h-4 text-orange-400" />}
-          changeType={d.overdue_followups > 5 ? "negative" : "neutral"}
-          loading={loading && !data}
-          onClick={() => setDrillDown("overdue")}
-        />
-        <StatCard
-          label="Attribution Conflicts"
-          value={d.attribution_conflicts}
-          icon={<Activity className="w-4 h-4 text-amber-400" />}
-          loading={loading && !data}
-          onClick={() => setDrillDown("attribution")}
-        />
-        <StatCard
-          label="QA Review Queue"
-          value={d.qa_review_queue}
-          icon={<ShieldAlert className="w-4 h-4 text-cyan-400" />}
-          loading={loading && !data}
-          onClick={() => setDrillDown("qa-review")}
-        />
-        <StatCard
-          label="Supervisor Queue"
-          value={d.supervisor_review_queue}
-          icon={<Eye className="w-4 h-4 text-purple-400" />}
-          loading={loading && !data}
-          onClick={() => setDrillDown("supervisor")}
-        />
-        <StatCard
-          label="Rep Capacity Warnings"
-          value={d.rep_capacity_warnings}
-          icon={<UserX className="w-4 h-4 text-red-400" />}
-          changeType={d.rep_capacity_warnings > 0 ? "negative" : "neutral"}
-          loading={loading && !data}
-          onClick={() => setDrillDown("rep-capacity")}
-        />
-      </div>
+      {/* Top stat row — 10 metric cards, severity-mapped */}
+      <section>
+        <div className="eyebrow text-[#6E7E9E] mb-3">01 — LIVE METRICS</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <MetricCard
+            label="Inbound Today"
+            value={d.inbound_calls_today}
+            severity="info"
+            icon={Phone}
+            onClick={() => setDrillDown("inbound")}
+          />
+          <MetricCard
+            label="Answered"
+            value={d.answered_today}
+            severity={answerRate >= 80 ? "success" : answerRate >= 50 ? "warning" : "warning"}
+            icon={Phone}
+            delta={d.inbound_calls_today > 0
+              ? { value: `${answerRate}% rate`, direction: answerRate >= 80 ? "up" : "flat" }
+              : undefined}
+            onClick={() => setDrillDown("answered")}
+          />
+          <MetricCard
+            label="Missed"
+            value={d.missed_today}
+            severity={d.missed_today > 5 ? "danger" : d.missed_today > 0 ? "warning" : "success"}
+            icon={PhoneMissed}
+            successCheck
+            onClick={() => setDrillDown("missed")}
+          />
+          <MetricCard
+            label="Callback Backlog"
+            value={d.callback_backlog}
+            severity={d.callback_backlog > 10 ? "danger" : d.callback_backlog > 0 ? "warning" : "success"}
+            icon={Clock}
+            successCheck
+            onClick={() => setDrillDown("callback-backlog")}
+          />
+          <MetricCard
+            label="Awaiting 1st Contact"
+            value={d.leads_awaiting_first_contact}
+            severity={d.leads_awaiting_first_contact > 0 ? "warning" : "success"}
+            icon={Target}
+            successCheck
+            onClick={() => setDrillDown("awaiting-first-contact")}
+          />
+          <MetricCard
+            label="Overdue Follow-ups"
+            value={d.overdue_followups}
+            severity={d.overdue_followups > 5 ? "danger" : d.overdue_followups > 0 ? "warning" : "success"}
+            icon={AlertTriangle}
+            successCheck
+            onClick={() => setDrillDown("overdue")}
+          />
+          <MetricCard
+            label="Attribution Conflicts"
+            value={d.attribution_conflicts}
+            severity={d.attribution_conflicts > 0 ? "warning" : "success"}
+            icon={Activity}
+            successCheck
+            onClick={() => setDrillDown("attribution")}
+          />
+          <MetricCard
+            label="QA Review Queue"
+            value={d.qa_review_queue}
+            severity="info"
+            icon={ShieldAlert}
+            onClick={() => setDrillDown("qa-review")}
+          />
+          <MetricCard
+            label="Supervisor Queue"
+            value={d.supervisor_review_queue}
+            severity={d.supervisor_review_queue > 3 ? "warning" : "info"}
+            icon={Eye}
+            onClick={() => setDrillDown("supervisor")}
+          />
+          <MetricCard
+            label="Rep Capacity Warnings"
+            value={d.rep_capacity_warnings}
+            severity={d.rep_capacity_warnings > 0 ? "danger" : "success"}
+            icon={UserX}
+            successCheck
+            onClick={() => setDrillDown("rep-capacity")}
+          />
+        </div>
+      </section>
 
       <CallLossSummary />
 
@@ -346,29 +370,23 @@ function OpsOverviewContent() {
         />
       )}
 
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Zap className="w-4 h-4 text-primary" />
-                Top Recommendations
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">AI-generated suggestions for immediate action</p>
-            </div>
-            <Link href="/ops/suggestions">
-              <Button variant="ghost" size="sm" className="h-11 md:h-8 text-xs gap-1 text-primary">
-                View All <ArrowRight className="w-3 h-3" />
-              </Button>
+      <section>
+        <SectionHeader
+          number="02"
+          eyebrow="TOP RECOMMENDATIONS"
+          title={<>AI suggestions for immediate action</>}
+          actions={
+            <Link href="/ops/suggestions" className="text-sm text-[#E89077] hover:text-[#5BA3D4] font-medium transition-colors">
+              View all →
             </Link>
-          </div>
-        </CardHeader>
-        <CardContent>
+          }
+        />
+        <div className="mt-5">
           {d.top_recommendations.length === 0 ? (
-            <div className="text-center py-10">
-              <Zap className="w-8 h-8 mx-auto mb-3 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">No active recommendations</p>
-              <p className="text-xs text-muted-foreground/70 mt-1">Suggestions will appear here when the system detects actionable items</p>
+            <div className="glass rounded-2xl text-center py-12">
+              <Zap className="w-8 h-8 mx-auto mb-3 text-[#3D4E6E]" />
+              <p className="text-sm text-[#A6B5D0]">No active recommendations</p>
+              <p className="text-xs text-[#6E7E9E] mt-1">Suggestions will appear here when the system detects actionable items</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -376,13 +394,14 @@ function OpsOverviewContent() {
                 const ctx = rec.call_context;
                 const isExpanded = expandedRecId === rec.id;
                 return (
-                  <div key={rec.id} className="border border-border/50 rounded-xl hover:bg-muted/20 transition-all duration-200">
+                  <div key={rec.id} className={`rounded-2xl transition-all duration-150 ${isExpanded ? "border-gradient-brand" : "glass"}`}>
                     <div className="p-5 space-y-2.5">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2.5 flex-1 min-w-0">
                           <button
                             onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
-                            className="mt-0.5 shrink-0 hover:text-foreground text-muted-foreground transition-colors"
+                            className="mt-0.5 shrink-0 text-[#6E7E9E] hover:text-[#F4EFE6] transition-colors"
+                            aria-expanded={isExpanded}
                           >
                             {isExpanded
                               ? <ChevronDown className="w-4 h-4" />
@@ -390,16 +409,16 @@ function OpsOverviewContent() {
                             }
                           </button>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <div className="flex items-center gap-2 flex-wrap mb-1.5">
                               <PriorityBadge priority={rec.priority} />
-                              <span className="text-sm font-medium">{rec.title}</span>
+                              <h3 className="font-display text-[17px] font-normal tracking-[-0.005em] text-[#F4EFE6] leading-snug">{rec.title}</h3>
                             </div>
-                            <p className="text-xs text-muted-foreground">{rec.summary}</p>
+                            <p className="text-[13px] text-[#A6B5D0] leading-relaxed">{rec.summary}</p>
 
                             {ctx && !isExpanded && (
-                              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground/80">
+                              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[#6E7E9E]">
                                 {ctx.caller_phone && (
-                                  <span className="flex items-center gap-1">
+                                  <span className="flex items-center gap-1 font-mono">
                                     <Phone className="w-3 h-3" /> {ctx.caller_phone}
                                   </span>
                                 )}
@@ -431,7 +450,7 @@ function OpsOverviewContent() {
                       </div>
 
                       <div className="flex items-center justify-between pl-7">
-                        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                        <div className="flex items-center gap-3 text-[11.5px] text-[#6E7E9E]">
                           {rec.action_owner && (
                             <span className="flex items-center gap-1">
                               <Users className="w-3 h-3" /> {rec.action_owner}
@@ -646,8 +665,8 @@ function OpsOverviewContent() {
               })}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <Link href="/ops/workload" className="block">
