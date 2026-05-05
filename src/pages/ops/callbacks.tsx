@@ -3,7 +3,9 @@ import { Link } from "wouter";
 import {
   PhoneOff, Loader2, Phone, Clock, CheckCircle2, X, Voicemail,
   AlertTriangle, ChevronDown, ChevronRight, Activity, MessageSquare, Download,
+  Calendar,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { downloadCsv } from "@/lib/csv-export";
 import { logAudit } from "@/lib/audit";
 import { supabase } from "@/lib/supabase";
@@ -15,6 +17,32 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageShell } from "@/components/dashboard/PageShell";
 
 type CbStatus = "pending" | "completed" | "skipped" | "unreachable";
+
+// Age buckets keyed off the original call's started_at. The boundaries
+// are anchored at "now" each time a query fires, so "last 24h" is a
+// rolling window — not midnight-bounded.
+type AgeBucket = "all" | "lt24" | "24to48" | "48to72" | "gt72" | "custom";
+
+const AGE_LABEL: Record<AgeBucket, string> = {
+  all: "Any time",
+  lt24: "Last 24h",
+  "24to48": "24–48h",
+  "48to72": "48–72h",
+  gt72: ">72h",
+  custom: "Custom range",
+};
+
+// Returns the [startISO, endISO] pair for an age bucket relative to now.
+// custom is handled separately via the customRange state.
+function ageBucketBounds(bucket: AgeBucket): { gteIso?: string; ltIso?: string } {
+  const now = Date.now();
+  const H = 60 * 60 * 1000;
+  if (bucket === "lt24") return { gteIso: new Date(now - 24 * H).toISOString() };
+  if (bucket === "24to48") return { gteIso: new Date(now - 48 * H).toISOString(), ltIso: new Date(now - 24 * H).toISOString() };
+  if (bucket === "48to72") return { gteIso: new Date(now - 72 * H).toISOString(), ltIso: new Date(now - 48 * H).toISOString() };
+  if (bucket === "gt72") return { ltIso: new Date(now - 72 * H).toISOString() };
+  return {}; // "all" or "custom" handled by caller
+}
 
 interface CallbackRow {
   id: string;
@@ -66,8 +94,28 @@ export default function OpsCallbacks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<CbStatus | "all">("pending");
+  const [ageFilter, setAgeFilter] = useState<AgeBucket>("all");
+  // Custom range — only used when ageFilter === "custom". HTML date input
+  // values (YYYY-MM-DD); convert to ISO at query time.
+  const [customStart, setCustomStart] = useState<string>("");
+  const [customEnd, setCustomEnd] = useState<string>("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+
+  // Resolve the effective age window. For "custom", convert local-date
+  // strings to start-of-day / end-of-day ISO. For preset buckets, use
+  // ageBucketBounds. Returns nulls when the filter is inactive or the
+  // custom inputs aren't both present.
+  const ageWindow = useMemo<{ gteIso?: string; ltIso?: string }>(() => {
+    if (ageFilter === "custom") {
+      if (!customStart || !customEnd) return {};
+      const start = new Date(customStart); start.setHours(0, 0, 0, 0);
+      const end = new Date(customEnd); end.setHours(23, 59, 59, 999);
+      return { gteIso: start.toISOString(), ltIso: end.toISOString() };
+    }
+    if (ageFilter === "all") return {};
+    return ageBucketBounds(ageFilter);
+  }, [ageFilter, customStart, customEnd]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,12 +137,14 @@ export default function OpsCallbacks() {
       .order("started_at", { ascending: false, nullsFirst: false })
       .limit(200);
     if (filter !== "all") q = q.eq("callback_status", filter);
+    if (ageWindow.gteIso) q = q.gte("started_at", ageWindow.gteIso);
+    if (ageWindow.ltIso) q = q.lt("started_at", ageWindow.ltIso);
 
     const { data, error: err } = await q;
     if (err) setError(err.message);
     else setRows((data ?? []) as unknown as CallbackRow[]);
     setLoading(false);
-  }, [filter]);
+  }, [filter, ageWindow.gteIso, ageWindow.ltIso]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -102,6 +152,37 @@ export default function OpsCallbacks() {
   useEffect(() => {
     logAudit("view", "callbacks", null, { filter, surface: "callback_queue" });
   }, [filter]);
+
+  // Per-age-bucket counts so the chips show how many fall in each window.
+  // Scoped to the active status filter so "Pending in last 24h" reflects
+  // pending only, not all statuses.
+  const [ageCounts, setAgeCounts] = useState<Record<AgeBucket, number>>({
+    all: 0, lt24: 0, "24to48": 0, "48to72": 0, gt72: 0, custom: 0,
+  });
+  useEffect(() => {
+    (async () => {
+      const baseFilter = "status.in.(missed,abandoned,voicemail),specialist_disposition.eq.needs_callback";
+      const buckets: Array<{ key: AgeBucket; bounds: { gteIso?: string; ltIso?: string } }> = [
+        { key: "all", bounds: {} },
+        { key: "lt24", bounds: ageBucketBounds("lt24") },
+        { key: "24to48", bounds: ageBucketBounds("24to48") },
+        { key: "48to72", bounds: ageBucketBounds("48to72") },
+        { key: "gt72", bounds: ageBucketBounds("gt72") },
+      ];
+      const results = await Promise.all(
+        buckets.map(async ({ key, bounds }) => {
+          let q = supabase.from("call_sessions").select("id", { count: "exact", head: true })
+            .or(baseFilter);
+          if (filter !== "all") q = q.eq("callback_status", filter);
+          if (bounds.gteIso) q = q.gte("started_at", bounds.gteIso);
+          if (bounds.ltIso) q = q.lt("started_at", bounds.ltIso);
+          const { count } = await q;
+          return [key, count ?? 0] as [AgeBucket, number];
+        }),
+      );
+      setAgeCounts((prev) => ({ ...prev, ...Object.fromEntries(results) } as Record<AgeBucket, number>));
+    })();
+  }, [filter, rows]);
 
   // Top-line counts (across all statuses, not the current filter, so the
   // tile counts stay stable as the filter changes).
@@ -165,6 +246,66 @@ export default function OpsCallbacks() {
         <Tile label="Completed today" value={counts.completed_today} accent="emerald" />
         <Tile label="Total this window" value={counts.total} />
       </div>
+
+      {/* Age-bucket filter row — group by how long the call has been
+          pending so reps can attack the freshest first or sweep the
+          oldest backlog. */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mr-1 inline-flex items-center gap-1">
+          <Calendar className="w-3 h-3" /> Age
+        </span>
+        {(["all", "lt24", "24to48", "48to72", "gt72", "custom"] as const).map((b) => {
+          const active = ageFilter === b;
+          const count = b === "custom" ? null : ageCounts[b];
+          return (
+            <Button
+              key={b}
+              size="sm"
+              variant={active ? "default" : "outline"}
+              onClick={() => setAgeFilter(b)}
+              className="h-8 gap-1.5"
+            >
+              {AGE_LABEL[b]}
+              {count != null && (
+                <Badge variant={active ? "secondary" : "outline"} className="text-[10px] h-4 px-1.5 tabular-nums">
+                  {count}
+                </Badge>
+              )}
+            </Button>
+          );
+        })}
+      </div>
+
+      {ageFilter === "custom" && (
+        <div className="flex flex-wrap items-end gap-2 -mt-1">
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-muted-foreground">From</label>
+            <Input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="h-8 w-40"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-muted-foreground">To</label>
+            <Input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="h-8 w-40"
+            />
+          </div>
+          {customStart && customEnd && (
+            <Button size="sm" variant="ghost" className="h-8" onClick={() => { setCustomStart(""); setCustomEnd(""); }}>
+              Clear
+            </Button>
+          )}
+          {(!customStart || !customEnd) && (
+            <span className="text-xs text-muted-foreground self-center">Pick a start and end date to filter</span>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2 flex-wrap items-center">
         {(["pending", "completed", "skipped", "unreachable", "all"] as const).map((f) => (
