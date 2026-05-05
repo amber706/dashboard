@@ -316,7 +316,12 @@ export function TodayKpis() {
           .gte("started_at", startISO)
           .in("status", ["completed", "in_progress", "transferred"]),
         supabase.from("call_scores").select("composite_score").gte("created_at", startISO),
-        supabase.from("call_sessions").select("id", { count: "exact", head: true }).eq("callback_status", "pending"),
+        // Scope callbacks-pending to the last 24h. Older pending callbacks
+        // are stale leads — they belong on the >72h drilldown, not the
+        // headline "needs attention now" KPI.
+        supabase.from("call_sessions").select("id", { count: "exact", head: true })
+          .eq("callback_status", "pending")
+          .gte("started_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
       ]);
       if (cancelled) return;
       const scores = (scoresRes.data ?? []).map((s: any) => s.composite_score).filter((n: number | null): n is number => typeof n === "number");
@@ -368,7 +373,7 @@ export function TodayKpis() {
     },
     {
       href: "/ops/callbacks",
-      label: "Callbacks pending",
+      label: "Callbacks pending (24h)",
       value: data.callbacks_pending,
       sub: data.callbacks_pending > 0 ? "open callback queue →" : "queue is clear",
       icon: PhoneOff,

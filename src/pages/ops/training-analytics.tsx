@@ -13,9 +13,27 @@ interface SpecialistStat {
   sessions_completed: number;
   avg_composite: number | null;
   avg_real_call_composite: number | null;
-  weakest_real_category: string | null;
-  weakest_real_score: number | null;
+  // Bottom 2 rubric categories (lowest avg score) over the last 30 days of
+  // real calls. Each entry has the rubric key + avg score 0-100. We surface
+  // these as "areas of improvement" in the per-specialist table.
+  weakest_categories: Array<{ category: string; avg: number }>;
+  rubric_sample_n: number;
 }
+
+// Rubric columns we score on call_scores. These are the 8 categories that
+// power the "areas of improvement" column — we average each per specialist
+// over the lookback window and pick the lowest two.
+const RUBRIC_KEYS = [
+  "qualification_completeness",
+  "rapport_and_empathy",
+  "objection_handling",
+  "urgency_handling",
+  "next_step_clarity",
+  "script_adherence",
+  "compliance",
+  "booking_or_transfer",
+] as const;
+type RubricKey = typeof RUBRIC_KEYS[number];
 
 interface ScenarioStat {
   id: string;
@@ -130,7 +148,7 @@ export default function TrainingAnalytics() {
             sessions_this_week: sessionsThisWeek,
             avg_session_score_this_week: avgWeekScore,
             real_call_avg_composite: avgCallScore,
-            real_call_count_30d: callCount30d ?? 0,
+            real_call_count_30d: callCount30d.count ?? 0,
           });
         }
 
@@ -155,15 +173,32 @@ export default function TrainingAnalytics() {
                 .eq("session.specialist_id", p.id),
               // Real-call scores joined to call_sessions filtered by specialist_id
               // (populated by ctm-webhook from CTM agent.name -> profile lookup).
+              // Pull all 8 rubric columns so we can compute "areas of
+              // improvement" — the lowest-scoring categories per specialist.
               supabase
                 .from("call_scores")
-                .select("composite_score, call:call_sessions!inner(specialist_id)")
-                .eq("call.specialist_id", p.id),
+                .select(`composite_score, ${RUBRIC_KEYS.join(", ")}, call:call_sessions!inner(specialist_id)`)
+                .eq("call.specialist_id", p.id)
+                .gte("created_at", thirtyDaysAgo),
             ]);
             const sessVals = ((sessionScores.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
             const avgSess = sessVals.length > 0 ? Math.round(sessVals.reduce((a, b) => a + b, 0) / sessVals.length) : null;
-            const callVals = ((realCallScores.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
+            const callRows = (realCallScores.data ?? []) as any[];
+            const callVals = callRows.map((r) => r.composite_score).filter((n: number | null): n is number => typeof n === "number");
             const avgCall = callVals.length > 0 ? Math.round(callVals.reduce((a, b) => a + b, 0) / callVals.length) : null;
+
+            // Compute per-rubric averages, then pick the lowest 2. Skip
+            // categories with no data so a single-call specialist doesn't
+            // get a "compliance: 50" badge from one outlier.
+            const rubricAvgs: Array<{ category: string; avg: number }> = [];
+            for (const key of RUBRIC_KEYS) {
+              const vals = callRows.map((r) => r[key]).filter((n: number | null): n is number => typeof n === "number");
+              if (vals.length < 3) continue; // need at least 3 datapoints
+              const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+              rubricAvgs.push({ category: key, avg });
+            }
+            rubricAvgs.sort((a, b) => a.avg - b.avg);
+            const weakest = rubricAvgs.slice(0, 2);
 
             return {
               id: p.id,
@@ -172,8 +207,8 @@ export default function TrainingAnalytics() {
               sessions_completed: completedSessions.count ?? 0,
               avg_composite: avgSess,
               avg_real_call_composite: avgCall,
-              weakest_real_category: null,
-              weakest_real_score: null,
+              weakest_categories: weakest,
+              rubric_sample_n: callVals.length,
             };
           }),
         );
@@ -405,11 +440,12 @@ export default function TrainingAnalytics() {
                     <th className="text-right py-2 pr-3">Sessions completed</th>
                     <th className="text-right py-2 pr-3">Avg session score</th>
                     <th className="text-right py-2 pr-3">Avg real-call score</th>
+                    <th className="text-left py-2 pr-3 pl-4">Areas of improvement</th>
                   </tr>
                 </thead>
                 <tbody>
                   {specialists.map((s) => (
-                    <tr key={s.id} className="border-t">
+                    <tr key={s.id} className="border-t align-top">
                       <td className="py-2 pr-3">
                         <Link href={`/ops/specialist/${s.id}`} className="font-medium hover:underline">{s.full_name ?? s.email ?? s.id}</Link>
                         {s.email && s.full_name && <div className="text-xs text-muted-foreground">{s.email}</div>}
@@ -417,6 +453,25 @@ export default function TrainingAnalytics() {
                       <td className="py-2 pr-3 text-right tabular-nums">{s.sessions_completed}</td>
                       <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(s.avg_composite)}`}><ScoreOutOf100 value={s.avg_composite} /></td>
                       <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(s.avg_real_call_composite)}`}><ScoreOutOf100 value={s.avg_real_call_composite} /></td>
+                      <td className="py-2 pr-3 pl-4">
+                        {s.weakest_categories.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">{s.rubric_sample_n < 3 ? "needs more calls" : "—"}</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {s.weakest_categories.map((w) => (
+                              <Badge
+                                key={w.category}
+                                variant="outline"
+                                className={`text-[10px] gap-1 ${w.avg < 60 ? "border-rose-500/40 text-rose-700 dark:text-rose-400" : w.avg < 75 ? "border-amber-500/40 text-amber-700 dark:text-amber-400" : "border-muted text-muted-foreground"}`}
+                                title={`Avg ${w.avg}/100 across ${s.rubric_sample_n} calls (last 30d)`}
+                              >
+                                {RUBRIC_LABELS[w.category] ?? w.category}
+                                <span className="opacity-70 tabular-nums">{w.avg}</span>
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

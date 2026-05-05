@@ -272,6 +272,11 @@ export default function HomeV2() {
         if (user?.id) {
           const baseSel = `id, status, caller_name, caller_phone_normalized, started_at, lead_id,
             lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name)`;
+          // Scope to the last 24h on the home dashboard. Older pending
+          // callbacks are stale leads and belong on the full /ops/callbacks
+          // queue with the >72h drilldown — they shouldn't crowd "today's
+          // work" here.
+          const last24hISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
           const [origRes, ownedLeadsRes] = await Promise.all([
             supabase
               .from("call_sessions")
@@ -279,6 +284,7 @@ export default function HomeV2() {
               .eq("specialist_id", user.id)
               .or("status.in.(missed,abandoned,voicemail),specialist_disposition.eq.needs_callback")
               .eq("callback_status", "pending")
+              .gte("started_at", last24hISO)
               .order("started_at", { ascending: false, nullsFirst: false })
               .limit(20),
             supabase.from("leads").select("id").eq("owner_id", user.id),
@@ -291,6 +297,7 @@ export default function HomeV2() {
                 .in("lead_id", ownedLeadIds)
                 .in("status", ["missed", "abandoned", "voicemail"])
                 .eq("callback_status", "pending")
+                .gte("started_at", last24hISO)
                 .order("started_at", { ascending: false, nullsFirst: false })
                 .limit(20)
             : { data: [] as any[] };
