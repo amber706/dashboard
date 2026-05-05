@@ -88,6 +88,16 @@ export default function AlertsQueue() {
   const [statusFilter, setStatusFilter] = useState<AlertStatus | "all">("pending");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [counts, setCounts] = useState({ pending: 0, acknowledged: 0, resolved: 0, all: 0 });
+  // Surface the last-refreshed timestamp so it's obvious the data is
+  // current — without this the Refresh button looks broken when there
+  // are genuinely no new alerts to show.
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  // Tick to force the relative-time label to re-render every 30s.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,9 +135,29 @@ export default function AlertsQueue() {
       });
     }
     setLoading(false);
+    setLastLoadedAt(new Date());
   }, [statusFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-refresh every 60s so new alerts surface without the manager
+  // having to click Refresh. Cheap — two count queries + one paged list.
+  useEffect(() => {
+    const id = setInterval(() => { load(); }, 60_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  // Format the "last refreshed" relative time. Re-runs on tick.
+  const lastLoadedLabel = (() => {
+    if (!lastLoadedAt) return "loading…";
+    const sec = Math.floor((Date.now() - lastLoadedAt.getTime()) / 1000);
+    if (sec < 5) return "just now";
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    return `${hr}h ago`;
+  })();
 
   return (
     <PageShell
@@ -136,10 +166,16 @@ export default function AlertsQueue() {
       subtitle="Crisis-language signals flagged by the AI classifier. Review the excerpt, listen to the recording, and sign off so leadership knows it was handled."
       maxWidth={1400}
       actions={
-        <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 h-9">
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          Refresh
-        </Button>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground hidden sm:inline">
+            Updated {lastLoadedLabel}
+            <span className="ml-1 opacity-60">· auto-refresh 60s</span>
+          </span>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 h-9">
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Refresh
+          </Button>
+        </div>
       }
     >
       {/* Filter row — match Card-based pattern used on other ops pages */}
