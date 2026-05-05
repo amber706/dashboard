@@ -724,6 +724,10 @@ const CATEGORY_DOT: Record<string, string> = {
 // click is fine, and the data changes between meetings anyway).
 function OneOnOnePrep({ specialistId }: { specialistId: string }) {
   const [points, setPoints] = useState<TalkingPoint[] | null>(null);
+  // The Cornerstone "Performance and Strategy Review" sections — the
+  // formal team 1:1 format. Generated alongside talking_points by
+  // generate-1on1-prep. Each entry: { key, title, body }.
+  const [formatSections, setFormatSections] = useState<Array<{ key: string; title: string; body: string }> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -744,6 +748,7 @@ function OneOnOnePrep({ specialistId }: { specialistId: string }) {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "generation failed");
       setPoints(json.talking_points ?? []);
+      setFormatSections(json.format_sections ?? []);
       setGeneratedAt(json.generated_at ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -792,8 +797,31 @@ function OneOnOnePrep({ specialistId }: { specialistId: string }) {
                   </div>
                 ))}
               </div>
+              {/* Cornerstone Performance & Strategy Review — the formal
+                  1:1 format the team uses. Pre-filled where data is
+                  available; flagged with [NEEDS DATA: …] where Zoho
+                  conversion data isn't wired in yet. Manager edits these
+                  in the meeting; this is a starting point. */}
+              {formatSections && formatSections.length > 0 && (
+                <div className="mt-5 pt-5 border-t border-blue-500/20 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-blue-500">Performance & Strategy Review</span>
+                    <span className="text-[10px] text-muted-foreground">Cornerstone 1:1 format</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {formatSections.map((s) => (
+                      <div key={s.key} className="border rounded-md p-3 bg-muted/20">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
+                          {s.title}
+                        </div>
+                        <div className="text-xs whitespace-pre-wrap leading-relaxed">{s.body}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {generatedAt && (
-                <div className="text-[10px] text-muted-foreground mt-2 text-right">
+                <div className="text-[10px] text-muted-foreground mt-3 text-right">
                   Generated {new Date(generatedAt).toLocaleString()}
                 </div>
               )}
