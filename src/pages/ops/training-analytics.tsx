@@ -70,6 +70,18 @@ function scoreColor(n: number | null): string {
   return "text-rose-700 dark:text-rose-400";
 }
 
+// Render a composite score as "73 / 100" so the scale is obvious. The
+// denominator is dimmed because the headline is the score itself.
+function ScoreOutOf100({ value }: { value: number | null }) {
+  if (value == null) return <>—</>;
+  return (
+    <>
+      {value}
+      <span className="text-muted-foreground font-normal ml-0.5">/100</span>
+    </>
+  );
+}
+
 export default function TrainingAnalytics() {
   const [specialists, setSpecialists] = useState<SpecialistStat[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioStat[]>([]);
@@ -360,7 +372,7 @@ export default function TrainingAnalytics() {
       number="02"
       eyebrow="ANALYTICS"
       title="Training analytics"
-      subtitle="Practice activity, scenario effectiveness, and real-call lift correlation."
+      subtitle="Practice activity, scenario effectiveness, and real-call lift correlation. All composite scores are 0–100; ≥80 strong, 60–79 developing, <60 needs coaching."
     >
 
       {loading && <Card><CardContent className="pt-6 text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading analytics…</CardContent></Card>}
@@ -371,8 +383,8 @@ export default function TrainingAnalytics() {
           <StatCard href="/training" icon={<GraduationCap className="w-4 h-4" />} label="Scenarios published" value={company.scenarios_published} />
           <StatCard href="/ops/scenario-review" icon={<Target className="w-4 h-4" />} label="Pending review" value={company.scenarios_pending_review} accent={company.scenarios_pending_review > 0 ? "amber" : undefined} />
           <StatCard href="/ops/training-assignments" icon={<Award className="w-4 h-4" />} label="Sessions this week" value={company.sessions_this_week}
-            sub={company.avg_session_score_this_week != null ? `avg score ${company.avg_session_score_this_week}` : undefined} />
-          <StatCard href="/ops/qa-review" icon={<TrendingUp className="w-4 h-4" />} label="Real-call avg (30d)" value={company.real_call_avg_composite ?? "—"}
+            sub={company.avg_session_score_this_week != null ? `avg score ${company.avg_session_score_this_week}/100` : undefined} />
+          <StatCard href="/ops/qa-review" icon={<TrendingUp className="w-4 h-4" />} label="Real-call avg (30d)" value={company.real_call_avg_composite != null ? `${company.real_call_avg_composite}/100` : "—"}
             sub={`${company.real_call_count_30d} calls scored`} />
         </div>
       )}
@@ -403,8 +415,8 @@ export default function TrainingAnalytics() {
                         {s.email && s.full_name && <div className="text-xs text-muted-foreground">{s.email}</div>}
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">{s.sessions_completed}</td>
-                      <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(s.avg_composite)}`}>{s.avg_composite ?? "—"}</td>
-                      <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(s.avg_real_call_composite)}`}>{s.avg_real_call_composite ?? "—"}</td>
+                      <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(s.avg_composite)}`}><ScoreOutOf100 value={s.avg_composite} /></td>
+                      <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(s.avg_real_call_composite)}`}><ScoreOutOf100 value={s.avg_real_call_composite} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -449,7 +461,7 @@ export default function TrainingAnalytics() {
                         <td className="py-2 pr-3"><Badge variant="secondary" className="text-xs">{sc.difficulty}</Badge></td>
                         <td className="py-2 pr-3 text-right tabular-nums">{sc.total_assignments}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{sc.completed_assignments}</td>
-                        <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(sc.avg_session_score)}`}>{sc.avg_session_score ?? "—"}</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${scoreColor(sc.avg_session_score)}`}><ScoreOutOf100 value={sc.avg_session_score} /></td>
                         <td className={`py-2 pr-3 text-right tabular-nums font-semibold ${liftColor}`}>
                           {sc.real_call_lift == null ? <span className="text-xs">insufficient data</span> : (
                             <>
