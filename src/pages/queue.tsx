@@ -24,6 +24,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/dashboard/PageShell";
+import { IncidentCard, type Severity } from "@/components/dashboard/IncidentCard";
 
 type QueueType = "callback" | "vob" | "intake" | "outreach" | "stuck" | "abandoned";
 
@@ -499,57 +500,62 @@ export default function QueuePage() {
 }
 
 function QueueRow({ item, showOwner }: { item: QueueItem; showOwner: boolean }) {
-  const Icon = TYPE_ICON[item.type];
-  const tierTone = item.lead_quality_tier ? TIER_TONE[item.lead_quality_tier] : "";
-  // Type-color the left edge so the eye can scan by type at a glance —
-  // routine callbacks blur together when every row is the same color.
-  const accentBar = TYPE_TONE[item.type] ?? "";
-  return (
-    <Link href={item.href} className="block">
-      <Card className={`hover:bg-accent/40 transition-colors border-l-2 ${accentBar.split(" ").find((c) => c.startsWith("border-")) ?? "border-l-border"}`}>
-        <CardContent className="py-3 px-4">
-          <div className="flex items-center gap-3">
-            {/* Type icon — larger so it reads as a category, not just a chip */}
-            <div className={`shrink-0 w-9 h-9 rounded-md flex items-center justify-center ${TYPE_TONE[item.type]}`}>
-              <Icon className="w-4 h-4" />
-            </div>
+  // Map queue urgency/tier into IncidentCard's severity scale so rows
+  // pick up the same color-bar + pill treatment as /ops/alerts. Tier A
+  // (Urgent) and high urgency drive "critical"; tier B is "high"; the
+  // routine bucket lands on "low" so it doesn't shout.
+  const severity: Severity = item.urgency === "high" || item.lead_quality_tier === "A"
+    ? "critical"
+    : item.lead_quality_tier === "B"
+      ? "high"
+      : "low";
 
-            <div className="flex-1 min-w-0">
-              {/* Top row: name (prominent) + tier + urgency */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-[15px] truncate">{item.title}</span>
-                {item.lead_quality_tier && (
-                  <Badge variant="outline" className={`text-[10px] font-semibold ${tierTone}`} title={`Quality score: ${item.lead_quality_score ?? "—"}/100`}>
-                    {TIER_LABEL[item.lead_quality_tier]}
-                  </Badge>
-                )}
-                {item.urgency === "high" && (
-                  <Badge variant="outline" className="text-[10px] gap-1 border-rose-500/40 text-rose-700 dark:text-rose-400">
-                    <AlertCircle className="w-2.5 h-2.5" /> high urgency
-                  </Badge>
-                )}
-              </div>
-              {/* Bottom row: type label + phone + owner + insurance */}
-              <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap mt-0.5">
-                <span className="font-medium text-foreground/70">{TYPE_LABEL[item.type]}</span>
-                {item.subtitle && <><span className="opacity-50">·</span><span className="truncate font-mono">{item.subtitle}</span></>}
-                {item.insurance_provider && <><span className="opacity-50">·</span><span>{item.insurance_provider}</span></>}
-                {showOwner && item.owner_name && (
-                  <>
-                    <span className="opacity-50">·</span>
-                    <span className="inline-flex items-center gap-1"><UserIcon className="w-3 h-3" /> {item.owner_name}</span>
-                  </>
-                )}
-              </div>
-            </div>
+  const timingChips = [
+    { icon: Clock, label: item.meta, srLabel: "Time since call" },
+  ];
 
-            <div className="text-xs text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-1">
-              <Clock className="w-3 h-3" /> {item.meta}
-            </div>
-            <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-          </div>
-        </CardContent>
-      </Card>
+  const contextChips: Array<{ icon?: typeof Phone; label: React.ReactNode; mono?: boolean; muted?: boolean; srLabel?: string }> = [];
+  if (item.subtitle) {
+    contextChips.push({ icon: Phone, label: item.subtitle, mono: true, srLabel: "Phone" });
+  }
+  if (item.insurance_provider) {
+    contextChips.push({ label: item.insurance_provider, srLabel: "Insurance" });
+  }
+  if (showOwner && item.owner_name) {
+    contextChips.push({ icon: UserIcon, label: item.owner_name, srLabel: "Owner" });
+  }
+  if (item.lead_quality_tier) {
+    contextChips.push({
+      label: <span className={item.lead_quality_tier === "A" ? "text-rose-600 dark:text-rose-400" : item.lead_quality_tier === "B" ? "text-amber-600 dark:text-amber-400" : ""}>{TIER_LABEL[item.lead_quality_tier]}</span>,
+      srLabel: "Priority tier",
+    });
+  }
+
+  // The "body" is the caller name — visually prominent, like the
+  // transcript quote on alerts. Wrap with the link so the whole card is
+  // a click target.
+  const body = (
+    <Link href={item.href} className="block hover:underline">
+      <span className="font-semibold text-[15px]">{item.title}</span>
     </Link>
+  );
+
+  const actions = (
+    <Link href={item.href} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+      Open <ChevronRight className="w-3 h-3" />
+    </Link>
+  );
+
+  return (
+    <IncidentCard
+      severity={severity}
+      category={TYPE_LABEL[item.type]}
+      status="open"
+      timingChips={timingChips}
+      contextChips={contextChips}
+      body={body}
+      actions={actions}
+      ariaLabel={`${TYPE_LABEL[item.type]} for ${item.title}`}
+    />
   );
 }
