@@ -500,26 +500,28 @@ export default function QueuePage() {
 
 function QueueRow({ item, showOwner }: { item: QueueItem; showOwner: boolean }) {
   const Icon = TYPE_ICON[item.type];
+  const tierTone = item.lead_quality_tier ? TIER_TONE[item.lead_quality_tier] : "";
+  // Type-color the left edge so the eye can scan by type at a glance —
+  // routine callbacks blur together when every row is the same color.
+  const accentBar = TYPE_TONE[item.type] ?? "";
   return (
     <Link href={item.href} className="block">
-      <Card className="hover:bg-accent/40 transition-colors">
+      <Card className={`hover:bg-accent/40 transition-colors border-l-2 ${accentBar.split(" ").find((c) => c.startsWith("border-")) ?? "border-l-border"}`}>
         <CardContent className="py-3 px-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <Badge variant="secondary" className={`text-[10px] gap-1 ${TYPE_TONE[item.type]}`}>
-              <Icon className="w-3 h-3" /> {TYPE_LABEL[item.type]}
-            </Badge>
-            {item.lead_quality_tier && (
-              <Badge variant="outline" className={`text-[10px] font-semibold ${TIER_TONE[item.lead_quality_tier]}`} title={`Quality score: ${item.lead_quality_score ?? "—"} of 100`}>
-                {TIER_LABEL[item.lead_quality_tier]}
-              </Badge>
-            )}
+          <div className="flex items-center gap-3">
+            {/* Type icon — larger so it reads as a category, not just a chip */}
+            <div className={`shrink-0 w-9 h-9 rounded-md flex items-center justify-center ${TYPE_TONE[item.type]}`}>
+              <Icon className="w-4 h-4" />
+            </div>
+
             <div className="flex-1 min-w-0">
-              <div className="font-medium text-sm truncate">{item.title}</div>
-              <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap mt-0.5">
-                {item.subtitle && <span className="truncate">{item.subtitle}</span>}
-                {item.insurance_provider && <span>· {item.insurance_provider}</span>}
-                {showOwner && item.owner_name && (
-                  <span className="inline-flex items-center gap-1"><UserIcon className="w-3 h-3" /> {item.owner_name}</span>
+              {/* Top row: name (prominent) + tier + urgency */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-[15px] truncate">{item.title}</span>
+                {item.lead_quality_tier && (
+                  <Badge variant="outline" className={`text-[10px] font-semibold ${tierTone}`} title={`Quality score: ${item.lead_quality_score ?? "—"}/100`}>
+                    {TIER_LABEL[item.lead_quality_tier]}
+                  </Badge>
                 )}
                 {item.urgency === "high" && (
                   <Badge variant="outline" className="text-[10px] gap-1 border-rose-500/40 text-rose-700 dark:text-rose-400">
@@ -527,7 +529,20 @@ function QueueRow({ item, showOwner }: { item: QueueItem; showOwner: boolean }) 
                   </Badge>
                 )}
               </div>
+              {/* Bottom row: type label + phone + owner + insurance */}
+              <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap mt-0.5">
+                <span className="font-medium text-foreground/70">{TYPE_LABEL[item.type]}</span>
+                {item.subtitle && <><span className="opacity-50">·</span><span className="truncate font-mono">{item.subtitle}</span></>}
+                {item.insurance_provider && <><span className="opacity-50">·</span><span>{item.insurance_provider}</span></>}
+                {showOwner && item.owner_name && (
+                  <>
+                    <span className="opacity-50">·</span>
+                    <span className="inline-flex items-center gap-1"><UserIcon className="w-3 h-3" /> {item.owner_name}</span>
+                  </>
+                )}
+              </div>
             </div>
+
             <div className="text-xs text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-1">
               <Clock className="w-3 h-3" /> {item.meta}
             </div>
