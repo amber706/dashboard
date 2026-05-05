@@ -337,18 +337,43 @@ export function TodayKpis() {
     return () => { cancelled = true; clearInterval(i); };
   }, []);
 
+  // Each KPI drills to the most narrowly-scoped view of that metric.
+  // Inbound and Answer rate now route to /ctm-calls with direction +
+  // status filters so the resulting table only contains the rows that
+  // produced the headline number — not "all calls today."
   const kpis = [
-    { href: "/ctm-calls?date=today", label: "Inbound today", value: data.inbound, sub: undefined as string | undefined, icon: PhoneIncoming, accent: undefined as "amber" | "rose" | undefined },
-    { href: "/ctm-calls?date=today", label: "Answer rate",
+    {
+      href: "/ctm-calls?date=today&direction=inbound",
+      label: "Inbound today",
+      value: data.inbound,
+      sub: "view all inbound →",
+      icon: PhoneIncoming,
+      accent: undefined as "amber" | "rose" | undefined,
+    },
+    {
+      href: "/ctm-calls?date=today&direction=inbound&status=completed",
+      label: "Answer rate",
       value: data.answer_rate == null ? "—" : `${data.answer_rate}%`,
-      sub: `${data.answered} answered`, icon: Phone,
-      accent: data.answer_rate != null && data.answer_rate < 60 ? "rose" : data.answer_rate != null && data.answer_rate < 80 ? "amber" : undefined },
-    { href: "/ops/qa-review", label: "Avg QA today",
-      value: data.avg_qa ?? "—",
-      sub: data.avg_qa == null ? "no scores yet" : undefined, icon: ShieldAlert,
-      accent: data.avg_qa != null && data.avg_qa < 60 ? "rose" : data.avg_qa != null && data.avg_qa < 75 ? "amber" : undefined },
-    { href: "/ops/callbacks", label: "Callbacks pending", value: data.callbacks_pending, sub: undefined, icon: PhoneOff,
-      accent: data.callbacks_pending > 10 ? "rose" : data.callbacks_pending > 0 ? "amber" : undefined },
+      sub: `${data.answered} answered →`,
+      icon: Phone,
+      accent: data.answer_rate != null && data.answer_rate < 60 ? "rose" : data.answer_rate != null && data.answer_rate < 80 ? "amber" : undefined,
+    },
+    {
+      href: "/ops/qa-review",
+      label: "Avg QA today",
+      value: data.avg_qa == null ? "—" : `${data.avg_qa}/100`,
+      sub: data.avg_qa == null ? "no scores yet" : "review scored calls →",
+      icon: ShieldAlert,
+      accent: data.avg_qa != null && data.avg_qa < 60 ? "rose" : data.avg_qa != null && data.avg_qa < 75 ? "amber" : undefined,
+    },
+    {
+      href: "/ops/callbacks",
+      label: "Callbacks pending",
+      value: data.callbacks_pending,
+      sub: data.callbacks_pending > 0 ? "open callback queue →" : "queue is clear",
+      icon: PhoneOff,
+      accent: data.callbacks_pending > 10 ? "rose" : data.callbacks_pending > 0 ? "amber" : undefined,
+    },
   ];
 
   return (
@@ -361,9 +386,12 @@ export function TodayKpis() {
             : "";
         const Icon = k.icon;
         return (
-          <Link key={k.label} href={k.href} className="block">
-            <Card className={`hover:bg-accent/40 transition-colors cursor-pointer ${accentClass}`}>
-              <CardContent className="pt-4 pb-4">
+          <Link key={k.label} href={k.href} className="block group">
+            <Card className={`hover:bg-accent/40 hover:border-primary/40 transition-colors cursor-pointer ${accentClass}`}>
+              <CardContent className="pt-4 pb-4 relative">
+                {/* Drill chevron — fades in on hover so the affordance
+                    is obvious without crowding the card at rest. */}
+                <ChevronRight className="absolute top-3 right-3 w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
                 <div className="text-xs text-muted-foreground flex items-center gap-1.5">
                   <Icon className="w-3.5 h-3.5" /> {k.label}
                 </div>
