@@ -904,13 +904,17 @@ async function getCTMCalls(queryString: string): Promise<Response> {
   const status = params.get("status");
   // has_transcript=true filters to calls where the CTM payload has transcription_text.
   const hasTranscript = params.get("has_transcript");
+  // specialist_id filter — drives the "filter by rep" dropdown on /ctm-calls.
+  // "unlinked" is a sentinel meaning "show calls with no specialist linkage."
+  const specialistId = params.get("specialist_id");
 
   let q = supabase
     .from("call_sessions")
     .select(`
       id, ctm_call_id, direction, status, caller_phone_normalized, caller_name,
       ctm_tracking_number, started_at, ended_at, talk_seconds, ring_seconds,
-      ctm_raw_payload, lead_id,
+      ctm_raw_payload, lead_id, specialist_id,
+      specialist:profiles!call_sessions_specialist_id_fkey(full_name, email),
       score:call_scores(composite_score, needs_supervisor_review),
       lead:leads!call_sessions_lead_id_fkey(id, outcome_category, last_touch_call_id, first_touch_call_id)
     `, { count: "exact" })
@@ -924,6 +928,11 @@ async function getCTMCalls(queryString: string): Promise<Response> {
     else q = q.eq("status", status);
   }
   if (hasTranscript === "true") q = q.not("ctm_raw_payload->>transcription_text", "is", null);
+  if (specialistId === "unlinked") {
+    q = q.is("specialist_id", null);
+  } else if (specialistId && specialistId !== "all") {
+    q = q.eq("specialist_id", specialistId);
+  }
   if (startDate) q = q.gte("started_at", startDate);
   if (endDate) {
     // Frontend sends "yyyy-MM-dd" date strings; append end-of-day so calls
@@ -951,7 +960,18 @@ async function getCTMCalls(queryString: string): Promise<Response> {
       tracking_number: c.ctm_tracking_number ?? "",
       tracking_label: c.ctm_raw_payload?.tracking_label ?? "",
       answering_ctm_user_id: c.ctm_raw_payload?.agent_id ?? "",
-      agent_name: c.ctm_raw_payload?.agent?.name ?? c.ctm_raw_payload?.agent?.email ?? (typeof c.ctm_raw_payload?.agent === "string" ? c.ctm_raw_payload.agent : null),
+      agent_name: (() => {
+        // Prefer the linked profile (covers AI-voicebot calls where CTM
+        // doesn't pass an agent payload but the transcript-fallback
+        // resolved a specialist_id). Fall back to the CTM agent payload
+        // only if no profile is linked.
+        const spec = Array.isArray(c.specialist) ? c.specialist[0] : c.specialist;
+        if (spec?.full_name) return spec.full_name;
+        if (spec?.email) return spec.email;
+        return c.ctm_raw_payload?.agent?.name
+          ?? c.ctm_raw_payload?.agent?.email
+          ?? (typeof c.ctm_raw_payload?.agent === "string" ? c.ctm_raw_payload.agent : null);
+      })(),
       start_time: c.started_at,
       end_time: c.ended_at,
       total_duration_seconds: (c.talk_seconds ?? 0) + (c.ring_seconds ?? 0),

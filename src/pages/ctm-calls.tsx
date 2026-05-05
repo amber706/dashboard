@@ -208,6 +208,9 @@ export default function CTMCalls() {
   // returned rows client-side using ctm_raw_payload.call_status.
   const [subtypeFilter, setSubtypeFilter] = useState<string>(initialUrlFilters.subtype);
   const [hasTranscriptFilter, setHasTranscriptFilter] = useState<boolean>(initialUrlFilters.hasTranscript);
+  // Rep filter: "all" | "unlinked" | profile.id
+  const [specialistFilter, setSpecialistFilter] = useState<string>("all");
+  const [specialists, setSpecialists] = useState<Array<{ id: string; full_name: string | null; email: string | null }>>([]);
   const [dateRange, setDateRange] = useState<DateRange | null>(initialUrlFilters.dateRange);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [callDetail, setCallDetail] = useState<any>(null);
@@ -286,6 +289,7 @@ export default function CTMCalls() {
       if (dirFilter !== "all") params.set("direction", dirFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (hasTranscriptFilter) params.set("has_transcript", "true");
+      if (specialistFilter !== "all") params.set("specialist_id", specialistFilter);
       if (dateRange) {
         params.set("start_date", formatDateParam(dateRange.startDate));
         params.set("end_date", formatDateParam(dateRange.endDate));
@@ -302,7 +306,7 @@ export default function CTMCalls() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [offset, dirFilter, statusFilter, subtypeFilter, hasTranscriptFilter, dateRange]);
+  }, [offset, dirFilter, statusFilter, subtypeFilter, hasTranscriptFilter, specialistFilter, dateRange]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -343,6 +347,20 @@ export default function CTMCalls() {
   useEffect(() => { fetchCalls(); }, [fetchCalls]);
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchMissedSubtypes(); }, [fetchMissedSubtypes]);
+
+  // Load active specialists once for the rep filter dropdown. Includes
+  // managers because they sometimes pick up calls during coverage.
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .eq("is_active", true)
+        .in("role", ["specialist", "manager"])
+        .order("full_name", { ascending: true });
+      setSpecialists((data ?? []) as any);
+    })();
+  }, []);
 
   // Log a "view" once per filter combination — captures who looked at
   // which slice of the call log without spamming on every poll tick.
@@ -507,6 +525,78 @@ export default function CTMCalls() {
         </div>
       )}
 
+      {/* Quick-access date presets. Pinned chips for the windows reps
+          ask for most often. The DateRangePicker in the header still
+          covers custom ranges. */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1">
+          Date
+        </span>
+        {([
+          { key: "today", label: "Today", days: 0 },
+          { key: "yesterday", label: "Yesterday", days: 1 },
+          { key: "last7", label: "Last 7 days", days: 7 },
+          { key: "last30", label: "Last 30 days", days: 30 },
+          { key: "mtd", label: "Month to date" },
+          { key: "all", label: "All time" },
+        ] as const).map((p) => {
+          const active = (() => {
+            if (!dateRange) return p.key === "all";
+            const start = dateRange.startDate;
+            const end = dateRange.endDate;
+            const today = new Date(); today.setHours(0,0,0,0);
+            const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
+            if (p.key === "today") return start.toDateString() === today.toDateString() && end.toDateString() === todayEnd.toDateString();
+            if (p.key === "yesterday") {
+              const y = new Date(today.getTime() - 24*60*60*1000);
+              return start.toDateString() === y.toDateString();
+            }
+            if (p.key === "last7" || p.key === "last30") {
+              const expected = new Date(Date.now() - p.days! * 24*60*60*1000); expected.setHours(0,0,0,0);
+              return Math.abs(start.getTime() - expected.getTime()) < 60*1000;
+            }
+            if (p.key === "mtd") {
+              const first = new Date(today.getFullYear(), today.getMonth(), 1);
+              return start.toDateString() === first.toDateString();
+            }
+            return false;
+          })();
+          return (
+            <Button
+              key={p.key}
+              size="sm"
+              variant={active ? "default" : "outline"}
+              className="h-8 text-xs"
+              onClick={() => {
+                setOffset(0);
+                if (p.key === "all") { setDateRange(null); return; }
+                const today = new Date(); today.setHours(0,0,0,0);
+                const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
+                if (p.key === "today") { setDateRange({ startDate: today, endDate: todayEnd }); return; }
+                if (p.key === "yesterday") {
+                  const yStart = new Date(today.getTime() - 24*60*60*1000);
+                  const yEnd = new Date(yStart); yEnd.setHours(23,59,59,999);
+                  setDateRange({ startDate: yStart, endDate: yEnd });
+                  return;
+                }
+                if (p.key === "last7" || p.key === "last30") {
+                  const start = new Date(Date.now() - p.days! * 24*60*60*1000); start.setHours(0,0,0,0);
+                  setDateRange({ startDate: start, endDate: todayEnd });
+                  return;
+                }
+                if (p.key === "mtd") {
+                  const first = new Date(today.getFullYear(), today.getMonth(), 1);
+                  setDateRange({ startDate: first, endDate: todayEnd });
+                  return;
+                }
+              }}
+            >
+              {p.label}
+            </Button>
+          );
+        })}
+      </div>
+
       <div className="flex items-center gap-3 flex-wrap">
         <Select value={dirFilter} onValueChange={(v) => { setDirFilter(v); setOffset(0); }}>
           <SelectTrigger className="w-40 h-11 md:h-8">
@@ -531,6 +621,22 @@ export default function CTMCalls() {
             <SelectItem value="ringing">Ringing</SelectItem>
             <SelectItem value="in_progress">In Progress</SelectItem>
             <SelectItem value="voicemail">Voicemail</SelectItem>
+          </SelectContent>
+        </Select>
+        {/* Rep filter — searchable list of active specialists + managers,
+            plus an "Unlinked" sentinel for calls with no specialist_id
+            (typically AI voicebot or rollover-rep calls before the
+            transcript-fallback resolved them). */}
+        <Select value={specialistFilter} onValueChange={(v) => { setSpecialistFilter(v); setOffset(0); }}>
+          <SelectTrigger className="w-56 h-11 md:h-8">
+            <SelectValue placeholder="Rep" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Reps</SelectItem>
+            <SelectItem value="unlinked">Unlinked (no rep)</SelectItem>
+            {specialists.map((s) => (
+              <SelectItem key={s.id} value={s.id}>{s.full_name ?? s.email ?? s.id}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         {hasTranscriptFilter && (
