@@ -144,6 +144,8 @@ function mapFlaggedReview(row: Record<string, unknown>): Record<string, unknown>
         lead_id: string | null;
         rep_id: string | null;
         recording_storage_path: string | null;
+        caller_phone_normalized: string | null;
+        caller_name: string | null;
         lead: { zoho_lead_id: string | null } | null;
         rep: { full_name: string | null; email: string | null } | null;
       }
@@ -202,6 +204,8 @@ function mapFlaggedReview(row: Record<string, unknown>): Record<string, unknown>
   return {
     id: row.id,
     ctm_call_id: callSession?.ctm_call_id ?? "",
+    caller_phone: callSession?.caller_phone_normalized ?? null,
+    caller_name: callSession?.caller_name ?? null,
     zoho_lead_id: callSession?.lead?.zoho_lead_id ?? null,
     rep_id: callSession?.rep_id ?? null,
     rep_name: callSession?.rep?.full_name ?? callSession?.rep?.email ?? null,
@@ -259,6 +263,7 @@ const FLAGGED_REVIEW_SELECT = `
   booking_or_transfer, overall_quality,
   call_session:call_sessions!call_scores_call_session_id_fkey(
     ctm_call_id, lead_id, rep_id, recording_storage_path,
+    caller_phone_normalized, caller_name,
     lead:leads!call_sessions_lead_id_fkey(zoho_lead_id),
     rep:profiles!call_sessions_rep_id_fkey(full_name, email)
   )

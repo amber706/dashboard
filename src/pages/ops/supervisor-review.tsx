@@ -205,6 +205,16 @@ function ReviewCard({ review, onSignoff }: { review: FlaggedReview; onSignoff: (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-medium truncate">{review.rep_name || review.rep_id || "Specialist not linked"}</span>
               <Badge variant="outline" className="text-[10px] font-mono">call {review.ctm_call_id}</Badge>
+              {/* Caller phone — managers QA against this. Always render
+                  when available so it's easy to copy out for follow-up. */}
+              {review.caller_phone && (
+                <Badge variant="outline" className="text-[10px] font-mono gap-1 border-blue-500/30 text-blue-700 dark:text-blue-400">
+                  <Phone className="w-2.5 h-2.5" /> {review.caller_phone}
+                </Badge>
+              )}
+              {review.caller_name && (
+                <span className="text-xs text-muted-foreground">· {review.caller_name}</span>
+              )}
               {statusBadge(review.status)}
               {review.poor_sentiment_flag && (
                 <Badge className="bg-red-600/10 text-red-400 border-red-600/20 text-[9px] gap-0.5">

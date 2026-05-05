@@ -275,6 +275,8 @@ export async function generateKnowledgeProposals(id: number) {
 export interface FlaggedReview {
   id: number;
   ctm_call_id: string;
+  caller_phone: string | null;
+  caller_name: string | null;
   zoho_lead_id: string | null;
   rep_id: string | null;
   rep_name: string | null;
