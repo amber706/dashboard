@@ -149,8 +149,35 @@ function mapFlaggedReview(row: Record<string, unknown>): Record<string, unknown>
       }
     | null;
 
-  const qualitySignals = (row.quality_signals as Record<string, unknown> | null) ?? {};
-  const concerns = Array.isArray(qualitySignals.concerns) ? qualitySignals.concerns : [];
+  // quality_signals is stored as a JSON array of {type,context,severity}
+  // entries on call_scores. The original FastAPI backend returned an object
+  // shape with a `.concerns` property — handle both so older rows with the
+  // legacy shape still map cleanly. Negative-typed signals become concerns;
+  // positive ones are dropped (the supervisor-review UI only shows what's
+  // wrong, not what went right).
+  const rawSignals = row.quality_signals as unknown;
+  let concerns: Array<Record<string, unknown>> = [];
+  let qualitySignalsObj: Record<string, unknown> = {};
+  if (Array.isArray(rawSignals)) {
+    concerns = rawSignals
+      .filter((s): s is Record<string, unknown> =>
+        s != null && typeof s === "object" && (s as any).type === "negative")
+      .map((s) => ({
+        severity: (s.severity as string) ?? "medium",
+        // The signal blob doesn't carry a structured concern_type, so we
+        // bucket everything as "general" — the explanation carries the
+        // detail and is what managers actually read.
+        concern_type: (s.concern_type as string) ?? "general",
+        explanation: (s.context as string) ?? "",
+        supporting_evidence: (s.supporting_evidence as string) ?? null,
+      }));
+  } else if (rawSignals && typeof rawSignals === "object") {
+    qualitySignalsObj = rawSignals as Record<string, unknown>;
+    concerns = Array.isArray(qualitySignalsObj.concerns)
+      ? (qualitySignalsObj.concerns as Array<Record<string, unknown>>)
+      : [];
+  }
+  const qualitySignals = qualitySignalsObj;
   const complianceFlagsRaw = (row.compliance_flags as Array<Record<string, unknown>> | null) ?? [];
   const coachingTakeaways = (row.coaching_takeaways as Record<string, unknown> | null) ?? {};
   const recommendations = Array.isArray(coachingTakeaways.recommendations)
