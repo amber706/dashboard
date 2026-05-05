@@ -123,7 +123,38 @@ function DraftRow({
   const [title, setTitle] = useState(draft.problem_statement);
   const [content, setContent] = useState(draft.merged_answer ?? "");
   const [editing, setEditing] = useState(false);
-  const [working, setWorking] = useState<"approve" | "reject" | null>(null);
+  const [working, setWorking] = useState<"approve" | "reject" | "generate" | null>(null);
+
+  // Triggers the AI drafter for this kb_drafts row. Used both as a manual
+  // "Generate" button when the row was filed without a draft (manager-
+  // requested topics, search auto-files) and as a "Re-generate" if the
+  // first pass didn't land well.
+  async function generateDraft() {
+    setWorking("generate");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-topic-draft`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ kb_draft_id: draft.id }),
+      });
+      const json = await res.json();
+      if (json.ok && json.draft) {
+        setContent(json.draft);
+        setEditing(true); // drop the manager straight into edit mode
+      } else {
+        setActionError(json.error ?? "generation failed");
+      }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWorking(null);
+    }
+  }
   const [actionError, setActionError] = useState<string | null>(null);
 
   async function approve(edited: boolean) {
@@ -250,9 +281,22 @@ function DraftRow({
             <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-1.5 flex items-center gap-1.5">
               <Sparkles className="w-3 h-3" /> Recommended merged answer
               {draft.status === "pending" && (
-                <Button variant="ghost" size="sm" className="ml-auto h-6 text-xs" onClick={() => setEditing(!editing)}>
-                  <Edit3 className="w-3 h-3 mr-1" /> {editing ? "Stop editing" : "Edit"}
-                </Button>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={generateDraft}
+                    disabled={working !== null}
+                    title={content.trim() ? "Regenerate the draft from scratch using the latest KB and transcripts" : "Use AI to generate a draft from existing KB and recent call transcripts"}
+                  >
+                    {working === "generate" ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                    {content.trim() ? "Re-generate" : "Generate AI draft"}
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditing(!editing)}>
+                    <Edit3 className="w-3 h-3 mr-1" /> {editing ? "Stop editing" : "Edit"}
+                  </Button>
+                </div>
               )}
             </h4>
             {editing ? (
@@ -266,10 +310,14 @@ function DraftRow({
                   placeholder="Final answer that goes into the KB"
                 />
               </div>
-            ) : (
+            ) : content.trim() ? (
               <p className="text-sm whitespace-pre-wrap border-l-2 border-primary/30 pl-3">
                 {content}
               </p>
+            ) : (
+              <div className="text-sm text-muted-foreground border-l-2 border-muted pl-3 italic">
+                No draft yet. Click <span className="font-medium text-foreground">Generate AI draft</span> above to have the AI write one using existing KB content and recent call transcripts mentioning this topic.
+              </div>
             )}
           </div>
 

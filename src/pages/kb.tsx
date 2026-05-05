@@ -226,15 +226,30 @@ export default function KnowledgeBase() {
         setAutoFileState("duplicate");
         return;
       }
-      const { error } = await supabase.from("kb_drafts").insert({
+      const { data: inserted, error } = await supabase.from("kb_drafts").insert({
         problem_statement: q,
         recommended_answer: null,
         requested_by: user?.id ?? null,
         requested_query: q,
         status: "pending",
         confidence: null,
-      });
+      }).select("id").single();
       setAutoFileState(error ? "error" : "logged");
+      // Fire-and-forget: ask the AI to draft an answer using existing KB +
+      // recent transcript hits. Manager will see the draft populated when
+      // they next visit /ops/kb-drafts. Don't block the search UI.
+      if (!error && inserted?.id) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-topic-draft`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ kb_draft_id: inserted.id }),
+        }).catch(() => { /* best-effort */ });
+      }
     })();
   }, [noResults, isExplicitSubmit, searchedQuery, user?.id]);
 
@@ -437,7 +452,7 @@ function RequestContentDialog({ open, onOpenChange, defaultQuery, userId, onSubm
     const t = topic.trim();
     if (!t) return;
     setSubmitting(true);
-    const { error } = await supabase.from("kb_drafts").insert({
+    const { data: inserted, error } = await supabase.from("kb_drafts").insert({
       problem_statement: t,
       recommended_answer: null,
       kb_side_proposal: details.trim() || null,
@@ -445,7 +460,22 @@ function RequestContentDialog({ open, onOpenChange, defaultQuery, userId, onSubm
       requested_query: defaultQuery || null,
       status: "pending",
       confidence: null,
-    });
+    }).select("id").single();
+    // Fire the AI drafter in the background — manager sees a populated
+    // recommended_answer when they open /ops/kb-drafts, instead of an
+    // empty stub they'd have to write themselves.
+    if (!error && inserted?.id) {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-topic-draft`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ kb_draft_id: inserted.id }),
+      }).catch(() => { /* best-effort */ });
+    }
     setSubmitting(false);
     if (!error) {
       onSubmitted();
