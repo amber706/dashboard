@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/section-header";
+import { PageShell } from "@/components/dashboard/PageShell";
 import { StatCard } from "@/components/ops/stat-card";
 import { OpsRoleGuard } from "@/components/ops/role-guard";
 import { useToast } from "@/hooks/use-toast";
@@ -201,23 +201,30 @@ function ReviewCard({ review, onSignoff }: { review: FlaggedReview; onSignoff: (
           className="w-full flex items-center gap-3 p-4 text-left hover:bg-accent/5 transition-colors"
         >
           <div className="shrink-0">{priorityBadge(review.review_priority)}</div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">{review.rep_name || review.rep_id || "Unknown Rep"}</span>
-              <Badge variant="outline" className="text-[10px] font-mono">Call {review.ctm_call_id}</Badge>
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium truncate">{review.rep_name || review.rep_id || "Specialist not linked"}</span>
+              <Badge variant="outline" className="text-[10px] font-mono">call {review.ctm_call_id}</Badge>
               {statusBadge(review.status)}
               {review.poor_sentiment_flag && (
                 <Badge className="bg-red-600/10 text-red-400 border-red-600/20 text-[9px] gap-0.5">
-                  <Heart className="w-2.5 h-2.5" /> Poor Sentiment
+                  <Heart className="w-2.5 h-2.5" /> poor sentiment
                 </Badge>
               )}
             </div>
-            <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-3">
-              <span>QA: <span className={review.qa_score_percent != null ? (review.qa_score_percent > 60 ? "text-amber-400" : "text-red-400") : ""}>{review.qa_score_percent != null ? `${review.qa_score_percent.toFixed(0)}%` : "—"}</span></span>
+            <div className="text-[11px] text-muted-foreground flex items-center gap-3 flex-wrap">
+              <span>QA <span className={`font-semibold ${review.qa_score_percent != null ? (review.qa_score_percent >= 80 ? "text-emerald-500" : review.qa_score_percent >= 60 ? "text-amber-500" : "text-red-500") : ""}`}>{review.qa_score_percent != null ? `${review.qa_score_percent.toFixed(0)}/100` : "—"}</span></span>
+              <span>·</span>
               <span>{review.concerns.length} concern{review.concerns.length !== 1 ? "s" : ""}</span>
-              {review.review_reasons.map((r, i) => (
-                <span key={i} className="text-[10px]">{r.reason === "low_qa_score" ? "Low QA" : "Sentiment"}</span>
+              {/* Show top 2 concerns inline so the row tells you *what's* wrong without expanding */}
+              {review.concerns.slice(0, 2).map((c, i) => (
+                <Badge key={i} variant="outline" className={`${severityColor(c.severity)} text-[9px] py-0`}>
+                  {CONCERN_LABELS[c.concern_type] ?? c.concern_type.replace(/_/g, " ")}
+                </Badge>
               ))}
+              {review.concerns.length > 2 && (
+                <span className="text-[10px]">+{review.concerns.length - 2} more</span>
+              )}
             </div>
           </div>
           <span className="text-[10px] text-muted-foreground shrink-0">
@@ -509,17 +516,17 @@ function OpsSupervisorReviewContent() {
   const items = data?.items || [];
 
   return (
-    <div className="p-5 md:p-8 lg:p-10 max-w-6xl mx-auto space-y-6 md:space-y-8">
-      <PageHeader
-        title="Supervisor Review"
-        subtitle="Flagged calls requiring supervisor signoff"
-        actions={
-          <Button variant="outline" size="sm" onClick={refetch}>
-            <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
-          </Button>
-        }
-      />
-
+    <PageShell
+      eyebrow="QUALITY"
+      title="Supervisor review"
+      subtitle="Calls flagged by QA scoring or compliance triggers. Listen, sign off, or schedule coaching."
+      maxWidth={1400}
+      actions={
+        <Button variant="outline" size="sm" onClick={refetch} className="gap-1.5 h-9">
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </Button>
+      }
+    >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
         <StatCard
           label="Pending Reviews"
@@ -605,7 +612,7 @@ function OpsSupervisorReviewContent() {
           ))}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 
