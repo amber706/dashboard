@@ -1,14 +1,16 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  AlertTriangle, Loader2, CheckCircle2, ShieldCheck, X,
-  Clock, Phone, Headphones, User as UserIcon, Timer, MapPin,
+  AlertTriangle, Loader2, CheckCircle2, ShieldCheck,
+  Clock, Phone, Headphones, User as UserIcon, Timer, RefreshCw,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { PageShell } from "@/components/dashboard/PageShell";
 import { IncidentCard, type Severity, type Status } from "@/components/dashboard/IncidentCard";
-import { GradientWord } from "@/components/dashboard/SectionHeader";
 
 type AlertType = "self_harm" | "threat_violence" | "threat_criminal" | "emergency_services";
 type AlertSeverity = "critical" | "high" | "medium";
@@ -85,10 +87,16 @@ export default function AlertsQueue() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<AlertStatus | "all">("pending");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [counts, setCounts] = useState({ pending: 0, acknowledged: 0, resolved: 0, all: 0 });
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    // Fire counts query in parallel with the list query so the filter
+    // tabs always show accurate totals regardless of the active filter.
+    const countsPromise = supabase
+      .from("high_priority_alerts")
+      .select("status", { count: "exact" });
     let q = supabase
       .from("high_priority_alerts")
       .select(`
@@ -101,94 +109,101 @@ export default function AlertsQueue() {
       .order("classified_at", { ascending: false })
       .limit(100);
     if (statusFilter !== "all") q = q.eq("status", statusFilter);
-    const { data, error } = await q;
-    if (error) setError(error.message);
-    else setAlerts((data ?? []) as unknown as AlertRow[]);
+    const [listRes, countsRes] = await Promise.all([q, countsPromise]);
+    if (listRes.error) {
+      setError(listRes.error.message);
+    } else {
+      setAlerts((listRes.data ?? []) as unknown as AlertRow[]);
+    }
+    if (!countsRes.error && countsRes.data) {
+      const all = countsRes.data as Array<{ status: AlertStatus }>;
+      setCounts({
+        pending: all.filter((a) => a.status === "pending").length,
+        acknowledged: all.filter((a) => a.status === "acknowledged").length,
+        resolved: all.filter((a) => a.status === "resolved").length,
+        all: all.length,
+      });
+    }
     setLoading(false);
   }, [statusFilter]);
 
   useEffect(() => { load(); }, [load]);
 
-  const counts = {
-    pending: alerts.filter((a) => a.status === "pending").length,
-    acknowledged: alerts.filter((a) => a.status === "acknowledged").length,
-    resolved: alerts.filter((a) => a.status === "resolved").length,
-  };
-
-  const filterCount = statusFilter === "all" ? alerts.length : counts[statusFilter] ?? 0;
-
   return (
-    <div className="px-4 sm:px-6 lg:px-8 py-8 max-w-[1400px] mx-auto space-y-8">
-      {/* Page header */}
-      <header>
-        <div className="mb-3"><span className="eyebrow text-[#E89077]">00 — RISK SIGNALS</span></div>
-        <div className="flex items-end justify-between gap-4 flex-wrap">
-          <h1 className="font-display text-[40px] sm:text-[48px] font-normal leading-[0.98] tracking-[-0.025em] text-[#F4EFE6] flex items-center gap-3">
-            <AlertTriangle className="w-9 h-9 text-[#E89077]" aria-hidden="true" />
-            High-priority <GradientWord>alerts.</GradientWord>
-          </h1>
-        </div>
-        <p className="mt-3 text-[15px] text-[#C5D2E5] max-w-2xl leading-relaxed">
-          Crisis-language signals flagged by the AI classifier. Review the excerpt, listen to the recording, and sign off so leadership knows it was handled.
-        </p>
-        <div className="chc-divider mt-6 max-w-md opacity-80" />
-      </header>
-
-      {/* Segmented filter — pill row */}
+    <PageShell
+      eyebrow="ALERTS"
+      title="High-priority alerts"
+      subtitle="Crisis-language signals flagged by the AI classifier. Review the excerpt, listen to the recording, and sign off so leadership knows it was handled."
+      maxWidth={1400}
+      actions={
+        <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 h-9">
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          Refresh
+        </Button>
+      }
+    >
+      {/* Filter row — match Card-based pattern used on other ops pages */}
       <div className="flex items-center gap-2 flex-wrap">
         {(["pending", "acknowledged", "resolved", "all"] as const).map((f) => {
           const active = statusFilter === f;
-          const count = f === "all" ? alerts.length : counts[f] ?? 0;
+          const count = counts[f];
           return (
-            <button
+            <Button
               key={f}
+              size="sm"
+              variant={active ? "default" : "outline"}
               onClick={() => setStatusFilter(f)}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12.5px] font-medium transition-colors capitalize ${
-                active
-                  ? "bg-[#5BA3D4] text-[#02071A] shadow-[0_0_0_1px_rgba(91,163,212,0.4),_0_4px_16px_rgba(91,163,212,0.25)]"
-                  : "bg-[#0F2549] border border-[#11244A] text-[#C5D2E5] hover:border-[#1B335F] hover:text-[#F4EFE6]"
-              }`}
+              className="h-8 gap-1.5 capitalize text-xs"
             >
               <span>{f}</span>
-              <span className={`text-[10.5px] tabular-nums px-1.5 rounded-full ${active ? "bg-white/20" : "bg-[#02071A]/60 text-[#9AABC9]"}`}>{count}</span>
-            </button>
+              <Badge variant={active ? "secondary" : "outline"} className="text-[10px] h-4 px-1.5">
+                {count}
+              </Badge>
+            </Button>
           );
         })}
       </div>
 
-      {/* States */}
-      {loading && (
-        <div className="glass rounded-2xl p-6 text-sm text-[#C5D2E5] flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading alerts…
-        </div>
-      )}
       {error && (
-        <div className="rounded-2xl border border-[#E89077]/40 bg-[#E89077]/5 p-6 text-sm text-[#E89077]">{error}</div>
-      )}
-      {!loading && !error && alerts.length === 0 && (
-        <div className="glass rounded-2xl p-10 text-center">
-          <div className="w-12 h-12 rounded-full bg-[#10B981]/15 text-[#10B981] flex items-center justify-center mx-auto mb-3">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <p className="text-[15px] text-[#F4EFE6]">No alerts in this status.</p>
-          <p className="text-[13px] text-[#9AABC9] mt-1">{statusFilter === "pending" ? "That's a good thing." : `Showing ${filterCount} alert${filterCount === 1 ? "" : "s"}.`}</p>
-        </div>
+        <Card className="border-red-500/40 bg-red-500/5">
+          <CardContent className="pt-3 pb-3 text-sm text-red-600 dark:text-red-400 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Alert list — IncidentCard per row */}
-      <div className="space-y-3">
-        {alerts.map((a) => (
-          <AlertItem
-            key={a.id}
-            alert={a}
-            expanded={expandedId === a.id}
-            onToggle={() => setExpandedId(expandedId === a.id ? null : a.id)}
-            currentUserId={user?.id ?? null}
-            onChanged={load}
-          />
-        ))}
-      </div>
-    </div>
+      {loading && alerts.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6 pb-6 text-sm text-muted-foreground flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading alerts…
+          </CardContent>
+        </Card>
+      ) : !error && alerts.length === 0 ? (
+        <Card>
+          <CardContent className="pt-8 pb-8 text-center text-sm text-muted-foreground space-y-2">
+            <ShieldCheck className="w-8 h-8 text-emerald-500/70 mx-auto" />
+            <div className="text-foreground">No alerts in this status.</div>
+            <div className="text-xs">
+              {statusFilter === "pending" ? "That's a good thing." : `Nothing to show right now.`}
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {alerts.map((a) => (
+            <AlertItem
+              key={a.id}
+              alert={a}
+              expanded={expandedId === a.id}
+              onToggle={() => setExpandedId(expandedId === a.id ? null : a.id)}
+              currentUserId={user?.id ?? null}
+              onChanged={load}
+            />
+          ))}
+        </div>
+      )}
+    </PageShell>
   );
 }
 
@@ -280,7 +295,7 @@ function AlertItem({
   const contextChips = [
     {
       icon: Phone,
-      label: <>{alert.call?.caller_phone_normalized ?? "—"}{callerLocation ? <span className="text-[#9AABC9] ml-1">· {callerLocation}</span> : null}</>,
+      label: <>{alert.call?.caller_phone_normalized ?? "—"}{callerLocation ? <span className="text-muted-foreground ml-1">· {callerLocation}</span> : null}</>,
       mono: true,
       srLabel: "Caller phone",
     },
@@ -288,14 +303,14 @@ function AlertItem({
       ? [{ icon: UserIcon, label: alert.call.caller_name, srLabel: "Caller name" }]
       : []),
     ...(agentName
-      ? [{ icon: UserIcon, label: <>Specialist: <span className="text-[#F4EFE6]">{agentName}</span></>, srLabel: "Specialist" }]
+      ? [{ icon: UserIcon, label: <>Specialist: <span className="text-foreground">{agentName}</span></>, srLabel: "Specialist" }]
       : []),
     ...(alert.call?.ctm_call_id
-      ? [{ label: <>call <span className="text-[#C5D2E5]">{alert.call.ctm_call_id}</span></>, mono: true, muted: true, srLabel: "CTM call ID" }]
+      ? [{ label: <>call <span className="text-muted-foreground">{alert.call.ctm_call_id}</span></>, mono: true, muted: true, srLabel: "CTM call ID" }]
       : []),
     ...(score?.composite_score != null
       ? [{
-          label: <>QA <span className={score.composite_score >= 80 ? "text-[#10B981]" : score.composite_score >= 60 ? "text-[#E5C879]" : "text-[#E89077]"}>{score.composite_score}</span></>,
+          label: <>QA <span className={score.composite_score >= 80 ? "text-emerald-500" : score.composite_score >= 60 ? "text-amber-500" : "text-red-500"}>{score.composite_score}</span></>,
           srLabel: "QA score",
         }]
       : []),
@@ -309,7 +324,7 @@ function AlertItem({
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1.5 text-[12.5px] text-[#5BA3D4] hover:text-[#F4EFE6] transition-colors px-2 py-1"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
         >
           <Headphones className="w-3.5 h-3.5" /> Recording
         </a>
@@ -352,7 +367,7 @@ function AlertItem({
     <div className="space-y-4 mt-3">
       {recordingUrl && (
         <div>
-          <div className="eyebrow text-[#5BA3D4] mb-2 flex items-center gap-1.5">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
             <Headphones className="w-3 h-3" /> Call recording
           </div>
           <audio controls preload="none" className="w-full" src={recordingUrl}>
@@ -361,21 +376,21 @@ function AlertItem({
         </div>
       )}
       <div>
-        <div className="eyebrow text-[#C5D2E5] mb-2">Full transcript</div>
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Full transcript</div>
         {transcriptLoading ? (
-          <div className="text-sm text-[#C5D2E5] flex items-center gap-2">
+          <div className="text-sm text-muted-foreground flex items-center gap-2">
             <Loader2 className="w-3 h-3 animate-spin" /> Loading transcript…
           </div>
         ) : !transcript || transcript.length === 0 ? (
-          <p className="text-sm text-[#9AABC9]">No transcript available for this call.</p>
+          <p className="text-sm text-muted-foreground">No transcript available for this call.</p>
         ) : (
-          <div className="max-h-80 overflow-y-auto space-y-2 bg-[#050E24]/60 border border-[#11244A] rounded-lg p-3 text-[13px] leading-relaxed">
+          <div className="max-h-80 overflow-y-auto space-y-2 bg-muted/30 border rounded-lg p-3 text-[13px] leading-relaxed">
             {transcript.map((t) => (
               <div key={t.sequence_number}>
-                <span className="text-[11px] font-medium text-[#5BA3D4] mr-2 uppercase tracking-wide">
+                <span className="text-[11px] font-medium text-muted-foreground mr-2 uppercase tracking-wide">
                   {t.speaker ?? "?"}
                 </span>
-                <span className="text-[#C5D2E5]">{t.content}</span>
+                <span>{t.content}</span>
               </div>
             ))}
           </div>
@@ -384,26 +399,25 @@ function AlertItem({
 
       {alert.status !== "resolved" && (
         <div>
-          <div className="eyebrow text-[#C5D2E5] mb-2">Resolution notes</div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Resolution notes</div>
           <Textarea
             value={resolutionNotes}
             onChange={(e) => setResolutionNotes(e.target.value)}
             placeholder="What action was taken? E.g., warm transferred to clinical, called caller back, escalated to medical director…"
             rows={3}
-            className="bg-[#050E24]/60 border-[#11244A] text-[#F4EFE6] placeholder:text-[#9AABC9]"
           />
         </div>
       )}
 
       {alert.status === "resolved" && alert.resolution_notes && (
         <div>
-          <div className="eyebrow text-[#10B981] mb-2">Resolution</div>
-          <p className="text-[13px] text-[#F4EFE6] leading-relaxed">{alert.resolution_notes}</p>
-          <p className="text-[11.5px] text-[#9AABC9] mt-1">Resolved {fmtTime(alert.resolved_at)}</p>
+          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-2">Resolution</div>
+          <p className="text-[13px] leading-relaxed">{alert.resolution_notes}</p>
+          <p className="text-[11.5px] text-muted-foreground mt-1">Resolved {fmtTime(alert.resolved_at)}</p>
         </div>
       )}
 
-      {actionError && <div className="text-[12.5px] text-[#E89077]">{actionError}</div>}
+      {actionError && <div className="text-xs text-red-500">{actionError}</div>}
     </div>
   );
 
