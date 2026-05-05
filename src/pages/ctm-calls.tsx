@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api-client";
 import { logAudit } from "@/lib/audit";
+import { supabase } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,17 @@ interface CTMStats {
   enrichment?: { calls_with_recording: number; calls_with_transcript: number };
 }
 
+// Splits the legacy "missed" bucket into:
+//   abandoned       — caller hung up before being connected (CTM call_status='hangup')
+//   missed_no_answer — phone rang through but specialist didn't pick up
+// Computed via direct Supabase queries because the /ctm-admin/stats
+// endpoint only returns the merged "missed" count.
+interface MissedSubtypeCounts {
+  abandoned: number;
+  missed_no_answer: number;
+  loading: boolean;
+}
+
 function directionIcon(dir: string) {
   switch (dir) {
     case "inbound":
@@ -145,15 +157,17 @@ function formatDuration(seconds: number | null) {
 function readInitialFiltersFromUrl(): {
   direction: string;
   status: string;
+  subtype: string;
   hasTranscript: boolean;
   dateRange: DateRange | null;
 } {
   if (typeof window === "undefined") {
-    return { direction: "all", status: "all", hasTranscript: false, dateRange: getDefaultDateRange() };
+    return { direction: "all", status: "all", subtype: "all", hasTranscript: false, dateRange: getDefaultDateRange() };
   }
   const p = new URLSearchParams(window.location.search);
   const direction = p.get("direction") ?? "all";
   const status = p.get("status") ?? "all";
+  const subtype = p.get("subtype") ?? "all"; // "abandoned" | "missed_no_answer" | "all"
   const hasTranscript = p.get("has_transcript") === "true";
 
   let dateRange: DateRange | null = getDefaultDateRange();
@@ -174,12 +188,13 @@ function readInitialFiltersFromUrl(): {
   } else if (startParam && endParam) {
     dateRange = { startDate: new Date(startParam), endDate: new Date(endParam) };
   }
-  return { direction, status, hasTranscript, dateRange };
+  return { direction, status, subtype, hasTranscript, dateRange };
 }
 
 export default function CTMCalls() {
   const [calls, setCalls] = useState<CTMCall[]>([]);
   const [stats, setStats] = useState<CTMStats | null>(null);
+  const [missedSubtypes, setMissedSubtypes] = useState<MissedSubtypeCounts>({ abandoned: 0, missed_no_answer: 0, loading: true });
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -188,6 +203,10 @@ export default function CTMCalls() {
   const initialUrlFilters = readInitialFiltersFromUrl();
   const [dirFilter, setDirFilter] = useState<string>(initialUrlFilters.direction);
   const [statusFilter, setStatusFilter] = useState<string>(initialUrlFilters.status);
+  // Subtype = "abandoned" (caller hung up) | "missed_no_answer" | "all".
+  // The /ctm-admin endpoints don't distinguish these, so we filter the
+  // returned rows client-side using ctm_raw_payload.call_status.
+  const [subtypeFilter, setSubtypeFilter] = useState<string>(initialUrlFilters.subtype);
   const [hasTranscriptFilter, setHasTranscriptFilter] = useState<boolean>(initialUrlFilters.hasTranscript);
   const [dateRange, setDateRange] = useState<DateRange | null>(initialUrlFilters.dateRange);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -199,6 +218,70 @@ export default function CTMCalls() {
   const fetchCalls = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
+      // When the user clicks Abandoned or Missed, the standard /ctm-admin
+      // feed can't distinguish them — they both have status='missed'. Pull
+      // directly from Supabase, filtering on ctm_raw_payload.call_status.
+      if (subtypeFilter !== "all") {
+        const wantHangup = subtypeFilter === "abandoned";
+        let q = supabase
+          .from("call_sessions")
+          .select(
+            `id, ctm_call_id, direction, status, caller_phone_normalized, caller_name, started_at, talk_seconds,
+             ctm_raw_payload, transcript_chunks!left(id)`,
+            { count: "exact" },
+          )
+          .eq("status", "missed")
+          .eq("direction", "inbound")
+          .order("started_at", { ascending: false })
+          .range(offset, offset + limit - 1);
+        if (wantHangup) {
+          q = q.eq("ctm_raw_payload->>call_status", "hangup");
+        } else {
+          q = q.in("ctm_raw_payload->>call_status", ["no answer", "received"]);
+        }
+        if (dateRange) {
+          q = q.gte("started_at", dateRange.startDate.toISOString())
+               .lte("started_at", dateRange.endDate.toISOString());
+        }
+        const { data, count } = await q;
+        const rows = (data ?? []) as any[];
+        setCalls(rows.map((r) => ({
+          id: r.id,
+          ctm_call_id: r.ctm_call_id,
+          direction: r.direction,
+          call_status: r.status,
+          caller_phone: r.caller_phone_normalized ?? "",
+          caller_name: r.caller_name ?? "",
+          tracking_number: r.ctm_raw_payload?.tracking?.number ?? "",
+          tracking_label: r.ctm_raw_payload?.tracking?.label ?? "",
+          answering_ctm_user_id: "",
+          agent_name: r.ctm_raw_payload?.agent?.name ?? null,
+          start_time: r.started_at ?? "",
+          end_time: r.ctm_raw_payload?.end_time ?? "",
+          total_duration_seconds: r.ctm_raw_payload?.total_duration ?? 0,
+          talk_duration_seconds: r.talk_seconds ?? 0,
+          missed_call_flag: true,
+          has_recording: Boolean(r.ctm_raw_payload?.audio),
+          has_transcript: Array.isArray(r.transcript_chunks) && r.transcript_chunks.length > 0,
+          recording_url: r.ctm_raw_payload?.audio ?? "",
+          transcript_preview: "",
+          zoho_lead_id: "",
+          source_event_type: "",
+          lead_score: null,
+          lead_quality_tier: null,
+          call_score_total: null,
+          qa_status: null,
+          conversion_probability: null,
+          hot_lead_flag: null,
+          outcome_lead_id: null,
+          outcome_category: null,
+          is_last_touch: false,
+          is_first_touch: false,
+        } as CTMCall)));
+        setTotal(count ?? rows.length);
+        return;
+      }
+
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
       if (dirFilter !== "all") params.set("direction", dirFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
@@ -219,7 +302,7 @@ export default function CTMCalls() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [offset, dirFilter, statusFilter, hasTranscriptFilter, dateRange]);
+  }, [offset, dirFilter, statusFilter, subtypeFilter, hasTranscriptFilter, dateRange]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -234,8 +317,32 @@ export default function CTMCalls() {
     } catch {}
   }, [dateRange]);
 
+  // Compute the abandoned vs missed-no-answer split directly from Supabase
+  // since the backend stats endpoint merges them. Two parallel head-only
+  // count queries — cheap and always accurate for the active date window.
+  const fetchMissedSubtypes = useCallback(async () => {
+    setMissedSubtypes((s) => ({ ...s, loading: true }));
+    try {
+      const baseAbandoned = supabase.from("call_sessions").select("id", { count: "exact", head: true })
+        .eq("status", "missed").eq("direction", "inbound").eq("ctm_raw_payload->>call_status", "hangup");
+      const baseMissed = supabase.from("call_sessions").select("id", { count: "exact", head: true })
+        .eq("status", "missed").eq("direction", "inbound").in("ctm_raw_payload->>call_status", ["no answer", "received"]);
+      const aQ = dateRange ? baseAbandoned.gte("started_at", dateRange.startDate.toISOString()).lte("started_at", dateRange.endDate.toISOString()) : baseAbandoned;
+      const mQ = dateRange ? baseMissed.gte("started_at", dateRange.startDate.toISOString()).lte("started_at", dateRange.endDate.toISOString()) : baseMissed;
+      const [aRes, mRes] = await Promise.all([aQ, mQ]);
+      setMissedSubtypes({
+        abandoned: aRes.count ?? 0,
+        missed_no_answer: mRes.count ?? 0,
+        loading: false,
+      });
+    } catch {
+      setMissedSubtypes((s) => ({ ...s, loading: false }));
+    }
+  }, [dateRange]);
+
   useEffect(() => { fetchCalls(); }, [fetchCalls]);
   useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => { fetchMissedSubtypes(); }, [fetchMissedSubtypes]);
 
   // Log a "view" once per filter combination — captures who looked at
   // which slice of the call log without spamming on every poll tick.
@@ -336,35 +443,67 @@ export default function CTMCalls() {
       </div>
 
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-          <Card><CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold">{stats.total_calls}</div>
-            <div className="text-xs text-muted-foreground">Total Calls</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-blue-400">{stats.calls_by_direction.inbound}</div>
-            <div className="text-xs text-muted-foreground">Inbound</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-emerald-400">{stats.calls_by_direction.outbound}</div>
-            <div className="text-xs text-muted-foreground">Outbound</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-red-400">{stats.calls_by_direction.missed}</div>
-            <div className="text-xs text-muted-foreground">Missed</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-cyan-400">{stats.enrichment?.calls_with_recording ?? 0}</div>
-            <div className="text-xs text-muted-foreground">Recordings</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-violet-400">{stats.enrichment?.calls_with_transcript ?? 0}</div>
-            <div className="text-xs text-muted-foreground">Transcripts</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-amber-400">{stats.pending_reviews}</div>
-            <div className="text-xs text-muted-foreground">Pending Reviews</div>
-          </CardContent></Card>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+          <ClickableStat
+            label="Total"
+            value={stats.total_calls}
+            tone="default"
+            active={dirFilter === "all" && statusFilter === "all" && subtypeFilter === "all" && !hasTranscriptFilter}
+            onClick={() => { setDirFilter("all"); setStatusFilter("all"); setSubtypeFilter("all"); setHasTranscriptFilter(false); setOffset(0); }}
+            sub="all calls"
+          />
+          <ClickableStat
+            label="Inbound"
+            value={stats.calls_by_direction.inbound}
+            tone="blue"
+            active={dirFilter === "inbound" && statusFilter === "all"}
+            onClick={() => { setDirFilter("inbound"); setStatusFilter("all"); setSubtypeFilter("all"); setOffset(0); }}
+            sub="caller → us"
+          />
+          <ClickableStat
+            label="Outbound"
+            value={stats.calls_by_direction.outbound}
+            tone="emerald"
+            active={dirFilter === "outbound" && statusFilter === "all"}
+            onClick={() => { setDirFilter("outbound"); setStatusFilter("all"); setSubtypeFilter("all"); setOffset(0); }}
+            sub="us → caller"
+          />
+          <ClickableStat
+            label="Abandoned"
+            value={missedSubtypes.loading ? "…" : missedSubtypes.abandoned}
+            tone="rose"
+            active={statusFilter === "missed" && subtypeFilter === "abandoned"}
+            onClick={() => { setDirFilter("inbound"); setStatusFilter("missed"); setSubtypeFilter("abandoned"); setOffset(0); }}
+            sub="caller hung up"
+          />
+          <ClickableStat
+            label="Missed"
+            value={missedSubtypes.loading ? "…" : missedSubtypes.missed_no_answer}
+            tone="amber"
+            active={statusFilter === "missed" && subtypeFilter === "missed_no_answer"}
+            onClick={() => { setDirFilter("inbound"); setStatusFilter("missed"); setSubtypeFilter("missed_no_answer"); setOffset(0); }}
+            sub="no answer"
+          />
+          <ClickableStat
+            label="Recordings"
+            value={stats.enrichment?.calls_with_recording ?? 0}
+            tone="cyan"
+            sub="with audio"
+          />
+          <ClickableStat
+            label="Transcripts"
+            value={stats.enrichment?.calls_with_transcript ?? 0}
+            tone="violet"
+            active={hasTranscriptFilter}
+            onClick={() => { setHasTranscriptFilter(!hasTranscriptFilter); setOffset(0); }}
+            sub={hasTranscriptFilter ? "filtered" : "with text"}
+          />
+          <ClickableStat
+            label="Pending QA"
+            value={stats.pending_reviews}
+            tone="rose"
+            sub="needs review"
+          />
         </div>
       )}
 
@@ -872,5 +1011,44 @@ export default function CTMCalls() {
         </div>
       </Card>
     </div>
+  );
+}
+
+// Stat card with optional click-to-filter behavior. Tone drives the color
+// of the headline number; "active" thickens the border so it's obvious
+// which filter is currently driving the table below.
+type StatTone = "default" | "blue" | "emerald" | "rose" | "amber" | "cyan" | "violet";
+const STAT_TONE: Record<StatTone, string> = {
+  default: "text-foreground",
+  blue: "text-blue-500 dark:text-blue-400",
+  emerald: "text-emerald-500 dark:text-emerald-400",
+  rose: "text-rose-500 dark:text-rose-400",
+  amber: "text-amber-500 dark:text-amber-400",
+  cyan: "text-cyan-500 dark:text-cyan-400",
+  violet: "text-violet-500 dark:text-violet-400",
+};
+
+function ClickableStat({
+  label, value, tone = "default", sub, active, onClick,
+}: {
+  label: string;
+  value: number | string;
+  tone?: StatTone;
+  sub?: string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  const interactive = Boolean(onClick);
+  return (
+    <Card
+      onClick={onClick}
+      className={`${interactive ? "cursor-pointer hover:bg-accent/40 transition-colors" : ""} ${active ? "ring-2 ring-primary/50 border-primary/40" : ""}`}
+    >
+      <CardContent className="p-4 text-center">
+        <div className={`text-2xl font-bold tabular-nums ${STAT_TONE[tone]}`}>{value}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+        {sub && <div className="text-[10px] text-muted-foreground/70 mt-0.5">{sub}</div>}
+      </CardContent>
+    </Card>
   );
 }
