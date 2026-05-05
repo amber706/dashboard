@@ -318,9 +318,19 @@ function ReviewCard({ review, onSignoff }: { review: FlaggedReview; onSignoff: (
                         {Object.entries(categoryScores).map(([cat, score]) => (
                           <ScoreBar key={cat} label={cat.replace(/_/g, " ")} score={typeof score === "number" ? score : 0} />
                         ))}
-                        {qa.script_adherence_score != null && <ScoreBar label="Script Adherence" score={qa.script_adherence_score} />}
-                        {qa.objection_handling_score != null && <ScoreBar label="Objection Handling" score={qa.objection_handling_score} />}
-                        {qa.zoho_completeness_score != null && <ScoreBar label="Documentation" score={qa.zoho_completeness_score} />}
+                        {/* Render top-level fields ONLY when they aren't already
+                            present in category_scores — otherwise we double-render
+                            "Script Adherence"/"Objection Handling" and the row reads
+                            like a bug. */}
+                        {qa.script_adherence_score != null && !("script_adherence" in categoryScores) && (
+                          <ScoreBar label="Script Adherence" score={qa.script_adherence_score} />
+                        )}
+                        {qa.objection_handling_score != null && !("objection_handling" in categoryScores) && (
+                          <ScoreBar label="Objection Handling" score={qa.objection_handling_score} />
+                        )}
+                        {qa.zoho_completeness_score != null && (
+                          <ScoreBar label="Documentation" score={qa.zoho_completeness_score} />
+                        )}
                       </div>
                     </div>
                   </div>
