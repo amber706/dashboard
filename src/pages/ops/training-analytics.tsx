@@ -159,136 +159,187 @@ export default function TrainingAnalytics() {
           .eq("is_active", true)
           .in("role", ["specialist", "manager"]);
 
-        const specStats: SpecialistStat[] = await Promise.all(
-          (profiles ?? []).map(async (p) => {
-            const [completedSessions, sessionScores, realCallScores] = await Promise.all([
-              supabase
-                .from("training_sessions")
-                .select("id", { count: "exact", head: true })
-                .eq("specialist_id", p.id)
-                .eq("status", "completed"),
-              supabase
-                .from("training_session_scores")
-                .select("composite_score, session:training_sessions!inner(specialist_id)")
-                .eq("session.specialist_id", p.id),
-              // Real-call scores joined to call_sessions filtered by specialist_id
-              // (populated by ctm-webhook from CTM agent.name -> profile lookup).
-              // Pull all 8 rubric columns so we can compute "areas of
-              // improvement" — the lowest-scoring categories per specialist.
-              supabase
-                .from("call_scores")
-                .select(`composite_score, ${RUBRIC_KEYS.join(", ")}, call:call_sessions!inner(specialist_id)`)
-                .eq("call.specialist_id", p.id)
-                .gte("created_at", thirtyDaysAgo),
-            ]);
-            const sessVals = ((sessionScores.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
-            const avgSess = sessVals.length > 0 ? Math.round(sessVals.reduce((a, b) => a + b, 0) / sessVals.length) : null;
-            const callRows = (realCallScores.data ?? []) as any[];
-            const callVals = callRows.map((r) => r.composite_score).filter((n: number | null): n is number => typeof n === "number");
-            const avgCall = callVals.length > 0 ? Math.round(callVals.reduce((a, b) => a + b, 0) / callVals.length) : null;
+        // Bulk-fetch ONCE, group by specialist_id client-side. The old
+        // version fired 3 queries per specialist (~51 round-trips for
+        // 17 specialists); this is 3 total regardless of team size.
+        const specialistIds = (profiles ?? []).map((p) => p.id);
+        const [allCompletedSessions, allSessionScores, allCallScores] = await Promise.all([
+          supabase
+            .from("training_sessions")
+            .select("specialist_id")
+            .eq("status", "completed")
+            .in("specialist_id", specialistIds),
+          supabase
+            .from("training_session_scores")
+            .select("composite_score, session:training_sessions!inner(specialist_id)")
+            .in("session.specialist_id", specialistIds),
+          supabase
+            .from("call_scores")
+            .select(`composite_score, ${RUBRIC_KEYS.join(", ")}, call:call_sessions!inner(specialist_id)`)
+            .in("call.specialist_id", specialistIds)
+            .gte("created_at", thirtyDaysAgo),
+        ]);
 
-            // Compute per-rubric averages, then pick the lowest 2. Skip
-            // categories with no data so a single-call specialist doesn't
-            // get a "compliance: 50" badge from one outlier.
-            const rubricAvgs: Array<{ category: string; avg: number }> = [];
-            for (const key of RUBRIC_KEYS) {
-              const vals = callRows.map((r) => r[key]).filter((n: number | null): n is number => typeof n === "number");
-              if (vals.length < 3) continue; // need at least 3 datapoints
-              const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-              rubricAvgs.push({ category: key, avg });
-            }
-            rubricAvgs.sort((a, b) => a.avg - b.avg);
-            const weakest = rubricAvgs.slice(0, 2);
+        // Index by specialist_id for O(1) lookup.
+        const completedBySpec = new Map<string, number>();
+        for (const r of (allCompletedSessions.data ?? []) as Array<{ specialist_id: string }>) {
+          completedBySpec.set(r.specialist_id, (completedBySpec.get(r.specialist_id) ?? 0) + 1);
+        }
+        const sessionScoresBySpec = new Map<string, number[]>();
+        for (const r of (allSessionScores.data ?? []) as any[]) {
+          const sess = Array.isArray(r.session) ? r.session[0] : r.session;
+          const sid = sess?.specialist_id as string | undefined;
+          if (!sid || typeof r.composite_score !== "number") continue;
+          const arr = sessionScoresBySpec.get(sid) ?? [];
+          arr.push(r.composite_score);
+          sessionScoresBySpec.set(sid, arr);
+        }
+        const callScoresBySpec = new Map<string, any[]>();
+        for (const r of (allCallScores.data ?? []) as any[]) {
+          const call = Array.isArray(r.call) ? r.call[0] : r.call;
+          const sid = call?.specialist_id as string | undefined;
+          if (!sid) continue;
+          const arr = callScoresBySpec.get(sid) ?? [];
+          arr.push(r);
+          callScoresBySpec.set(sid, arr);
+        }
 
-            return {
-              id: p.id,
-              full_name: p.full_name,
-              email: p.email,
-              sessions_completed: completedSessions.count ?? 0,
-              avg_composite: avgSess,
-              avg_real_call_composite: avgCall,
-              weakest_categories: weakest,
-              rubric_sample_n: callVals.length,
-            };
-          }),
-        );
+        const specStats: SpecialistStat[] = (profiles ?? []).map((p) => {
+          const sessVals = sessionScoresBySpec.get(p.id) ?? [];
+          const avgSess = sessVals.length > 0
+            ? Math.round(sessVals.reduce((a, b) => a + b, 0) / sessVals.length)
+            : null;
+          const callRows = callScoresBySpec.get(p.id) ?? [];
+          const callVals = callRows
+            .map((r) => r.composite_score)
+            .filter((n: number | null): n is number => typeof n === "number");
+          const avgCall = callVals.length > 0
+            ? Math.round(callVals.reduce((a, b) => a + b, 0) / callVals.length)
+            : null;
+
+          // Per-rubric averages → pick the lowest 2 (need 3+ datapoints
+          // per category so single-call specialists don't get a noisy
+          // "compliance: 50" badge from one outlier).
+          const rubricAvgs: Array<{ category: string; avg: number }> = [];
+          for (const key of RUBRIC_KEYS) {
+            const vals = callRows.map((r) => r[key]).filter((n: number | null): n is number => typeof n === "number");
+            if (vals.length < 3) continue;
+            const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+            rubricAvgs.push({ category: key, avg });
+          }
+          rubricAvgs.sort((a, b) => a.avg - b.avg);
+          const weakest = rubricAvgs.slice(0, 2);
+
+          return {
+            id: p.id,
+            full_name: p.full_name,
+            email: p.email,
+            sessions_completed: completedBySpec.get(p.id) ?? 0,
+            avg_composite: avgSess,
+            avg_real_call_composite: avgCall,
+            weakest_categories: weakest,
+            rubric_sample_n: callVals.length,
+          };
+        });
 
         if (!cancelled) setSpecialists(specStats);
 
-        // Per-scenario
+        // Per-scenario — bulk fetch + group instead of per-scenario loop.
         const { data: pubScenarios } = await supabase
           .from("training_scenarios")
           .select("id, title, difficulty")
           .eq("status", "published")
           .order("difficulty", { ascending: true });
+        const scenarioIds = (pubScenarios ?? []).map((s) => s.id);
 
-        const scenarioStats: ScenarioStat[] = await Promise.all(
-          (pubScenarios ?? []).map(async (sc) => {
-            const [allAssignments, completedAssignments, sessionScoresForScenario, completedAssignmentsDetail] = await Promise.all([
-              supabase.from("training_assignments").select("id", { count: "exact", head: true }).eq("scenario_id", sc.id),
-              supabase.from("training_assignments").select("id", { count: "exact", head: true }).eq("scenario_id", sc.id).eq("status", "completed"),
-              supabase
-                .from("training_session_scores")
-                .select("composite_score, session:training_sessions!inner(scenario_id)")
-                .eq("session.scenario_id", sc.id),
-              // For lift: who completed this scenario, and when?
-              supabase
-                .from("training_assignments")
-                .select("specialist_id, completed_at")
-                .eq("scenario_id", sc.id)
-                .eq("status", "completed")
-                .not("completed_at", "is", null),
-            ]);
-            const vals = ((sessionScoresForScenario.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
-            const avg = vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+        // Pull scenario-related data in 4 bulk queries (was 4 × N queries):
+        //   1. all assignments for these scenarios (counts + lift cohort)
+        //   2. all session_scores joined to training_sessions.scenario_id
+        //   3. wide call_scores window (last 60d) — covers ±14d around any
+        //      completion; we slice in memory per-assignee
+        const liftWindowStart = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+        const [allScenarioAssignments, allSessionScoresForScenarios, callScoresLiftWindow] = await Promise.all([
+          supabase.from("training_assignments").select("scenario_id, specialist_id, status, completed_at").in("scenario_id", scenarioIds),
+          supabase.from("training_session_scores").select("composite_score, session:training_sessions!inner(scenario_id)").in("session.scenario_id", scenarioIds),
+          supabase.from("call_scores").select("composite_score, call:call_sessions!inner(specialist_id, started_at)").gte("created_at", liftWindowStart),
+        ]);
 
-            // Real-call lift: for each assignee, average score 14d before completion
-            // vs 14d after. Then average per-assignee deltas. Need both windows non-empty.
-            const WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
-            const perAssigneeDeltas: number[] = [];
-            for (const a of (completedAssignmentsDetail.data ?? []) as any[]) {
-              if (!a.specialist_id || !a.completed_at) continue;
-              const cutoff = new Date(a.completed_at).getTime();
-              const beforeISO = new Date(cutoff - WINDOW_MS).toISOString();
-              const afterISO = new Date(cutoff + WINDOW_MS).toISOString();
-              const completedISO = new Date(cutoff).toISOString();
-              const [beforeRes, afterRes] = await Promise.all([
-                supabase
-                  .from("call_scores")
-                  .select("composite_score, call:call_sessions!inner(specialist_id, started_at)")
-                  .eq("call.specialist_id", a.specialist_id)
-                  .gte("call.started_at", beforeISO)
-                  .lt("call.started_at", completedISO),
-                supabase
-                  .from("call_scores")
-                  .select("composite_score, call:call_sessions!inner(specialist_id, started_at)")
-                  .eq("call.specialist_id", a.specialist_id)
-                  .gte("call.started_at", completedISO)
-                  .lt("call.started_at", afterISO),
-              ]);
-              const beforeVals = ((beforeRes.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
-              const afterVals = ((afterRes.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
-              if (beforeVals.length === 0 || afterVals.length === 0) continue;
-              const beforeAvg = beforeVals.reduce((x, y) => x + y, 0) / beforeVals.length;
-              const afterAvg = afterVals.reduce((x, y) => x + y, 0) / afterVals.length;
-              perAssigneeDeltas.push(afterAvg - beforeAvg);
+        // Build the per-specialist sorted list of [started_at, composite]
+        // pairs once. For each (scenario, assignee, completion_date), we
+        // filter this list for the ±14d windows in memory.
+        const callsBySpec = new Map<string, Array<{ ts: number; score: number }>>();
+        for (const r of (callScoresLiftWindow.data ?? []) as any[]) {
+          const c = Array.isArray(r.call) ? r.call[0] : r.call;
+          if (!c?.specialist_id || !c?.started_at || typeof r.composite_score !== "number") continue;
+          const ts = new Date(c.started_at).getTime();
+          const arr = callsBySpec.get(c.specialist_id) ?? [];
+          arr.push({ ts, score: r.composite_score });
+          callsBySpec.set(c.specialist_id, arr);
+        }
+
+        // Group assignments and session_scores by scenario_id.
+        const assignmentsByScenario = new Map<string, Array<{ specialist_id: string; status: string; completed_at: string | null }>>();
+        for (const a of (allScenarioAssignments.data ?? []) as any[]) {
+          const arr = assignmentsByScenario.get(a.scenario_id) ?? [];
+          arr.push(a);
+          assignmentsByScenario.set(a.scenario_id, arr);
+        }
+        const sessionScoresByScenario = new Map<string, number[]>();
+        for (const r of (allSessionScoresForScenarios.data ?? []) as any[]) {
+          const sess = Array.isArray(r.session) ? r.session[0] : r.session;
+          const sid = sess?.scenario_id as string | undefined;
+          if (!sid || typeof r.composite_score !== "number") continue;
+          const arr = sessionScoresByScenario.get(sid) ?? [];
+          arr.push(r.composite_score);
+          sessionScoresByScenario.set(sid, arr);
+        }
+
+        const WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+        const computeLiftFor = (assigneesWithDates: Array<{ specialist_id: string; cutoff_ms: number }>): { lift: number | null; sampleN: number } => {
+          const deltas: number[] = [];
+          for (const a of assigneesWithDates) {
+            const calls = callsBySpec.get(a.specialist_id);
+            if (!calls) continue;
+            const before: number[] = [];
+            const after: number[] = [];
+            for (const c of calls) {
+              if (c.ts >= a.cutoff_ms - WINDOW_MS && c.ts < a.cutoff_ms) before.push(c.score);
+              else if (c.ts >= a.cutoff_ms && c.ts < a.cutoff_ms + WINDOW_MS) after.push(c.score);
             }
-            const lift = perAssigneeDeltas.length > 0
-              ? Math.round(perAssigneeDeltas.reduce((x, y) => x + y, 0) / perAssigneeDeltas.length)
-              : null;
+            if (before.length === 0 || after.length === 0) continue;
+            const beforeAvg = before.reduce((x, y) => x + y, 0) / before.length;
+            const afterAvg = after.reduce((x, y) => x + y, 0) / after.length;
+            deltas.push(afterAvg - beforeAvg);
+          }
+          return {
+            lift: deltas.length > 0 ? Math.round(deltas.reduce((x, y) => x + y, 0) / deltas.length) : null,
+            sampleN: deltas.length,
+          };
+        };
 
-            return {
-              id: sc.id,
-              title: sc.title,
-              difficulty: sc.difficulty,
-              total_assignments: allAssignments.count ?? 0,
-              completed_assignments: completedAssignments.count ?? 0,
-              avg_session_score: avg,
-              real_call_lift: lift,
-              lift_sample_n: perAssigneeDeltas.length,
-            };
-          }),
-        );
+        const scenarioStats: ScenarioStat[] = (pubScenarios ?? []).map((sc) => {
+          const all = assignmentsByScenario.get(sc.id) ?? [];
+          const totalAssignments = all.length;
+          const completedAssignments = all.filter((a) => a.status === "completed").length;
+          const sessionVals = sessionScoresByScenario.get(sc.id) ?? [];
+          const avg = sessionVals.length > 0
+            ? Math.round(sessionVals.reduce((a, b) => a + b, 0) / sessionVals.length)
+            : null;
+          const completedDetail = all
+            .filter((a) => a.status === "completed" && a.completed_at && a.specialist_id)
+            .map((a) => ({ specialist_id: a.specialist_id, cutoff_ms: new Date(a.completed_at!).getTime() }));
+          const { lift, sampleN } = computeLiftFor(completedDetail);
+          return {
+            id: sc.id,
+            title: sc.title,
+            difficulty: sc.difficulty,
+            total_assignments: totalAssignments,
+            completed_assignments: completedAssignments,
+            avg_session_score: avg,
+            real_call_lift: lift,
+            lift_sample_n: sampleN,
+          };
+        });
 
         if (!cancelled) setScenarios(scenarioStats);
 
@@ -303,20 +354,29 @@ export default function TrainingAnalytics() {
           .eq("is_published", true);
 
         const pathsArr = (pathRows ?? []) as Array<{ id: string; title: string; scenario_ids: string[] }>;
-        const pathStats: PathStat[] = [];
-        for (const p of pathsArr) {
-          // All assignments tied to this path (source_path_id) gives us the
-          // assigned-via-path specialists. We also count "implicit" path
-          // progress when a specialist has completed every scenario in the
-          // path even if individual scenarios weren't assigned via path.
-          const { data: pathAssignments } = await supabase
-            .from("training_assignments")
-            .select("specialist_id, scenario_id, status, completed_at")
-            .eq("source_path_id", p.id);
+        const pathIds = pathsArr.map((p) => p.id);
 
+        // Bulk-fetch all path assignments at once instead of per-path loop.
+        // Reuses the callsBySpec bucket built earlier for lift calculation.
+        const { data: allPathAssignments } = pathIds.length > 0
+          ? await supabase
+              .from("training_assignments")
+              .select("source_path_id, specialist_id, scenario_id, status, completed_at")
+              .in("source_path_id", pathIds)
+          : { data: [] as any[] };
+
+        const pathAssignmentsByPath = new Map<string, Array<{ specialist_id: string; scenario_id: string; status: string; completed_at: string | null }>>();
+        for (const a of (allPathAssignments ?? []) as any[]) {
+          const arr = pathAssignmentsByPath.get(a.source_path_id) ?? [];
+          arr.push(a);
+          pathAssignmentsByPath.set(a.source_path_id, arr);
+        }
+
+        const pathStats: PathStat[] = pathsArr.map((p) => {
+          const pathAssignments = pathAssignmentsByPath.get(p.id) ?? [];
           const specToCompletedScenarios = new Map<string, Set<string>>();
           const specSet = new Set<string>();
-          for (const a of (pathAssignments ?? []) as Array<{ specialist_id: string; scenario_id: string; status: string; completed_at: string | null }>) {
+          for (const a of pathAssignments) {
             specSet.add(a.specialist_id);
             if (a.status === "completed" && a.scenario_id) {
               const s = specToCompletedScenarios.get(a.specialist_id) ?? new Set<string>();
@@ -340,12 +400,12 @@ export default function TrainingAnalytics() {
             ? Math.round(completionPcts.reduce((a, b) => a + b, 0) / completionPcts.length)
             : 0;
 
-          // Lift: for each specialist who completed the path, find the most
-          // recent completed_at among the path's scenarios as their "path
-          // completion date." Then average their composite call_scores 14d
-          // before vs 14d after.
+          // Lift cohort: specialists who completed the FULL path. Use the
+          // most-recent completed_at among the path's scenarios as the
+          // path-completion date. Lift is then computed in-memory against
+          // the prebuilt callsBySpec bucket — no extra Supabase round-trips.
           const completionDates = new Map<string, string>();
-          for (const a of (pathAssignments ?? []) as Array<{ specialist_id: string; scenario_id: string; status: string; completed_at: string | null }>) {
+          for (const a of pathAssignments) {
             if (a.status !== "completed" || !a.completed_at) continue;
             const completedScenarios = specToCompletedScenarios.get(a.specialist_id) ?? new Set<string>();
             const inPath = p.scenario_ids.filter((id) => completedScenarios.has(id)).length;
@@ -353,34 +413,13 @@ export default function TrainingAnalytics() {
             const cur = completionDates.get(a.specialist_id);
             if (!cur || a.completed_at > cur) completionDates.set(a.specialist_id, a.completed_at);
           }
+          const cohort = Array.from(completionDates.entries()).map(([sid, iso]) => ({
+            specialist_id: sid,
+            cutoff_ms: new Date(iso).getTime(),
+          }));
+          const { lift, sampleN } = computeLiftFor(cohort);
 
-          const liftDeltas: number[] = [];
-          for (const [sId, dateIso] of completionDates) {
-            const t = new Date(dateIso).getTime();
-            const beforeLo = new Date(t - 14 * 24 * 60 * 60 * 1000).toISOString();
-            const afterHi = new Date(t + 14 * 24 * 60 * 60 * 1000).toISOString();
-            const { data: scoreCalls } = await supabase
-              .from("call_scores")
-              .select("composite_score, created_at, call:call_sessions(specialist_id)")
-              .gte("created_at", beforeLo)
-              .lte("created_at", afterHi);
-            const myCalls = ((scoreCalls ?? []) as any[]).filter((sc) => {
-              const c = Array.isArray(sc.call) ? sc.call[0] : sc.call;
-              return c?.specialist_id === sId;
-            });
-            const before = myCalls.filter((sc) => sc.created_at < dateIso).map((sc) => sc.composite_score).filter((n: number | null): n is number => typeof n === "number");
-            const after = myCalls.filter((sc) => sc.created_at >= dateIso).map((sc) => sc.composite_score).filter((n: number | null): n is number => typeof n === "number");
-            if (before.length === 0 || after.length === 0) continue;
-            const beforeAvg = before.reduce((a, b) => a + b, 0) / before.length;
-            const afterAvg = after.reduce((a, b) => a + b, 0) / after.length;
-            liftDeltas.push(afterAvg - beforeAvg);
-          }
-
-          const lift = liftDeltas.length > 0
-            ? Math.round(liftDeltas.reduce((a, b) => a + b, 0) / liftDeltas.length)
-            : null;
-
-          pathStats.push({
+          return {
             id: p.id,
             title: p.title,
             total_scenarios: p.scenario_ids.length,
@@ -388,9 +427,9 @@ export default function TrainingAnalytics() {
             specialists_completed: specialistsCompleted,
             avg_completion_pct: avgCompletionPct,
             real_call_lift: lift,
-            lift_sample_n: liftDeltas.length,
-          });
-        }
+            lift_sample_n: sampleN,
+          };
+        });
 
         if (!cancelled) setPaths(pathStats);
       } catch (e) {
