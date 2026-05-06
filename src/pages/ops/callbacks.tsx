@@ -93,7 +93,18 @@ export default function OpsCallbacks() {
   const [rows, setRows] = useState<CallbackRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<CbStatus | "all">("pending");
+  // Pick up ?status=, ?specialist_id= drill-throughs from /ops/workload
+  // and similar surfaces. Read once on mount; further changes go through
+  // setFilter / setSpecialistFilter.
+  const initialQS = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const initialStatusRaw = initialQS.get("status");
+  const initialSpecialist = initialQS.get("specialist_id") ?? "all";
+  const VALID_FILTERS = ["pending", "completed", "skipped", "unreachable", "all"] as const;
+  const initialFilter: CbStatus | "all" = initialStatusRaw && (VALID_FILTERS as readonly string[]).includes(initialStatusRaw)
+    ? (initialStatusRaw as CbStatus | "all")
+    : "pending";
+  const [filter, setFilter] = useState<CbStatus | "all">(initialFilter);
+  const [specialistFilter, setSpecialistFilter] = useState<string>(initialSpecialist);
   const [ageFilter, setAgeFilter] = useState<AgeBucket>("all");
   // Custom range — only used when ageFilter === "custom". HTML date input
   // values (YYYY-MM-DD); convert to ISO at query time.
@@ -139,12 +150,21 @@ export default function OpsCallbacks() {
     if (filter !== "all") q = q.eq("callback_status", filter);
     if (ageWindow.gteIso) q = q.gte("started_at", ageWindow.gteIso);
     if (ageWindow.ltIso) q = q.lt("started_at", ageWindow.ltIso);
+    // specialist_id filter — narrows to one rep when set via the
+    // dropdown OR via a ?specialist_id= drill-through from /ops/workload.
+    // For "completed" status, filter by callback_completed_by (who
+    // returned the call) instead, since specialist_id is the original
+    // call's owner, not necessarily the one who returned it.
+    if (specialistFilter && specialistFilter !== "all") {
+      if (filter === "completed") q = q.eq("callback_completed_by", specialistFilter);
+      else q = q.eq("specialist_id", specialistFilter);
+    }
 
     const { data, error: err } = await q;
     if (err) setError(err.message);
     else setRows((data ?? []) as unknown as CallbackRow[]);
     setLoading(false);
-  }, [filter, ageWindow.gteIso, ageWindow.ltIso]);
+  }, [filter, specialistFilter, ageWindow.gteIso, ageWindow.ltIso]);
 
   useEffect(() => { load(); }, [load]);
 

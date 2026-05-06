@@ -179,43 +179,64 @@ function OpsWorkloadContent() {
                   </div>
                 </div>
 
+                {/* Each tile clickable. The title attribute is the
+                    hard definition the manager hovers to learn what the
+                    metric counts. Drilldown URLs already-supported via
+                    the new specialist_id filter on /ctm-calls and
+                    /ops/callbacks. */}
                 <div className="grid grid-cols-4 gap-3">
-                  <div className="text-center p-2 rounded-md bg-muted/30">
-                    <div className="flex items-center justify-center gap-1 text-blue-400 mb-0.5">
-                      <Phone className="w-3 h-3" />
-                    </div>
+                  <button
+                    onClick={() => navigate(`/ctm-calls?date=today&specialist_id=${rep.rep_id}`)}
+                    title="All call_sessions where this rep was the specialist with started_at >= start of today (caller picked up by them, plus their outbound dials)."
+                    className="text-center p-2 rounded-md bg-muted/30 hover:bg-accent/40 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center justify-center gap-1 text-blue-400 mb-0.5"><Phone className="w-3 h-3" /></div>
                     <div className="text-lg font-bold">{rep.calls_today}</div>
                     <div className="text-[10px] text-muted-foreground">Calls</div>
-                  </div>
-                  <div className="text-center p-2 rounded-md bg-muted/30">
-                    <div className="flex items-center justify-center gap-1 text-red-400 mb-0.5">
-                      <PhoneMissed className="w-3 h-3" />
-                    </div>
+                  </button>
+                  <button
+                    onClick={() => navigate(`/ctm-calls?date=today&specialist_id=${rep.rep_id}&status=missed`)}
+                    title="Today's calls where this rep was assigned but the call ended in status=missed or abandoned (no answer or caller hung up before connect)."
+                    className="text-center p-2 rounded-md bg-muted/30 hover:bg-accent/40 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center justify-center gap-1 text-red-400 mb-0.5"><PhoneMissed className="w-3 h-3" /></div>
                     <div className="text-lg font-bold">{rep.missed_calls}</div>
                     <div className="text-[10px] text-muted-foreground">Missed</div>
-                  </div>
-                  <div className="text-center p-2 rounded-md bg-muted/30">
-                    <div className="flex items-center justify-center gap-1 text-violet-400 mb-0.5">
-                      <Target className="w-3 h-3" />
-                    </div>
+                  </button>
+                  <button
+                    onClick={() => navigate(`/admin/leads?specialist_id=${rep.rep_id}`)}
+                    title="Distinct lead_ids this rep has touched in the last 7 days (any call_session.specialist_id = me with a non-null lead_id)."
+                    className="text-center p-2 rounded-md bg-muted/30 hover:bg-accent/40 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center justify-center gap-1 text-violet-400 mb-0.5"><Target className="w-3 h-3" /></div>
                     <div className="text-lg font-bold">{rep.open_leads}</div>
                     <div className="text-[10px] text-muted-foreground">Open Leads</div>
-                  </div>
-                  <div className="text-center p-2 rounded-md bg-muted/30">
-                    <div className="flex items-center justify-center gap-1 text-amber-400 mb-0.5">
-                      <Clock className="w-3 h-3" />
-                    </div>
+                  </button>
+                  <button
+                    onClick={() => navigate(`/ops/callbacks?status=pending&specialist_id=${rep.rep_id}`)}
+                    title="Missed/abandoned calls owned by this rep from the last 48 hours that are still pending callback. SLA: should be returned within 1h."
+                    className="text-center p-2 rounded-md bg-muted/30 hover:bg-accent/40 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center justify-center gap-1 text-amber-400 mb-0.5"><Clock className="w-3 h-3" /></div>
                     <div className="text-lg font-bold">{rep.overdue_callbacks}</div>
                     <div className="text-[10px] text-muted-foreground">Overdue</div>
-                  </div>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3 text-xs">
-                  <div className="flex items-center justify-between p-2 rounded-md bg-muted/20">
+                  <button
+                    onClick={() => navigate(`/ops/callbacks?status=pending&specialist_id=${rep.rep_id}`)}
+                    title="Pending callbacks older than 1 hour for this rep. Same source as Overdue tile — SLA breach window."
+                    className="flex items-center justify-between p-2 rounded-md bg-muted/20 hover:bg-accent/40 transition-colors cursor-pointer w-full"
+                  >
                     <span className="text-muted-foreground">SLA Backlog</span>
                     <span className="font-medium">{rep.first_contact_sla_backlog}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-md bg-muted/20">
+                  </button>
+                  <button
+                    onClick={() => navigate(`/ops/specialist/${rep.rep_id}`)}
+                    title="Avg composite_score on this rep's calls over the last 7 days (0–100 scale). Click to open the specialist deep-dive."
+                    className="flex items-center justify-between p-2 rounded-md bg-muted/20 hover:bg-accent/40 transition-colors cursor-pointer w-full"
+                  >
                     <span className="text-muted-foreground">QA Trend</span>
                     <span className="font-medium flex items-center gap-1">
                       {rep.qa_trend != null ? (
@@ -225,11 +246,15 @@ function OpsWorkloadContent() {
                         </>
                       ) : "—"}
                     </span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-md bg-muted/20">
+                  </button>
+                  <button
+                    onClick={() => navigate(`/ops/callbacks?status=completed&specialist_id=${rep.rep_id}`)}
+                    title="Average minutes from the original call's started_at to callback_completed_at, over the last 7 days of callbacks this rep marked completed. Outliers >14 days excluded."
+                    className="flex items-center justify-between p-2 rounded-md bg-muted/20 hover:bg-accent/40 transition-colors cursor-pointer w-full"
+                  >
                     <span className="text-muted-foreground">Avg CB Speed</span>
                     <span className="font-medium">{rep.avg_callback_speed_minutes != null ? `${rep.avg_callback_speed_minutes}m` : "—"}</span>
-                  </div>
+                  </button>
                 </div>
 
                 {rep.suggested_actions.length > 0 && (

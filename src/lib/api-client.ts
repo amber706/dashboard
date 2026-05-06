@@ -828,6 +828,7 @@ async function getRepWorkload(): Promise<Response> {
       { count: missedBacklog },
       qaScoresRes,
       recentCallsRes,
+      callbackSpeedRes,
     ] = await Promise.all([
       supabase
         .from("call_sessions")
@@ -859,12 +860,34 @@ async function getRepWorkload(): Promise<Response> {
         .eq("specialist_id", p.id)
         .not("lead_id", "is", null)
         .gte("started_at", sevenDaysAgoISO),
+      // Avg callback speed — for each callback the rep marked completed
+      // in the last 7d, time from the original call's started_at to the
+      // callback_completed_at. Median minutes.
+      supabase
+        .from("call_sessions")
+        .select("started_at, callback_completed_at")
+        .eq("callback_completed_by", p.id)
+        .eq("callback_status", "completed")
+        .gte("callback_completed_at", sevenDaysAgoISO)
+        .not("callback_completed_at", "is", null),
     ]);
 
     const qaVals = ((qaScoresRes.data ?? []) as any[]).map((r) => r.composite_score).filter((n): n is number => n != null);
     const qaTrend = qaVals.length > 0 ? Math.round(qaVals.reduce((a, b) => a + b, 0) / qaVals.length) : null;
 
     const distinctLeads = new Set(((recentCallsRes.data ?? []) as any[]).map((r) => r.lead_id).filter(Boolean));
+
+    // Average callback speed in minutes — mean of (callback_completed_at -
+    // started_at) over the last 7 days of completed callbacks the rep worked.
+    const cbDeltas: number[] = [];
+    for (const r of (callbackSpeedRes.data ?? []) as Array<{ started_at: string | null; callback_completed_at: string | null }>) {
+      if (!r.started_at || !r.callback_completed_at) continue;
+      const dMin = (new Date(r.callback_completed_at).getTime() - new Date(r.started_at).getTime()) / 60000;
+      if (dMin > 0 && dMin < 60 * 24 * 14) cbDeltas.push(dMin); // sanity: skip >14d outliers
+    }
+    const avgCallbackSpeedMinutes = cbDeltas.length > 0
+      ? Math.round(cbDeltas.reduce((a, b) => a + b, 0) / cbDeltas.length)
+      : null;
 
     // Capacity heuristic: 0 calls = idle, 1-15 = active, 16-30 = busy, 31+ = overloaded
     const todayCount = callsToday ?? 0;
@@ -887,7 +910,7 @@ async function getRepWorkload(): Promise<Response> {
       capacity_score,
       first_contact_sla_backlog: missedBacklog ?? 0,
       qa_trend: qaTrend,
-      avg_callback_speed_minutes: null,
+      avg_callback_speed_minutes: avgCallbackSpeedMinutes,
       suggested_actions,
     };
   }));
