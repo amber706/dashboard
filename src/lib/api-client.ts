@@ -810,7 +810,7 @@ async function actOnSuggestion(id: string, action: string): Promise<Response> {
 async function getRepWorkload(): Promise<Response> {
   const { data: profiles, error } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, full_name, email, zoho_user_id")
     .in("role", ["specialist", "manager"])
     .eq("is_active", true)
     .order("full_name");
@@ -820,6 +820,28 @@ async function getRepWorkload(): Promise<Response> {
   const startOfDayISO = startOfDay.toISOString();
   const sevenDaysAgoISO = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const fortyEightHoursAgoISO = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  // Pull Open Leads from Zoho directly — our local `leads` table is
+  // barely linked to Zoho (only ~3 of 1,400 rows have zoho_lead_id).
+  // ONE round-trip yields a { zoho_user_id: open_count } map we can
+  // join against profiles client-side.
+  let zohoLeadCounts: Record<string, number> = {};
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const zohoRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/zoho-rep-lead-counts`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({}),
+    });
+    const zohoJson = await zohoRes.json();
+    if (zohoJson.ok && zohoJson.by_owner) zohoLeadCounts = zohoJson.by_owner;
+  } catch {
+    // Best-effort — if Zoho is unreachable, falls back to local count below.
+  }
 
   const reps: RepWorkloadData[] = await Promise.all((profiles ?? []).map(async (p) => {
     const [
@@ -904,7 +926,12 @@ async function getRepWorkload(): Promise<Response> {
       rep_name: p.full_name ?? p.email ?? "Unknown",
       calls_today: todayCount,
       missed_calls: missedToday ?? 0,
-      open_leads: distinctLeads.size,
+      // Prefer the Zoho count when we have a zoho_user_id mapping;
+      // otherwise fall back to the legacy local-leads count so we don't
+      // show 0 for unmapped reps.
+      open_leads: (p as any).zoho_user_id && zohoLeadCounts[(p as any).zoho_user_id] != null
+        ? zohoLeadCounts[(p as any).zoho_user_id]
+        : distinctLeads.size,
       overdue_callbacks: missedBacklog ?? 0,
       capacity_status,
       capacity_score,
