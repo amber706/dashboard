@@ -52,6 +52,7 @@ import OpsFunnel from "@/pages/ops/funnel";
 import OpsObjections from "@/pages/ops/objections";
 import OpsDispositions from "@/pages/ops/dispositions";
 import SpecialistDeepDive from "@/pages/ops/specialist/[id]";
+import RepLeadsDrilldown from "@/pages/ops/rep-leads/[id]";
 import AdminLeads from "@/pages/admin/leads";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
 import OpsAIBotFeedback from "@/pages/ops/ai-bot-feedback";
@@ -120,6 +121,7 @@ function AppRoutes() {
         <Route path="/ops/objections" component={OpsObjections} />
         <Route path="/ops/dispositions" component={OpsDispositions} />
         <Route path="/ops/specialist/:id" component={SpecialistDeepDive} />
+        <Route path="/ops/rep-leads/:id" component={RepLeadsDrilldown} />
         <Route path="/admin/leads" component={AdminLeads} />
         <Route path="/ops/abandoned-calls" component={OpsAbandonedCalls} />
         <Route path="/ops/ai-bot-feedback" component={OpsAIBotFeedback} />

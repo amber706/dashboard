@@ -204,8 +204,8 @@ function OpsWorkloadContent() {
                     <div className="text-[10px] text-muted-foreground">Missed</div>
                   </button>
                   <button
-                    onClick={() => navigate(`/admin/leads?specialist_id=${rep.rep_id}`)}
-                    title="Distinct lead_ids this rep has touched in the last 7 days (any call_session.specialist_id = me with a non-null lead_id)."
+                    onClick={() => navigate(`/ops/rep-leads/${rep.rep_id}`)}
+                    title="Open Zoho leads owned by this rep, modified within the last 90 days, status not closed/disqualified. Click to drill into the actual lead rows with name, phone, status, source, lead score, notes, and a link out to Zoho."
                     className="text-center p-2 rounded-md bg-muted/30 hover:bg-accent/40 transition-colors cursor-pointer"
                   >
                     <div className="flex items-center justify-center gap-1 text-violet-400 mb-0.5"><Target className="w-3 h-3" /></div>
