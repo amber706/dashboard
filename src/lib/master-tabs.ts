@@ -6,7 +6,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Phone, TrendingUp, ClipboardCheck, Award, BarChart3,
-  LayoutDashboard, GraduationCap,
+  LayoutDashboard, GraduationCap, BookOpen,
 } from "lucide-react";
 
 export type MasterTabKey =
@@ -16,7 +16,8 @@ export type MasterTabKey =
   | "alumni"
   | "digital_marketing"
   | "executive"
-  | "training";
+  | "training"
+  | "knowledge_base";
 
 export interface MasterTab {
   key: MasterTabKey;
@@ -108,20 +109,36 @@ export const MASTER_TABS: MasterTab[] = [
     sections: ["Training"],
     empty: false,
   },
+  {
+    key: "knowledge_base",
+    label: "Knowledge Base",
+    icon: BookOpen,
+    defaultPath: "/kb",
+    prefixes: ["/kb"],
+    // No sub-sections — the /kb page IS the workspace. Same data
+    // source as the Knowledge Base link inside Admissions; both
+    // surfaces read from kb_documents, so any edit/approval shows
+    // up in both places automatically (no sync layer needed).
+    sections: [],
+    empty: false,
+  },
 ];
 
 /** Resolve which master tab a URL belongs to. Defaults to Admissions. */
 export function getActiveMasterTab(pathname: string): MasterTab {
-  // Training prefixes overlap with Admissions ("/training" is also a
-  // standalone path, "/ops/training-*" looks like ops). Match those
-  // first, then fall through to Admissions for everything ops-y.
-  const trainingTab = MASTER_TABS.find((t) => t.key === "training")!;
-  if (trainingTab.prefixes.some((p) => pathname === p || pathname.startsWith(p))) {
-    return trainingTab;
+  // Training and Knowledge Base prefixes overlap with Admissions —
+  // "/training" and "/kb" are also referenced from Admissions sub-nav.
+  // Resolve those tabs first so the workspace highlight follows the
+  // most-specific match.
+  for (const key of ["training", "knowledge_base"] as const) {
+    const t = MASTER_TABS.find((mt) => mt.key === key)!;
+    if (t.prefixes.some((p) => pathname === p || pathname.startsWith(p))) {
+      return t;
+    }
   }
   // Then check the rest in order, skipping Admissions until last.
   for (const t of MASTER_TABS) {
-    if (t.key === "admissions" || t.key === "training") continue;
+    if (t.key === "admissions" || t.key === "training" || t.key === "knowledge_base") continue;
     if (t.prefixes.some((p) => pathname === p || pathname.startsWith(p))) {
       return t;
     }
