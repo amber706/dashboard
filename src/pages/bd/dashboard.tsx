@@ -108,18 +108,33 @@ export default function BdDashboard() {
     })();
   }, []);
 
-  // Resolve a BD_Rep picklist value (e.g. "Christine Whitlock") to the
-  // internal profile by name match. owner_ids is a fallback hint when the
-  // picklist text doesn't quite match the profile full_name.
-  function resolveRep(bdRep: string, ownerIds: string[]): { name: string; profileId: string | null } {
-    const target = bdRep.trim().toLowerCase();
-    const byName = profiles.find((p) => (p.full_name ?? "").trim().toLowerCase() === target);
-    if (byName) return { name: byName.full_name ?? bdRep, profileId: byName.id };
-    for (const oid of ownerIds) {
-      const p = profiles.find((p) => p.zoho_user_id === oid);
-      if (p) return { name: p.full_name ?? bdRep, profileId: p.id };
+  // Resolve a BD_Rep picklist value to an internal profile.
+  //
+  // Cornerstone's Zoho BD_Rep picklist stores FIRST NAMES only ("Joey",
+  // "Casey", "Farah", "Sean", "Amber", etc.) — not full names. We match
+  // first-name-to-first-name against profiles to upgrade to a full name
+  // + clickable profile link. We never fall back to the deal owner here:
+  // the deal owner is often an admissions specialist, NOT the BD rep,
+  // so falling through would make the table show owner attribution
+  // instead of BD attribution.
+  function resolveRep(bdRep: string, _ownerIds: string[]): { name: string; profileId: string | null } {
+    const trimmed = bdRep.trim();
+    if (!trimmed || trimmed === "(unassigned)" || trimmed === "None") {
+      return { name: trimmed || "(unassigned)", profileId: null };
     }
-    return { name: bdRep, profileId: null };
+    const target = trimmed.toLowerCase();
+    // 1. Exact full_name match (rare — BD_Rep is usually first name only).
+    const exact = profiles.find((p) => (p.full_name ?? "").trim().toLowerCase() === target);
+    if (exact) return { name: exact.full_name ?? trimmed, profileId: exact.id };
+    // 2. First-name match against the picklist value.
+    const firstNameMatch = profiles.find((p) => {
+      const fn = (p.full_name ?? "").trim().split(/\s+/)[0]?.toLowerCase();
+      return fn && fn === target;
+    });
+    if (firstNameMatch) return { name: firstNameMatch.full_name ?? trimmed, profileId: firstNameMatch.id };
+    // 3. No profile match — show the picklist value verbatim. Do NOT
+    //    fall back to owner_ids; that misattributes to deal owners.
+    return { name: trimmed, profileId: null };
   }
 
   return (
