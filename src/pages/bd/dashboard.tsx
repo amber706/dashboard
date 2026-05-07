@@ -153,6 +153,50 @@ export default function BdDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<RepProfile[]>([]);
 
+  // Stuck-account counts per BD rep (keyed by Zoho Owner.id). Powers
+  // the Stuck column in the per-rep table AND the Needs-attention
+  // banner, so we fetch bd-top-accounts ONCE at the dashboard level
+  // and share. Keys are zoho_user_ids; "(unowned)" bucket holds
+  // accounts whose owner_id is null.
+  const [stuckByOwner, setStuckByOwner] = useState<Map<string, number>>(new Map());
+  const [stuckSummary, setStuckSummary] = useState<{ high: number; medium: number; low: number; total: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-top-accounts`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ days: 90, min_referrals: 1 }),
+        });
+        const json = await res.json();
+        if (cancelled || !json.ok) return;
+        const REACTIVATION = ["high_value_dormant", "no_recent_contact", "no_recent_meeting"] as const;
+        const sevRank = (s: string | undefined) => s === "high" ? 3 : s === "medium" ? 2 : s === "low" ? 1 : 0;
+        const byOwner = new Map<string, number>();
+        let high = 0, medium = 0, low = 0;
+        for (const a of json.accounts ?? []) {
+          let max = 0;
+          for (const k of REACTIVATION) {
+            const f = a.flags?.[k];
+            if (f?.state === "active") max = Math.max(max, sevRank(f.severity));
+          }
+          if (max === 0) continue;
+          if (max === 3) high++;
+          else if (max === 2) medium++;
+          else low++;
+          const oid = a.owner_id ?? "(unowned)";
+          byOwner.set(oid, (byOwner.get(oid) ?? 0) + 1);
+        }
+        setStuckByOwner(byOwner);
+        setStuckSummary({ high, medium, low, total: high + medium + low });
+      } catch { /* silent — table just won't have the column populated */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Saved Views — localStorage-backed named filter combos.
   const [savedViews, setSavedViews] = useState<BdSavedView[]>([]);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
@@ -378,7 +422,7 @@ export default function BdDashboard() {
               right above the KPI grid so managers don't have to navigate
               to /bd/stuck-accounts to discover the count. Inert when
               the queue is empty (no rendering at all). */}
-          <NeedsAttentionBanner />
+          <NeedsAttentionBanner counts={stuckSummary} />
 
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -488,6 +532,7 @@ export default function BdDashboard() {
                       { header: "Meetings", value: (r) => r.meetings },
                       { header: "Calls", value: (r) => r.calls },
                       { header: "Tasks", value: (r) => r.tasks },
+                      { header: "Stuck accounts", value: (r) => r.zoho_user_id ? (stuckByOwner.get(r.zoho_user_id) ?? 0) : "" },
                     ], visibleReps);
                   }} className="h-7 text-[11px] px-2">CSV</Button>
                 </span>
@@ -526,6 +571,7 @@ export default function BdDashboard() {
                         <th className="text-right py-2 pr-3">Meetings</th>
                         <th className="text-right py-2 pr-3">Calls</th>
                         <th className="text-right py-2 pr-3">Tasks</th>
+                        <th className="text-right py-2 pr-3" title="Stuck accounts assigned — click to open the reactivation queue">Stuck</th>
                         <th></th>
                       </tr>
                     </thead>
@@ -553,6 +599,24 @@ export default function BdDashboard() {
                               <td className="py-2 pr-3 text-right tabular-nums"><DrillBtn n={r.meetings} onClick={() => drill("meetings")} /></td>
                               <td className="py-2 pr-3 text-right tabular-nums"><DrillBtn n={r.calls} onClick={() => drill("calls")} /></td>
                               <td className="py-2 pr-3 text-right tabular-nums"><DrillBtn n={r.tasks} onClick={() => drill("tasks")} /></td>
+                              <td className="py-2 pr-3 text-right tabular-nums">
+                                {/* Stuck-account count for this rep, derived from
+                                    bd-top-accounts data fetched at the dashboard level
+                                    and keyed by Zoho Owner.id. Click → /bd/stuck-accounts
+                                    for the full queue (we don't yet support a per-rep
+                                    pre-filter on that page). Renders "—" when this rep
+                                    has no Zoho user resolved. */}
+                                {(() => {
+                                  if (!r.zoho_user_id) return <span className="text-muted-foreground">—</span>;
+                                  const n = stuckByOwner.get(r.zoho_user_id) ?? 0;
+                                  if (n === 0) return <span className="text-muted-foreground">0</span>;
+                                  return (
+                                    <Link href="/bd/stuck-accounts" className={`hover:underline ${n > 2 ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400"}`}>
+                                      {n}
+                                    </Link>
+                                  );
+                                })()}
+                              </td>
                               <td className="py-2 pr-3 text-right">
                                 {profileId && <Link href={`/ops/specialist/${profileId}`} className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">Profile <ArrowRight className="w-3 h-3" /></Link>}
                               </td>
@@ -560,7 +624,7 @@ export default function BdDashboard() {
                             {expanded && r.by_loc.length > 0 && (
                               <tr key={`${r.bd_rep}-loc`} className="bg-muted/30">
                                 <td></td>
-                                <td colSpan={11} className="py-2 px-3">
+                                <td colSpan={12} className="py-2 px-3">
                                   <div className="space-y-1">
                                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground">By Level of Care</div>
                                     <table className="w-full text-xs">
@@ -1512,45 +1576,12 @@ function ReferralsView({
 // ── Needs-attention banner ───────────────────────────────────────────
 // Reads bd-top-accounts (which already computes the reactivation
 // flags) and rolls them up to a single per-severity count + CTA into
-// /bd/stuck-accounts. Independent of the dashboard's own data window
-// — uses a fixed 90-day lookback because reactivation signals don't
-// change with the user's filter selection. Renders nothing when the
-// queue is empty, so the dashboard isn't crowded on quiet days.
-function NeedsAttentionBanner() {
-  const [counts, setCounts] = useState<{ high: number; medium: number; low: number; total: number } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-top-accounts`, {
-          method: "POST",
-          headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ days: 90, min_referrals: 1 }),
-        });
-        const json = await res.json();
-        if (cancelled || !json.ok) return;
-        const REACTIVATION = ["high_value_dormant", "no_recent_contact", "no_recent_meeting"] as const;
-        const sevRank = (s: string | undefined) => s === "high" ? 3 : s === "medium" ? 2 : s === "low" ? 1 : 0;
-        let high = 0, medium = 0, low = 0;
-        for (const a of json.accounts ?? []) {
-          let max = 0;
-          for (const k of REACTIVATION) {
-            const f = a.flags?.[k];
-            if (f?.state === "active") max = Math.max(max, sevRank(f.severity));
-          }
-          if (max === 3) high++;
-          else if (max === 2) medium++;
-          else if (max === 1) low++;
-        }
-        setCounts({ high, medium, low, total: high + medium + low });
-      } catch { /* silent — banner just won't render */ }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
+// /bd/stuck-accounts. The flag data is fetched at the dashboard
+// level (also feeding the per-rep Stuck column) and passed in here
+// as a prop, so we don't double-fetch the same endpoint.
+function NeedsAttentionBanner({ counts }: {
+  counts: { high: number; medium: number; low: number; total: number } | null;
+}) {
   if (!counts || counts.total === 0) return null;
 
   // Tone follows the worst-severity in the queue. If there are any
