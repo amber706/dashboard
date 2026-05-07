@@ -9,6 +9,7 @@ import {
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
 import { useAuth } from "@/lib/auth-context";
+import { MASTER_TABS, getActiveMasterTab } from "@/lib/master-tabs";
 import { StatusIndicator, type SystemState } from "@/components/status-indicator";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
@@ -134,7 +135,29 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/settings", label: "Settings", icon: <Wrench className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
   ];
 
-  const filteredItems = navItems.filter((item) => (item.roles as readonly string[]).includes(role));
+  // Master tab: top-level taxonomy. Each tab owns a set of sidebar
+  // sections. Switching tabs filters the sidebar; "Admissions" shows
+  // everything that isn't training-specific.
+  const activeMasterTab = getActiveMasterTab(location);
+  const tabSections = activeMasterTab.sections;
+
+  const filteredItems = navItems
+    .filter((item) => (item.roles as readonly string[]).includes(role))
+    // Show only items in the active tab's sections. Empty `sections` =
+    // no sidebar items (placeholder tabs render only the ComingSoon
+    // landing).
+    .filter((item) => tabSections.includes(item.section))
+    // Admissions hides the Practice link (it lives in the Training tab
+    // now); Training hides the Admissions-only Workflow links and
+    // shows just the Training section.
+    .filter((item) => {
+      if (activeMasterTab.key === "admissions" && item.href === "/training") return false;
+      return true;
+    });
+
+  // For the Training tab, surface Practice prominently as the first
+  // workflow item even though it lives under section "Workflow"
+  // structurally. Rebuild a synthetic "Practice" entry at the top.
   const sections = [...new Set(filteredItems.map((i) => i.section))];
 
   // Track which sections are expanded; auto-expand the section containing the
@@ -179,7 +202,42 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
+      {/* Master tabs — vertical list at the top of the sidebar.
+          Switching tabs swaps which sub-sections render below. */}
+      <div className="px-3 pb-2 space-y-0.5">
+        <div className="eyebrow text-[#6E7E9E] mb-1 px-3">Workspace</div>
+        {MASTER_TABS.map((t) => {
+          const isActive = t.key === activeMasterTab.key;
+          const Icon = t.icon;
+          return (
+            <Link
+              key={t.key}
+              href={t.defaultPath}
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] transition-colors ${
+                isActive
+                  ? "bg-[#5BA3D4]/15 text-[#F4EFE6] border-l-2 border-[#5BA3D4]"
+                  : "text-[#A6B5D0] hover:bg-[#0F2549]/60 hover:text-[#F4EFE6] border-l-2 border-transparent"
+              }`}
+            >
+              <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-[#5BA3D4]" : "text-[#6E7E9E]"}`} />
+              <span className="truncate">{t.label}</span>
+              {t.empty && (
+                <span className="ml-auto text-[9px] uppercase tracking-wider text-[#6E7E9E] font-medium">
+                  Soon
+                </span>
+              )}
+            </Link>
+          );
+        })}
+      </div>
+      <div className="mx-5 chc-divider opacity-60 my-2" />
+
       <nav className="flex-1 px-3 py-3 overflow-y-auto" aria-label="Primary">
+        {sections.length === 0 && (
+          <div className="text-xs text-[#6E7E9E] italic px-3 py-4 text-center">
+            This workspace doesn't have sub-pages yet.
+          </div>
+        )}
         {sections.map((section) => {
           const items = filteredItems.filter((i) => i.section === section);
           const sectionHasActive = items.some((i) => {

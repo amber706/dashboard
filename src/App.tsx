@@ -54,6 +54,7 @@ import OpsDispositions from "@/pages/ops/dispositions";
 import SpecialistDeepDive from "@/pages/ops/specialist/[id]";
 import RepLeadsDrilldown from "@/pages/ops/rep-leads/[id]";
 import AdminLeads from "@/pages/admin/leads";
+import MasterTabComingSoon from "@/pages/master-tab-coming-soon";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
 import OpsAIBotFeedback from "@/pages/ops/ai-bot-feedback";
 import OpsOutcomes from "@/pages/ops/outcomes";
@@ -134,6 +135,13 @@ function AppRoutes() {
         <Route path="/admin/audit" component={AuditPage} />
         <Route path="/ops/staffing" component={OpsStaffing} />
         <Route path="/admin/settings" component={AdminSettings} />
+        {/* Master-tab placeholder routes — empty until those modules
+            are built. Each one lands on the same Coming Soon page
+            which auto-detects which tab it's on via the URL. */}
+        <Route path="/bd" component={MasterTabComingSoon} />
+        <Route path="/intake" component={MasterTabComingSoon} />
+        <Route path="/alumni" component={MasterTabComingSoon} />
+        <Route path="/marketing" component={MasterTabComingSoon} />
         <Route component={NotFound} />
       </Switch>
       </ErrorBoundary>
