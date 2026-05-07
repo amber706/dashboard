@@ -15,7 +15,8 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { Link } from "wouter";
 import {
   Loader2, ArrowLeft, RefreshCw, Flag, AlertTriangle, Building2,
-  ArrowRight, Calendar, Phone, TrendingDown, Sparkles,
+  ArrowRight, Calendar, Phone, TrendingDown, Sparkles, Mail, MapPin,
+  ChevronDown, ChevronRight, Copy, Check,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
@@ -317,63 +318,219 @@ export default function BdStuckAccounts() {
                 </tr>
               </thead>
               <tbody>
-                {stuck.map((a) => {
-                  const sev = rowSeverity(a);
-                  const sevLabel = sev === 3 ? "High" : sev === 2 ? "Medium" : "Low";
-                  const sevTone = sev === 3
-                    ? "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/5"
-                    : sev === 2
-                      ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/5"
-                      : "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/5";
-                  const action = recommendedAction(a);
-                  const dDark = daysSince(a.last_referral_in);
-                  return (
-                    <tr key={a.id} className="border-t hover:bg-accent/20 transition-colors align-top">
-                      <td className="py-2 pr-3">
-                        <Badge variant="outline" className={`text-[10px] gap-1 ${sevTone}`}>
-                          <Flag className="w-2.5 h-2.5" />{sevLabel}
-                        </Badge>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div className="font-medium flex items-center gap-1.5">
-                          <Building2 className="w-3 h-3 text-muted-foreground" />
-                          {a.name}
-                        </div>
-                        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                          {REACTIVATION_FLAGS.filter((k) => a.flags[k].state === "active").map((k) => (
-                            <Badge key={k} variant="outline" className="text-[9px] text-muted-foreground" title={a.flags[k].reason}>
-                              {FLAG_LABEL[k]}
-                            </Badge>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div className={`text-xs inline-flex items-center gap-1.5 ${action.tone}`}>
-                          {action.icon}
-                          <span>{action.label}</span>
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3 text-right text-xs tabular-nums">
-                        {dDark != null ? `${dDark}d` : "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{fmtDate(a.last_referral_in)}</td>
-                      <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{fmtDate(a.last_meeting)}</td>
-                      <td className="py-2 pr-3 text-right text-xs tabular-nums">{a.referrals_lifetime}</td>
-                      <td className="py-2 pr-3 text-xs">{ownerName(a.owner_id)}</td>
-                      <td className="py-2 pr-3">
-                        <Link href={`/bd/account?id=${a.id}`} className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">
-                          Open <ArrowRight className="w-3 h-3" />
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {stuck.map((a) => (
+                  <StuckRow
+                    key={a.id}
+                    account={a}
+                    ownerName={ownerName}
+                  />
+                ))}
               </tbody>
             </table>
           </CardContent>
         </Card>
       )}
     </PageShell>
+  );
+}
+
+// One row in the stuck-accounts table. Self-contained because it owns
+// the Claude-suggestion expander state — pulling that into the parent
+// would require a Map keyed by account id and re-render the whole
+// table on every fetch. Easier to localize the state here.
+function StuckRow({ account: a, ownerName }: {
+  account: TopAccount;
+  ownerName: (zohoId: string | null) => string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [suggestion, setSuggestion] = useState<{ channel: "visit" | "call" | "email"; subject_line: string; opener: string; reasoning: string } | null>(null);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<"opener" | "subject" | null>(null);
+
+  const sev = rowSeverity(a);
+  const sevLabel = sev === 3 ? "High" : sev === 2 ? "Medium" : "Low";
+  const sevTone = sev === 3
+    ? "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/5"
+    : sev === 2
+      ? "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/5"
+      : "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/5";
+  const action = recommendedAction(a);
+  const dDark = daysSince(a.last_referral_in);
+
+  // Fetch the Claude suggestion once when the row is first expanded.
+  // Cached on the row itself so collapsing + re-expanding doesn't
+  // re-spend tokens. Refresh button forces a fresh fetch.
+  async function loadSuggestion(force = false) {
+    if (suggestion && !force) return;
+    setSuggestionLoading(true);
+    setSuggestionError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-reactivation-suggestion`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ account_id: a.id }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error ?? "load failed");
+      setSuggestion({
+        channel: json.channel,
+        subject_line: json.subject_line ?? "",
+        opener: json.opener ?? "",
+        reasoning: json.reasoning ?? "",
+      });
+    } catch (e) {
+      setSuggestionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSuggestionLoading(false);
+    }
+  }
+
+  function toggleExpand() {
+    if (!expanded) loadSuggestion(false);
+    setExpanded(!expanded);
+  }
+
+  async function copy(text: string, field: "opener" | "subject") {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 1500);
+    } catch { /* clipboard might be unavailable; silent failure */ }
+  }
+
+  const channelMeta: Record<"visit" | "call" | "email", { label: string; icon: React.ReactNode; tone: string }> = {
+    visit:  { label: "Visit",  icon: <MapPin className="w-3.5 h-3.5" />,   tone: "border-violet-500/40 text-violet-700 dark:text-violet-300 bg-violet-500/5" },
+    call:   { label: "Call",   icon: <Phone className="w-3.5 h-3.5" />,    tone: "border-sky-500/40 text-sky-700 dark:text-sky-300 bg-sky-500/5" },
+    email:  { label: "Email",  icon: <Mail className="w-3.5 h-3.5" />,     tone: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/5" },
+  };
+
+  return (
+    <>
+      <tr className="border-t hover:bg-accent/20 transition-colors align-top">
+        <td className="py-2 pr-3">
+          <Badge variant="outline" className={`text-[10px] gap-1 ${sevTone}`}>
+            <Flag className="w-2.5 h-2.5" />{sevLabel}
+          </Badge>
+        </td>
+        <td className="py-2 pr-3">
+          <div className="font-medium flex items-center gap-1.5">
+            <Building2 className="w-3 h-3 text-muted-foreground" />
+            {a.name}
+          </div>
+          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+            {REACTIVATION_FLAGS.filter((k) => a.flags[k].state === "active").map((k) => (
+              <Badge key={k} variant="outline" className="text-[9px] text-muted-foreground" title={a.flags[k].reason}>
+                {FLAG_LABEL[k]}
+              </Badge>
+            ))}
+          </div>
+        </td>
+        <td className="py-2 pr-3">
+          <button
+            onClick={toggleExpand}
+            className={`text-xs inline-flex items-center gap-1.5 hover:underline ${action.tone}`}
+            title="Click to get a Claude-generated outreach suggestion"
+          >
+            {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        </td>
+        <td className="py-2 pr-3 text-right text-xs tabular-nums">
+          {dDark != null ? `${dDark}d` : "—"}
+        </td>
+        <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{fmtDate(a.last_referral_in)}</td>
+        <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{fmtDate(a.last_meeting)}</td>
+        <td className="py-2 pr-3 text-right text-xs tabular-nums">{a.referrals_lifetime}</td>
+        <td className="py-2 pr-3 text-xs">{ownerName(a.owner_id)}</td>
+        <td className="py-2 pr-3">
+          <Link href={`/bd/account?id=${a.id}`} className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">
+            Open <ArrowRight className="w-3 h-3" />
+          </Link>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-t bg-muted/30">
+          <td colSpan={9} className="py-3 px-4">
+            {suggestionLoading && (
+              <div className="text-xs text-muted-foreground flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Asking Claude for a specific outreach suggestion based on this account's referral pattern…
+              </div>
+            )}
+            {suggestionError && (
+              <div className="text-xs text-rose-600 dark:text-rose-400">
+                {suggestionError}
+                <button onClick={() => loadSuggestion(true)} className="ml-2 underline">Retry</button>
+              </div>
+            )}
+            {suggestion && !suggestionLoading && (
+              <div className="space-y-3 max-w-3xl">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Suggested outreach
+                  </span>
+                  <Badge variant="outline" className={`text-[10px] gap-1 ${channelMeta[suggestion.channel].tone}`}>
+                    {channelMeta[suggestion.channel].icon}
+                    {channelMeta[suggestion.channel].label}
+                  </Badge>
+                  <button
+                    onClick={() => loadSuggestion(true)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 ml-auto"
+                    title="Generate a fresh suggestion"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Regenerate
+                  </button>
+                </div>
+                {suggestion.subject_line && (
+                  <div className="space-y-0.5">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+                      {suggestion.channel === "email" ? "Subject" : "One-line summary"}
+                      <button
+                        onClick={() => copy(suggestion.subject_line, "subject")}
+                        className="text-muted-foreground/60 hover:text-foreground inline-flex items-center gap-0.5"
+                        title="Copy"
+                      >
+                        {copiedField === "subject" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                    </div>
+                    <div className="text-sm font-medium">{suggestion.subject_line}</div>
+                  </div>
+                )}
+                <div className="space-y-0.5">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+                    {suggestion.channel === "email" ? "Opening" : "What to say"}
+                    <button
+                      onClick={() => copy(suggestion.opener, "opener")}
+                      className="text-muted-foreground/60 hover:text-foreground inline-flex items-center gap-0.5"
+                      title="Copy"
+                    >
+                      {copiedField === "opener" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap">{suggestion.opener}</div>
+                </div>
+                {suggestion.reasoning && (
+                  <div className="space-y-0.5 pt-1 border-t border-border/40">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Why this</div>
+                    <div className="text-xs text-muted-foreground italic">{suggestion.reasoning}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            {!suggestion && !suggestionLoading && !suggestionError && (
+              <button onClick={() => loadSuggestion(false)} className="text-xs text-primary hover:underline inline-flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Ask Claude for a specific outreach suggestion
+              </button>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
