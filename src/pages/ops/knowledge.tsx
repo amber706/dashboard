@@ -216,18 +216,21 @@ function OpsKnowledgeContent() {
           value={questions.length}
           icon={<HelpCircle className="w-4 h-4 text-blue-400" />}
           loading={loading && !data}
+          info="Questions specialists couldn't fully answer on calls — surfaced from transcripts where the AI detected hesitation or 'I'll have to check on that'. The KB-drafting workflow turns these into new articles."
         />
         <StatCard
           label="Recurring Objections"
           value={objections.length}
           icon={<MessageSquare className="w-4 h-4 text-orange-400" />}
           loading={loading && !data}
+          info="Objection patterns the model has clustered across multiple calls — caller hesitations like 'I want to think about it', 'It's too expensive', insurance concerns. Each cluster has a count + sample quotes."
         />
         <StatCard
           label="Draft Articles"
           value={drafts.length}
           icon={<FileText className="w-4 h-4 text-violet-400" />}
           loading={loading && !data}
+          info="KB articles auto-drafted by the model from transcripts and questions, awaiting human review. Each carries a confidence score and a citation list back to the source calls."
         />
         <StatCard
           label="Pending Approval"
@@ -235,6 +238,7 @@ function OpsKnowledgeContent() {
           icon={<CheckCircle2 className="w-4 h-4 text-amber-400" />}
           changeType={pendingApproval.length > 5 ? "negative" : "neutral"}
           loading={loading && !data}
+          info="Drafts that have been edited and submitted for final approval but not yet merged into the live KB. Card turns red when > 5 — that's the threshold to push approvals through so the floor isn't running on outdated info."
         />
       </div>
 

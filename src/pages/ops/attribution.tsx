@@ -56,18 +56,21 @@ function OpsAttributionContent() {
           icon={<AlertTriangle className="w-4 h-4 text-amber-400" />}
           changeType={pending.length > 0 ? "negative" : "neutral"}
           loading={loading && !data}
+          info="Attribution conflicts that haven't been resolved yet — typically a lead with two competing first-touch / last-touch sources, or a deal where the marketing source disagrees with what the rep logged. These need a manager call to pick a winner."
         />
         <StatCard
           label="Total Conflicts"
           value={conflicts.length}
           icon={<Activity className="w-4 h-4 text-blue-400" />}
           loading={loading && !data}
+          info="Every attribution conflict ever surfaced (pending + resolved). Use the trend over time to see whether your data hygiene is improving or your pipeline is creating more cross-source ambiguity."
         />
         <StatCard
           label="Resolved"
           value={resolved.length}
           icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
           loading={loading && !data}
+          info="Conflicts a manager has already adjudicated — a winning source was picked and the lead/deal was updated. Stays in this list as an audit trail of what was changed and why."
         />
       </div>
 

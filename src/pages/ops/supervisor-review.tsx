@@ -555,6 +555,7 @@ function OpsSupervisorReviewContent() {
           changeType={(stats?.pending ?? 0) > 5 ? "negative" : "neutral"}
           loading={!stats}
           onClick={() => setStatusFilter("pending")}
+          info="Calls flagged for supervisor review that haven't been triaged yet. Card turns red when > 5 — that's the threshold for 'sit down and clear the queue today'. Click to filter the list below."
         />
         <StatCard
           label="High Priority"
@@ -562,6 +563,7 @@ function OpsSupervisorReviewContent() {
           icon={<ShieldAlert className="w-4 h-4 text-red-400" />}
           changeType={(stats?.high_priority ?? 0) > 0 ? "negative" : "neutral"}
           loading={!stats}
+          info="Pending reviews tagged high-priority — typically sentiment crashes, customer threats, escalation language, or QA score < 50. These should be triaged before normal pending. Card stays red whenever any exist."
         />
         <StatCard
           label="Coaching Scheduled"
@@ -569,6 +571,7 @@ function OpsSupervisorReviewContent() {
           icon={<GraduationCap className="w-4 h-4 text-violet-400" />}
           loading={!stats}
           onClick={() => setStatusFilter("coaching_scheduled")}
+          info="Reviews where the supervisor has scheduled a 1:1 coaching session with the rep, but hasn't yet held it (or signed it off). Click to drill in and see who's owed a session."
         />
         <StatCard
           label="Compliance Flags"
@@ -577,6 +580,7 @@ function OpsSupervisorReviewContent() {
           changeType={(stats?.compliance_flags ?? 0) > 0 ? "negative" : "neutral"}
           loading={!stats}
           onClick={() => setStatusFilter("compliance_review")}
+          info="Reviews where the QA model flagged a compliance issue (HIPAA, mini-Miranda, recording disclosure, etc.). These need closing the loop — either a sign-off saying it's a false positive or an actioned correction with the rep."
         />
         <StatCard
           label="Signed Off Today"
@@ -584,6 +588,7 @@ function OpsSupervisorReviewContent() {
           icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
           loading={!stats}
           onClick={() => setStatusFilter("signed_off")}
+          info="Reviews the supervisor has fully signed off on today (since midnight local). Pace metric — useful for tracking that the review queue is actually flowing rather than just accumulating."
         />
       </div>
 

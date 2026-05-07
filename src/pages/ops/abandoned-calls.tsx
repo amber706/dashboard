@@ -140,12 +140,14 @@ export default function AbandonedCalls() {
             label="Answered"
             value={stats.answered}
             icon={<Phone className="w-5 h-5 text-emerald-600" />}
+            info="Calls that connected to a specialist in the window. Numerator-style metric — pair with Abandon Rate to read the full pickup picture."
           />
           <StatCard
             label="Short Abandons"
             value={stats.short_abandon}
             change="< 10s — Likely misdials"
             icon={<Clock className="w-5 h-5 text-gray-400" />}
+            info="Caller hung up in under 10 seconds. Almost always misdials, accidental redials, or pocket calls. Excluded from the Abandon Rate denominator because they're not real lost opportunities."
           />
           <StatCard
             label="True Abandons"
@@ -153,6 +155,7 @@ export default function AbandonedCalls() {
             change="10–45s — Missed opportunities"
             changeType={stats.true_abandon > 0 ? "negative" : "neutral"}
             icon={<AlertTriangle className="w-5 h-5 text-yellow-500" />}
+            info="Caller waited 10–45 seconds before giving up. These ARE lost opportunities — someone wanted help and our queue/staffing failed them. Card turns red when > 0."
           />
           <StatCard
             label="Critical Abandons"
@@ -160,29 +163,34 @@ export default function AbandonedCalls() {
             change="45s+ — Urgent follow-up"
             changeType={stats.critical_abandon > 0 ? "negative" : "neutral"}
             icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
+            info="Caller waited 45+ seconds and then hung up. Strong intent to admit + we made them wait too long — these belong at the top of the urgent follow-up queue below."
           />
           <StatCard
             label="Queue Pending"
             value={stats.queue_pending}
             icon={<PhoneOff className="w-5 h-5 text-orange-500" />}
+            info="Abandoned calls in the urgent-follow-up queue that haven't been called back yet. Shrink this fast — every hour stale lowers the connect rate on the callback."
           />
           <StatCard
             label="SLA Breaches"
             value={stats.sla_breached}
             changeType={stats.sla_breached > 0 ? "negative" : "neutral"}
             icon={<Timer className="w-5 h-5 text-red-500" />}
+            info="Abandoned calls that aged past the callback SLA window before anyone reached them. Card turns red when > 0 — these are fully lost leads now."
           />
           <StatCard
             label="Abandon Rate"
             value={`${stats.abandon_rate}%`}
             change="Excluding short abandons"
             icon={<TrendingDown className="w-5 h-5 text-blue-500" />}
+            info="(True + Critical abandons) ÷ (Answered + True + Critical). Short abandons (< 10s) are excluded because they're misdials. This is the metric that tracks 'how often did a real prospect give up on us'."
           />
           <StatCard
             label="No-Agent Losses"
             value={stats.no_agent_losses}
             change="Coverage gaps"
             icon={<Users className="w-5 h-5 text-purple-500" />}
+            info="Calls that abandoned during a window where ZERO specialists were on the floor — pure staffing/coverage gap, not a queue-capacity problem. Cross-reference with the Staffing Schedule to find the holes."
           />
         </div>
       )}
