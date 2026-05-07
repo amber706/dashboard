@@ -116,7 +116,9 @@ export default function BdReferrals() {
   const [customStart, setCustomStart] = useState<string>(() => isoDay(new Date(Date.now() - 7 * 86400_000)));
   const [customEnd, setCustomEnd] = useState<string>(() => isoDay(new Date()));
   const win = useMemo(() => computeWindow(preset, customStart, customEnd), [preset, customStart, customEnd]);
-  const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set());
+  // Default to Commercial + AHCCCS — the two treatment service lines.
+  // DUI / DV are separate service lines and skew the numbers if mixed in.
+  const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set(["Commercial", "AHCCCS"]));
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<"timestamp" | "account" | "stage" | "rep" | "owner">("timestamp");
   const [sortDesc, setSortDesc] = useState(true);

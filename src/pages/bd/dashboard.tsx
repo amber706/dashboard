@@ -137,7 +137,11 @@ export default function BdDashboard() {
   const win = useMemo(() => computeWindow(preset, customStart, customEnd), [preset, customStart, customEnd]);
 
   // Pipeline + rep filters
-  const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set());
+  // Default to the two service lines that ARE treatment — Commercial +
+  // AHCCCS. DUI and DV are separate service lines (not treatment) and
+  // would skew the headline KPIs if included by default. The user can
+  // still toggle them on (or hit "All") any time.
+  const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set(["Commercial", "AHCCCS"]));
   const [selectedReps, setSelectedReps] = useState<Set<string>>(new Set());
   const [expandedReps, setExpandedReps] = useState<Set<string>>(new Set());
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
