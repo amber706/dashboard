@@ -3,8 +3,9 @@ import { Link } from "wouter";
 import {
   TrendingUp, Loader2, Trophy, XCircle, Clock,
   Users, Activity, ChevronDown, ChevronRight, Phone, Calendar,
-  Settings, Plus, Trash2, Save, AlertTriangle, Download,
+  Settings, Plus, Trash2, Save, AlertTriangle, Download, Info,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { downloadCsv } from "@/lib/csv-export";
 import { logAudit } from "@/lib/audit";
 import { supabase } from "@/lib/supabase";
@@ -191,13 +192,17 @@ export default function OpsOutcomes() {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <RollupTile icon={<Trophy className="w-4 h-4" />} label="Admitted" value={totals.won} accent="emerald"
-              active={filter === "won"} onClick={() => setFilter(filter === "won" ? "all" : "won")} />
+              active={filter === "won"} onClick={() => setFilter(filter === "won" ? "all" : "won")}
+              info="Leads marked as admitted (won) in the selected window. Click the tile to filter the table below to admits only. Specialist credit on the per-rep breakdown is last-touch — whoever was the most recent owner gets it." />
             <RollupTile icon={<XCircle className="w-4 h-4" />} label="Churned" value={totals.lost} accent="rose"
-              active={filter === "lost"} onClick={() => setFilter(filter === "lost" ? "all" : "lost")} />
+              active={filter === "lost"} onClick={() => setFilter(filter === "lost" ? "all" : "lost")}
+              info="Leads marked as lost / churned in the selected window — declined, ghosted, went elsewhere, dispositioned out. Click to filter the table to lost outcomes only." />
             <RollupTile icon={<Clock className="w-4 h-4" />} label="In progress" value={totals.in_progress}
-              active={filter === "in_progress"} onClick={() => setFilter(filter === "in_progress" ? "all" : "in_progress")} />
+              active={filter === "in_progress"} onClick={() => setFilter(filter === "in_progress" ? "all" : "in_progress")}
+              info="Leads in the window that are still open — neither admitted nor lost. They're not finished outcomes; they don't count toward conversion rate yet. Click to drill in." />
             <RollupTile icon={<Activity className="w-4 h-4" />} label="Conversion rate" value={conversionPct == null ? "—" : `${conversionPct}%`}
-              sub={`${totals.won}/${totals.won + totals.lost} closed`} />
+              sub={`${totals.won}/${totals.won + totals.lost} closed`}
+              info="Admits ÷ closed outcomes (admits + churned). In-progress leads are excluded from the denominator since they're not finished yet. Re-runs whenever you change the window or filters above." />
           </div>
         </CardContent>
       </Card>
@@ -355,7 +360,7 @@ export default function OpsOutcomes() {
   );
 }
 
-function RollupTile({ icon, label, value, sub, accent, active, onClick }: {
+function RollupTile({ icon, label, value, sub, accent, active, onClick, info }: {
   icon: React.ReactNode;
   label: string;
   value: number | string;
@@ -363,6 +368,8 @@ function RollupTile({ icon, label, value, sub, accent, active, onClick }: {
   accent?: "emerald" | "rose";
   active?: boolean;
   onClick?: () => void;
+  /** Plain-English explanation shown on hovering the small "i" badge. */
+  info?: string;
 }) {
   const accentClass = accent === "emerald"
     ? "border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-950/15"
@@ -374,7 +381,27 @@ function RollupTile({ icon, label, value, sub, accent, active, onClick }: {
   const Wrapper: any = onClick ? "button" : "div";
   return (
     <Wrapper onClick={onClick} className={`text-left border rounded-lg p-3 ${accentClass} ${interactive} ${activeClass}`}>
-      <div className="text-xs text-muted-foreground flex items-center gap-1.5">{icon} {label}</div>
+      <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+        {icon}
+        <span>{label}</span>
+        {info && (
+          <Tooltip delayDuration={150}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={`About ${label}`}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                className="inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-colors"
+              >
+                <Info className="w-3 h-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+              {info}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       <div className="text-2xl font-semibold tabular-nums mt-1">{value}</div>
       {sub && <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>}
     </Wrapper>

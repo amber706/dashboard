@@ -12,8 +12,9 @@ import { Link } from "wouter";
 import {
   Phone, PhoneIncoming, ShieldAlert, AlertTriangle, ShieldCheck,
   TrendingDown, Clock, GraduationCap, Sparkles, Loader2, Users,
-  Coffee, PhoneOff, ChevronRight, Activity, Trophy,
+  Coffee, PhoneOff, ChevronRight, Activity, Trophy, Info,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -354,6 +355,7 @@ export function TodayKpis() {
       sub: "view all inbound →",
       icon: PhoneIncoming,
       accent: undefined as "amber" | "rose" | undefined,
+      info: "Total inbound call_sessions started today (since midnight local). Includes connected, missed, voicemail, and abandoned — every inbound that hit our queue. Drills to /ctm-calls filtered to today's inbound only.",
     },
     {
       href: "/ctm-calls?date=today&direction=inbound&status=completed",
@@ -362,6 +364,7 @@ export function TodayKpis() {
       sub: `${data.answered} answered →`,
       icon: Phone,
       accent: data.answer_rate != null && data.answer_rate < 60 ? "rose" : data.answer_rate != null && data.answer_rate < 80 ? "amber" : undefined,
+      info: "Today's answered calls ÷ today's inbound. 'Answered' = status of completed, in_progress, or transferred. Card turns amber under 80%, rose under 60%. The denominator is the same Inbound count shown to the left.",
     },
     {
       href: "/ops/qa-review",
@@ -370,6 +373,7 @@ export function TodayKpis() {
       sub: data.avg_qa == null ? "no scores yet" : "review scored calls →",
       icon: ShieldAlert,
       accent: data.avg_qa != null && data.avg_qa < 60 ? "rose" : data.avg_qa != null && data.avg_qa < 75 ? "amber" : undefined,
+      info: "Average composite_score across all calls QA-scored today. Out of 100. Card turns amber under 75, rose under 60. Calls without a score are excluded from the average — only scored calls count.",
     },
     {
       href: "/ops/callbacks",
@@ -378,6 +382,7 @@ export function TodayKpis() {
       sub: data.callbacks_pending > 0 ? "open callback queue →" : "queue is clear",
       icon: PhoneOff,
       accent: data.callbacks_pending > 10 ? "rose" : data.callbacks_pending > 0 ? "amber" : undefined,
+      info: "Calls flagged callback_status = pending whose call started in the last 24 hours. Older pending callbacks are stale leads — they belong on the >72h drilldown, not the 'needs attention now' headline. Amber > 0, rose > 10.",
     },
   ];
 
@@ -398,7 +403,25 @@ export function TodayKpis() {
                     is obvious without crowding the card at rest. */}
                 <ChevronRight className="absolute top-3 right-3 w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
                 <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Icon className="w-3.5 h-3.5" /> {k.label}
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{k.label}</span>
+                  {k.info && (
+                    <Tooltip delayDuration={150}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`About ${k.label}`}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                          className="inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-colors"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                        {k.info}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
                 <div className="text-2xl font-semibold mt-1 tabular-nums">
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : k.value}
@@ -494,11 +517,31 @@ export function AttentionStrip() {
   }, []);
 
   const items = [
-    { label: "Critical alerts (last 60 min)", value: data.critical_alerts_60min, href: "/ops/alerts?filter=pending", icon: AlertTriangle, tone: "rose" as const },
-    { label: "Compliance flags today", value: data.compliance_flags_today, href: "/ops/qa-review?filter=flagged", icon: ShieldAlert, tone: "rose" as const },
-    { label: "Specialists trending down (7d)", value: data.trending_down_specialists, href: "/ops/coaching", icon: TrendingDown, tone: "amber" as const },
-    { label: "VOBs pending", value: data.vob_pending, href: "/ops/vob", icon: ShieldCheck, tone: "amber" as const },
-    { label: "Overdue training", value: data.overdue_training, href: "/ops/training-assignments?filter=overdue", icon: GraduationCap, tone: "amber" as const },
+    {
+      label: "Critical alerts (last 60 min)", value: data.critical_alerts_60min,
+      href: "/ops/alerts?filter=pending", icon: AlertTriangle, tone: "rose" as const,
+      info: "Pending high_priority_alerts whose classifier marked them critical AND that arrived in the last hour. Goes to the alerts queue filtered to pending. The 60-minute window keeps this metric a 'right now' signal — older unresolved alerts are still in the queue but don't hit this number.",
+    },
+    {
+      label: "Compliance flags today", value: data.compliance_flags_today,
+      href: "/ops/qa-review?filter=flagged", icon: ShieldAlert, tone: "rose" as const,
+      info: "Calls scored today that have one or more compliance_flags attached. Each call counts once regardless of how many flags it carries. Drills to QA Review filtered to flagged calls.",
+    },
+    {
+      label: "Specialists trending down (7d)", value: data.trending_down_specialists,
+      href: "/ops/coaching", icon: TrendingDown, tone: "amber" as const,
+      info: "Specialists whose average composite score in the last 7 days dropped 8+ points compared to days 8–14. Computed in-page (no materialized view yet). Click to open Coaching for the full drilldown.",
+    },
+    {
+      label: "VOBs pending", value: data.vob_pending,
+      href: "/ops/vob", icon: ShieldCheck, tone: "amber" as const,
+      info: "Leads whose vob_status is pending or in_progress. No date filter — this is the entire open VOB queue across all time. Drills to /ops/vob.",
+    },
+    {
+      label: "Overdue training", value: data.overdue_training,
+      href: "/ops/training-assignments?filter=overdue", icon: GraduationCap, tone: "amber" as const,
+      info: "Training assignments still assigned or in_progress whose due_at has passed. Drills to the assignments page filtered to overdue.",
+    },
   ];
 
   const total = items.reduce((s, i) => s + i.value, 0);
@@ -532,6 +575,23 @@ export function AttentionStrip() {
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Icon className={`w-4 h-4 shrink-0 ${toneText}`} />
                       <span className="text-sm truncate">{i.label}</span>
+                      {i.info && (
+                        <Tooltip delayDuration={150}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={`About ${i.label}`}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                              className="inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-colors shrink-0"
+                            >
+                              <Info className="w-3 h-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                            {i.info}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className={`text-sm font-semibold tabular-nums ${toneText}`}>{i.value}</span>
