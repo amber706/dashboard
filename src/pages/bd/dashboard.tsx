@@ -20,7 +20,7 @@ import {
   Loader2, RefreshCw, TrendingUp, Calendar, Target,
   ArrowRight, Search, ArrowLeftRight, ExternalLink, X,
   ChevronRight, ChevronDown, BarChart3, Activity,
-  Phone, ListTodo, ClipboardCheck,
+  Phone, ListTodo, ClipboardCheck, Save, Bookmark,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { loadSavedViews, saveView, deleteView, type BdSavedView } from "@/lib/bd-saved-views";
 
 // ── Pipeline grouping (frontend label → Zoho Pipeline values) ────────
 const PIPELINE_GROUPS = {
@@ -125,7 +126,7 @@ interface Drilldown { bd_rep: string; category: DrilldownCategory; zoho_user_id:
 
 // ── Component ────────────────────────────────────────────────────────
 export default function BdDashboard() {
-  const [tab, setTab] = useState<"live" | "trends">("live");
+  const [tab, setTab] = useState<"live" | "referrals" | "trends">("live");
 
   // Window state
   const [preset, setPreset] = useState<WindowPreset>("mtd"); // default per Amber: MTD
@@ -145,6 +146,47 @@ export default function BdDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<RepProfile[]>([]);
+
+  // Saved Views — localStorage-backed named filter combos.
+  const [savedViews, setSavedViews] = useState<BdSavedView[]>([]);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [savingNew, setSavingNew] = useState(false);
+  const [newViewName, setNewViewName] = useState("");
+
+  useEffect(() => { setSavedViews(loadSavedViews()); }, []);
+
+  function applyView(v: BdSavedView) {
+    setPreset(v.preset as WindowPreset);
+    if (v.customStart) setCustomStart(v.customStart);
+    if (v.customEnd) setCustomEnd(v.customEnd);
+    setPipelineGroups(new Set(v.pipelines as PipelineGroup[]));
+    setSelectedReps(new Set(v.reps));
+    setActiveViewId(v.id);
+  }
+  function commitSaveView() {
+    const name = newViewName.trim();
+    if (!name) return;
+    const v = saveView({
+      name,
+      preset,
+      customStart: preset === "custom" ? customStart : undefined,
+      customEnd: preset === "custom" ? customEnd : undefined,
+      pipelines: Array.from(pipelineGroups),
+      reps: Array.from(selectedReps),
+    });
+    setSavedViews(loadSavedViews());
+    setActiveViewId(v.id);
+    setNewViewName("");
+    setSavingNew(false);
+  }
+  function removeView(id: string) {
+    deleteView(id);
+    setSavedViews(loadSavedViews());
+    if (activeViewId === id) setActiveViewId(null);
+  }
+  // Any manual filter change clears the "active view" indicator since
+  // the current state no longer matches a saved view.
+  function clearActiveOnEdit() { if (activeViewId) setActiveViewId(null); }
 
   const pipelinesParam = useMemo(() => {
     if (pipelineGroups.size === 0) return undefined;
@@ -213,9 +255,11 @@ export default function BdDashboard() {
   }
 
   function togglePipeline(g: PipelineGroup) {
+    clearActiveOnEdit();
     setPipelineGroups((prev) => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; });
   }
   function toggleRep(bdRep: string) {
+    clearActiveOnEdit();
     setSelectedReps((prev) => { const n = new Set(prev); n.has(bdRep) ? n.delete(bdRep) : n.add(bdRep); return n; });
   }
   function toggleExpand(bdRep: string) {
@@ -249,7 +293,7 @@ export default function BdDashboard() {
         </div>
       }
     >
-      {/* Top tab bar — Live metrics vs Trends */}
+      {/* Top tab bar — Live metrics / Referrals / Trends */}
       <div className="flex items-center gap-1 border-b">
         <button
           onClick={() => setTab("live")}
@@ -258,6 +302,14 @@ export default function BdDashboard() {
           }`}
         >
           <Activity className="w-4 h-4" /> Live metrics
+        </button>
+        <button
+          onClick={() => setTab("referrals")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            tab === "referrals" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <ArrowLeftRight className="w-4 h-4" /> Referrals
         </button>
         <button
           onClick={() => setTab("trends")}
@@ -271,35 +323,57 @@ export default function BdDashboard() {
 
       {tab === "trends" ? (
         <TrendsView pipelinesParam={pipelinesParam} resolveRep={resolveRep} />
+      ) : tab === "referrals" ? (
+        <ReferralsView startIso={win.startIso} endIso={win.endIso} winLabel={win.label}
+          preset={preset} setPreset={setPreset}
+          customStart={customStart} setCustomStart={setCustomStart}
+          customEnd={customEnd} setCustomEnd={setCustomEnd}
+          pipelineGroups={pipelineGroups} togglePipeline={togglePipeline} clearPipelines={() => { clearActiveOnEdit(); setPipelineGroups(new Set()); }}
+          pipelinesParam={pipelinesParam}
+          resolveRep={resolveRep}
+        />
       ) : (
         <>
           {/* Today's meetings strip — always visible regardless of window */}
           <TodaysMeetingsStrip rows={todaysMeetings} users={todaysUsers} loading={loading} />
+
+          {/* Saved Views — named filter combos persisted to localStorage */}
+          <SavedViewsRow
+            views={savedViews}
+            activeId={activeViewId}
+            apply={applyView}
+            remove={removeView}
+            savingNew={savingNew}
+            setSavingNew={setSavingNew}
+            newName={newViewName}
+            setNewName={setNewViewName}
+            commit={commitSaveView}
+          />
 
           {/* Filters */}
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Window</span>
               {PRESETS.map((p) => (
-                <Button key={p.key} size="sm" variant={preset === p.key ? "default" : "outline"} onClick={() => setPreset(p.key)} className="h-8 text-xs">
+                <Button key={p.key} size="sm" variant={preset === p.key ? "default" : "outline"} onClick={() => { clearActiveOnEdit(); setPreset(p.key); }} className="h-8 text-xs">
                   {p.label}
                 </Button>
               ))}
-              <Button size="sm" variant={preset === "custom" ? "default" : "outline"} onClick={() => setPreset("custom")} className="h-8 text-xs">
+              <Button size="sm" variant={preset === "custom" ? "default" : "outline"} onClick={() => { clearActiveOnEdit(); setPreset("custom"); }} className="h-8 text-xs">
                 Custom
               </Button>
               {preset === "custom" && (
                 <span className="flex items-center gap-1.5 ml-2">
-                  <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-8 text-xs w-36" />
+                  <Input type="date" value={customStart} onChange={(e) => { clearActiveOnEdit(); setCustomStart(e.target.value); }} className="h-8 text-xs w-36" />
                   <span className="text-[10px] text-muted-foreground">→</span>
-                  <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-8 text-xs w-36" />
+                  <Input type="date" value={customEnd} onChange={(e) => { clearActiveOnEdit(); setCustomEnd(e.target.value); }} className="h-8 text-xs w-36" />
                 </span>
               )}
               <span className="text-[10px] text-muted-foreground ml-2">{win.label}</span>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pipeline</span>
-              <Button size="sm" variant={pipelineGroups.size === 0 ? "default" : "outline"} onClick={() => setPipelineGroups(new Set())} className="h-8 text-xs">
+              <Button size="sm" variant={pipelineGroups.size === 0 ? "default" : "outline"} onClick={() => { clearActiveOnEdit(); setPipelineGroups(new Set()); }} className="h-8 text-xs">
                 All
               </Button>
               {(Object.keys(PIPELINE_GROUPS) as PipelineGroup[]).map((g) => (
@@ -953,6 +1027,311 @@ function Sparkline({ values, total, stroke }: { values: number[]; total: number;
       </svg>
       <div className="text-[10px] text-muted-foreground tabular-nums">total {total} · peak {max}</div>
     </div>
+  );
+}
+
+// ── Saved Views row ──────────────────────────────────────────────────
+function SavedViewsRow({
+  views, activeId, apply, remove, savingNew, setSavingNew, newName, setNewName, commit,
+}: {
+  views: BdSavedView[]; activeId: string | null;
+  apply: (v: BdSavedView) => void; remove: (id: string) => void;
+  savingNew: boolean; setSavingNew: (b: boolean) => void;
+  newName: string; setNewName: (s: string) => void;
+  commit: () => void;
+}) {
+  if (views.length === 0 && !savingNew) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1">
+          <Bookmark className="w-3.5 h-3.5" /> Saved views
+        </span>
+        <Button size="sm" variant="outline" onClick={() => setSavingNew(true)} className="h-7 text-[11px] px-2 gap-1">
+          <Save className="w-3 h-3" /> Save current as…
+        </Button>
+        <span className="text-[10px] text-muted-foreground">no views yet</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1">
+        <Bookmark className="w-3.5 h-3.5" /> Saved views
+      </span>
+      {views.map((v) => (
+        <span key={v.id} className="inline-flex items-center">
+          <Button
+            size="sm"
+            variant={activeId === v.id ? "default" : "outline"}
+            onClick={() => apply(v)}
+            className="h-7 text-[11px] px-2 rounded-r-none"
+            title={`${v.preset}${v.pipelines.length ? " · " + v.pipelines.join("/") : ""}${v.reps.length ? " · reps: " + v.reps.join(", ") : ""}`}
+          >
+            {v.name}
+          </Button>
+          <Button
+            size="sm" variant={activeId === v.id ? "default" : "outline"}
+            onClick={() => { if (confirm(`Delete saved view "${v.name}"?`)) remove(v.id); }}
+            className="h-7 px-1.5 rounded-l-none border-l-0"
+            title="Delete this saved view"
+          >
+            <X className="w-3 h-3" />
+          </Button>
+        </span>
+      ))}
+      {savingNew ? (
+        <span className="inline-flex items-center gap-1">
+          <Input
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setSavingNew(false); }}
+            placeholder="Name this view…"
+            className="h-7 text-[11px] w-44"
+          />
+          <Button size="sm" onClick={commit} disabled={!newName.trim()} className="h-7 text-[11px] px-2">Save</Button>
+          <Button size="sm" variant="outline" onClick={() => setSavingNew(false)} className="h-7 text-[11px] px-2">Cancel</Button>
+        </span>
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => setSavingNew(true)} className="h-7 text-[11px] px-2 gap-1">
+          <Save className="w-3 h-3" /> Save current
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ── Referrals tab ────────────────────────────────────────────────────
+// All referrals (in + out) for the window, with status, sortable.
+// Defaults to MTD via the dashboard's window picker so toggling tabs
+// keeps the same date context.
+interface BdReferralsList {
+  ok: boolean;
+  window: { start: string; end: string };
+  referrals: Array<{
+    id: string;
+    direction: "in" | "out";
+    deal_name: string | null;
+    stage: string | null;
+    pipeline: string | null;
+    bd_rep: string | null;
+    account_id: string | null;
+    account_name: string | null;
+    contact_name: string | null;
+    contact_email: string | null;
+    loc: string | null;
+    timestamp: string | null;        // event timestamp (Created_Time for in, Refer_Out_Date or Modified_Time for out)
+  }>;
+}
+
+function ReferralsView({
+  startIso, endIso, winLabel, preset, setPreset, customStart, setCustomStart, customEnd, setCustomEnd,
+  pipelineGroups, togglePipeline, clearPipelines, pipelinesParam, resolveRep,
+}: {
+  startIso: string; endIso: string; winLabel: string;
+  preset: WindowPreset; setPreset: (p: WindowPreset) => void;
+  customStart: string; setCustomStart: (s: string) => void;
+  customEnd: string; setCustomEnd: (s: string) => void;
+  pipelineGroups: Set<PipelineGroup>; togglePipeline: (g: PipelineGroup) => void; clearPipelines: () => void;
+  pipelinesParam: string[] | undefined;
+  resolveRep: (s: string) => { name: string; profileId: string | null };
+}) {
+  const [data, setData] = useState<BdReferralsList | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [direction, setDirection] = useState<"all" | "in" | "out">("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortKey, setSortKey] = useState<"timestamp" | "account" | "stage" | "rep">("timestamp");
+  const [sortDesc, setSortDesc] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-referrals-list`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ start_iso: startIso, end_iso: endIso, pipelines: pipelinesParam }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error ?? "load failed");
+      setData(json);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  }, [startIso, endIso, pipelinesParam]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const distinctStatuses = useMemo(() => {
+    if (!data) return [];
+    const s = new Set<string>();
+    for (const r of data.referrals) if (r.stage) s.add(r.stage);
+    return Array.from(s).sort();
+  }, [data]);
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    let rows = data.referrals;
+    if (direction !== "all") rows = rows.filter((r) => r.direction === direction);
+    if (statusFilter !== "all") rows = rows.filter((r) => r.stage === statusFilter);
+    rows = rows.slice().sort((a, b) => {
+      const cmp = (() => {
+        if (sortKey === "timestamp") return (a.timestamp ?? "").localeCompare(b.timestamp ?? "");
+        if (sortKey === "account") return (a.account_name ?? "").localeCompare(b.account_name ?? "");
+        if (sortKey === "stage") return (a.stage ?? "").localeCompare(b.stage ?? "");
+        if (sortKey === "rep") return (a.bd_rep ?? "").localeCompare(b.bd_rep ?? "");
+        return 0;
+      })();
+      return sortDesc ? -cmp : cmp;
+    });
+    return rows;
+  }, [data, direction, statusFilter, sortKey, sortDesc]);
+
+  function downloadCsv() {
+    if (!data) return;
+    const header = ["direction", "timestamp", "deal_name", "account", "contact", "stage", "pipeline", "loc", "bd_rep"];
+    const rows = filtered.map((r) => [
+      r.direction, r.timestamp ?? "", r.deal_name ?? "", r.account_name ?? "",
+      r.contact_name ?? "", r.stage ?? "", r.pipeline ?? "", r.loc ?? "", r.bd_rep ?? "",
+    ]);
+    const csv = [header, ...rows].map((row) => row.map((v) => {
+      const s = String(v); return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `bd-referrals-${startIso.slice(0, 10)}-to-${endIso.slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function header(key: typeof sortKey, label: string) {
+    const active = sortKey === key;
+    return (
+      <button onClick={() => { if (active) setSortDesc(!sortDesc); else { setSortKey(key); setSortDesc(true); } }}
+        className={`text-left inline-flex items-center gap-0.5 ${active ? "text-foreground" : "text-muted-foreground"}`}>
+        {label}{active ? (sortDesc ? " ↓" : " ↑") : ""}
+      </button>
+    );
+  }
+
+  return (
+    <>
+      {/* Date + pipeline filters (shared with Live tab via parent state) */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Window</span>
+          {PRESETS.map((p) => (
+            <Button key={p.key} size="sm" variant={preset === p.key ? "default" : "outline"} onClick={() => setPreset(p.key)} className="h-8 text-xs">{p.label}</Button>
+          ))}
+          <Button size="sm" variant={preset === "custom" ? "default" : "outline"} onClick={() => setPreset("custom")} className="h-8 text-xs">Custom</Button>
+          {preset === "custom" && (
+            <span className="flex items-center gap-1.5 ml-2">
+              <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-8 text-xs w-36" />
+              <span className="text-[10px] text-muted-foreground">→</span>
+              <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-8 text-xs w-36" />
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground ml-2">{winLabel}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pipeline</span>
+          <Button size="sm" variant={pipelineGroups.size === 0 ? "default" : "outline"} onClick={clearPipelines} className="h-8 text-xs">All</Button>
+          {(Object.keys(PIPELINE_GROUPS) as PipelineGroup[]).map((g) => (
+            <Button key={g} size="sm" variant={pipelineGroups.has(g) ? "default" : "outline"} onClick={() => togglePipeline(g)} className="h-8 text-xs">{g}</Button>
+          ))}
+        </div>
+        {/* Referrals-specific filters */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Direction</span>
+          {(["all", "in", "out"] as const).map((d) => (
+            <Button key={d} size="sm" variant={direction === d ? "default" : "outline"} onClick={() => setDirection(d)} className="h-8 text-xs">
+              {d === "all" ? "All" : d === "in" ? "Inbound" : "Outbound"}
+            </Button>
+          ))}
+          <span className="mx-2 h-4 w-px bg-border" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="h-8 text-xs px-2 rounded border bg-background"
+          >
+            <option value="all">All statuses</option>
+            {distinctStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <span className="text-xs text-muted-foreground ml-2">
+            {data ? `${filtered.length} of ${data.referrals.length}` : ""}
+          </span>
+          <Button size="sm" variant="outline" onClick={downloadCsv} disabled={!data || filtered.length === 0} className="ml-auto h-8 text-xs gap-1.5">
+            Download CSV
+          </Button>
+        </div>
+      </div>
+
+      {error && <Card className="border-red-500/30 bg-red-500/5"><CardContent className="pt-4 pb-4 text-sm text-red-600 dark:text-red-400">{error}</CardContent></Card>}
+
+      {!data && loading && (
+        <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading referrals…</CardContent></Card>
+      )}
+
+      {data && filtered.length === 0 && !loading && (
+        <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No referrals match the current filters.</CardContent></Card>
+      )}
+
+      {data && filtered.length > 0 && (
+        <Card>
+          <CardContent className="pt-4 pb-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                <tr>
+                  <th className="text-left py-2 pr-3">Dir</th>
+                  <th className="text-left py-2 pr-3">{header("timestamp", "When")}</th>
+                  <th className="text-left py-2 pr-3">Deal</th>
+                  <th className="text-left py-2 pr-3">{header("account", "Account")}</th>
+                  <th className="text-left py-2 pr-3">Contact</th>
+                  <th className="text-left py-2 pr-3">{header("stage", "Status")}</th>
+                  <th className="text-left py-2 pr-3">Pipeline</th>
+                  <th className="text-left py-2 pr-3">LOC</th>
+                  <th className="text-left py-2 pr-3">{header("rep", "BD rep")}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => {
+                  const repInfo = r.bd_rep ? resolveRep(r.bd_rep) : { name: "—", profileId: null };
+                  return (
+                    <tr key={`${r.direction}-${r.id}`} className="border-t align-top">
+                      <td className="py-2 pr-3"><Badge variant="outline" className={`text-[9px] ${r.direction === "in" ? "border-blue-500/30 text-blue-700 dark:text-blue-300" : "border-orange-500/30 text-orange-700 dark:text-orange-300"}`}>{r.direction === "in" ? "IN" : "OUT"}</Badge></td>
+                      <td className="py-2 pr-3 text-xs text-muted-foreground tabular-nums">{r.timestamp ? new Date(r.timestamp).toLocaleDateString() : "—"}</td>
+                      <td className="py-2 pr-3 font-medium">{r.deal_name ?? "(no name)"}</td>
+                      <td className="py-2 pr-3 text-xs">
+                        {r.account_id ? (
+                          <Link href={`/bd/account?id=${r.account_id}`} className="text-primary hover:underline">{r.account_name ?? "—"}</Link>
+                        ) : (r.account_name ?? "—")}
+                      </td>
+                      <td className="py-2 pr-3 text-xs">
+                        {r.contact_name ? (
+                          <div className="space-y-0.5">
+                            <div>{r.contact_name}</div>
+                            {r.contact_email && <div className="text-[10px] text-muted-foreground">{r.contact_email}</div>}
+                          </div>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="py-2 pr-3 text-xs"><Badge variant="outline" className="text-[10px]">{r.stage ?? "—"}</Badge></td>
+                      <td className="py-2 pr-3 text-xs"><Badge variant="outline" className="text-[9px]">{r.pipeline ?? "—"}</Badge></td>
+                      <td className="py-2 pr-3 text-xs">{r.loc ? <Badge variant="outline" className="text-[9px]">{r.loc}</Badge> : <span className="text-muted-foreground">—</span>}</td>
+                      <td className="py-2 pr-3 text-xs">{repInfo.name}</td>
+                      <td className="py-2 pr-3"><a href={`https://crm.zoho.com/crm/tab/Potentials/${r.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">Zoho <ExternalLink className="w-3 h-3" /></a></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+    </>
   );
 }
 
