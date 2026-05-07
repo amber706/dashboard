@@ -139,6 +139,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // the row-level filters are in place.
     { href: "/bd", label: "Performance Dashboard", icon: <BarChart3 className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/referrals", label: "Referrals", icon: <ArrowLeftRight className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
+    { href: "/bd/stuck-accounts", label: "Stuck Accounts", icon: <AlertTriangle className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/top-accounts", label: "Top Referring Accounts", icon: <Trophy className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/account", label: "Account Intelligence", icon: <Search className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/meetings", label: "Meetings", icon: <Calendar className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },

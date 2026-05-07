@@ -60,6 +60,7 @@ import BdAccountIntelligence from "@/pages/bd/account";
 import BdMeetings from "@/pages/bd/meetings";
 import BdTopAccounts from "@/pages/bd/top-accounts";
 import BdReferrals from "@/pages/bd/referrals";
+import BdStuckAccounts from "@/pages/bd/stuck-accounts";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
 import OpsAIBotFeedback from "@/pages/ops/ai-bot-feedback";
 import OpsOutcomes from "@/pages/ops/outcomes";
@@ -143,6 +144,7 @@ function AppRoutes() {
         {/* Business Development workspace */}
         <Route path="/bd" component={BdDashboard} />
         <Route path="/bd/referrals" component={BdReferrals} />
+        <Route path="/bd/stuck-accounts" component={BdStuckAccounts} />
         <Route path="/bd/account" component={BdAccountIntelligence} />
         <Route path="/bd/top-accounts" component={BdTopAccounts} />
         <Route path="/bd/meetings" component={BdMeetings} />
