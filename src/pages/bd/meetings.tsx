@@ -43,6 +43,38 @@ interface ZohoEvent {
   // Who_Id is the related Contact (the actual person met).
   What_Id?: { id?: string; name?: string } | string | null;
   Who_Id?: { id?: string; name?: string } | string | null;
+  // Decorations layered on by the local meeting_records merge. Local-
+  // only rows (not yet pushed to Zoho) show up as synthetic events
+  // with id = `local:<uuid>` so React keys stay unique.
+  _local_record_id?: string;
+  _sync_status?: SyncStatus;
+  _sync_error?: string | null;
+}
+
+type SyncStatus =
+  | "synced"
+  | "pending_zoho_create"
+  | "pending_zoho_update"
+  | "pending_zoho_delete"
+  | "pending_local_pull"
+  | "sync_error";
+
+interface MeetingRecord {
+  id: string;
+  zoho_event_id: string | null;
+  title: string;
+  description: string | null;
+  start_at: string;
+  end_at: string | null;
+  venue: string | null;
+  account_zoho_id: string | null;
+  account_name: string | null;
+  contact_zoho_id: string | null;
+  contact_name: string | null;
+  zoho_owner_id: string | null;
+  sync_status: SyncStatus;
+  sync_error: string | null;
+  deleted_at: string | null;
 }
 
 interface BdMeetingsResponse {
@@ -158,6 +190,12 @@ export default function BdMeetings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Local meeting_records — application-side mirror with sync state.
+  // We render the merge of these + Zoho events so newly-scheduled
+  // meetings appear instantly (before Zoho indexes them) and rows
+  // mid-sync get a sync-status badge.
+  const [localRecords, setLocalRecords] = useState<MeetingRecord[]>([]);
+
   // Schedule-meeting modal state.
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
@@ -196,6 +234,17 @@ export default function BdMeetings() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "load failed");
       setData(json);
+
+      // Pull local meeting_records overlapping the same window. We use
+      // start_at, not deleted_at, to match the Zoho query's basis.
+      // Soft-deleted rows are excluded.
+      const { data: rec, error: recErr } = await supabase
+        .from("meeting_records")
+        .select("id, zoho_event_id, title, description, start_at, end_at, venue, account_zoho_id, account_name, contact_zoho_id, contact_name, zoho_owner_id, sync_status, sync_error, deleted_at")
+        .gte("start_at", range.startIso)
+        .lte("start_at", range.endIso)
+        .is("deleted_at", null);
+      if (!recErr && rec) setLocalRecords(rec as MeetingRecord[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -221,8 +270,63 @@ export default function BdMeetings() {
     });
   }
 
-  const upcoming = data?.upcoming ?? [];
-  const recent = data?.recent ?? [];
+  // Merge local meeting_records into the Zoho event lists. For records
+  // that already have a zoho_event_id we just decorate the matching
+  // Zoho row with the local sync_status. Records without a zoho_event_id
+  // are local-only (not yet pushed) — we synthesize a ZohoEvent shell
+  // with id = `local:<uuid>` and the local fields, and bucket by start
+  // time into upcoming or recent.
+  const { upcoming, recent } = useMemo(() => {
+    const zohoUpcoming = data?.upcoming ?? [];
+    const zohoRecent = data?.recent ?? [];
+
+    // Build a sync-status overlay keyed by zoho_event_id.
+    const overlay = new Map<string, MeetingRecord>();
+    const localOnly: MeetingRecord[] = [];
+    for (const r of localRecords) {
+      if (r.sync_status === "synced" && r.zoho_event_id) continue; // nothing to surface
+      if (r.zoho_event_id) overlay.set(r.zoho_event_id, r);
+      else localOnly.push(r);
+    }
+
+    const decorate = (e: ZohoEvent): ZohoEvent => {
+      const o = overlay.get(e.id);
+      if (!o) return e;
+      return { ...e, _local_record_id: o.id, _sync_status: o.sync_status, _sync_error: o.sync_error };
+    };
+    const decUpcoming = zohoUpcoming.map(decorate);
+    const decRecent = zohoRecent.map(decorate);
+
+    // Synthesize ZohoEvent shells for local-only records.
+    const now = Date.now();
+    const synth = (r: MeetingRecord): ZohoEvent => ({
+      id: `local:${r.id}`,
+      Event_Title: r.title,
+      Description: r.description,
+      Start_DateTime: r.start_at,
+      End_DateTime: r.end_at,
+      Venue: r.venue,
+      "Owner.id": r.zoho_owner_id,
+      What_Id: r.account_zoho_id ? { id: r.account_zoho_id, name: r.account_name ?? undefined } : null,
+      Who_Id: r.contact_zoho_id ? { id: r.contact_zoho_id, name: r.contact_name ?? undefined } : null,
+      _local_record_id: r.id,
+      _sync_status: r.sync_status,
+      _sync_error: r.sync_error,
+    });
+    const synthUpcoming: ZohoEvent[] = [];
+    const synthRecent: ZohoEvent[] = [];
+    for (const r of localOnly) {
+      const startMs = new Date(r.start_at).getTime();
+      const ev = synth(r);
+      if (startMs >= now) synthUpcoming.push(ev);
+      else synthRecent.push(ev);
+    }
+
+    return {
+      upcoming: [...synthUpcoming, ...decUpcoming],
+      recent: [...synthRecent, ...decRecent],
+    };
+  }, [data, localRecords]);
 
   // Per-rep summary — drives both the summary table at the top of the
   // page AND the rep selector. Each row carries upcoming / today /
@@ -664,6 +768,7 @@ function DenseMeetingList({ rows }: { rows: ZohoEvent[] }) {
             <th className="text-left py-1.5 px-3">Company</th>
             <th className="text-left py-1.5 px-3">Contact</th>
             <th className="text-left py-1.5 px-3">Venue</th>
+            <th className="text-left py-1.5 px-3 w-24">Sync</th>
             <th className="w-10"></th>
           </tr>
         </thead>
@@ -700,15 +805,22 @@ function DenseMeetingList({ rows }: { rows: ZohoEvent[] }) {
                     </span>
                   ) : "—"}
                 </td>
+                <td className="py-1.5 px-3 text-xs">
+                  <SyncBadge status={m._sync_status} error={m._sync_error} />
+                </td>
                 <td className="py-1.5 px-3 text-right">
-                  <a
-                    href={`https://crm.zoho.com/crm/tab/Events/${m.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"
-                  >
-                    Zoho <ExternalLink className="w-3 h-3" />
-                  </a>
+                  {m.id.startsWith("local:") ? (
+                    <span className="text-[10px] text-muted-foreground italic">local</span>
+                  ) : (
+                    <a
+                      href={`https://crm.zoho.com/crm/tab/Events/${m.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"
+                    >
+                      Zoho <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
                 </td>
               </tr>
             );
@@ -718,3 +830,30 @@ function DenseMeetingList({ rows }: { rows: ZohoEvent[] }) {
     </div>
   );
 }
+
+// SyncBadge — visualizes a meeting_records row's sync_status. Renders
+// nothing when the row is fully synced (the Zoho-only majority case),
+// keeping the column visually quiet for reps' typical browsing.
+function SyncBadge({ status, error }: { status?: SyncStatus; error?: string | null }) {
+  if (!status || status === "synced") return <span className="text-muted-foreground">—</span>;
+  const meta = SYNC_META[status];
+  const tooltip = error ? `${meta.label} · ${error}` : meta.label;
+  return (
+    <Badge
+      variant="outline"
+      className={`text-[9px] gap-1 ${meta.tone}`}
+      title={tooltip}
+    >
+      {meta.label}
+    </Badge>
+  );
+}
+
+const SYNC_META: Record<SyncStatus, { label: string; tone: string }> = {
+  synced:                { label: "synced",          tone: "" },
+  pending_zoho_create:   { label: "pushing to Zoho", tone: "border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/5" },
+  pending_zoho_update:   { label: "updating Zoho",   tone: "border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/5" },
+  pending_zoho_delete:   { label: "cancelling",      tone: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/5" },
+  pending_local_pull:    { label: "pulling change",  tone: "border-violet-500/40 text-violet-700 dark:text-violet-300 bg-violet-500/5" },
+  sync_error:            { label: "sync error",      tone: "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/5" },
+};
