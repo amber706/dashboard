@@ -160,15 +160,19 @@ function readInitialFiltersFromUrl(): {
   subtype: string;
   hasTranscript: boolean;
   dateRange: DateRange | null;
+  specialist: string;
 } {
   if (typeof window === "undefined") {
-    return { direction: "all", status: "all", subtype: "all", hasTranscript: false, dateRange: getDefaultDateRange() };
+    return { direction: "all", status: "all", subtype: "all", hasTranscript: false, dateRange: getDefaultDateRange(), specialist: "all" };
   }
   const p = new URLSearchParams(window.location.search);
   const direction = p.get("direction") ?? "all";
   const status = p.get("status") ?? "all";
   const subtype = p.get("subtype") ?? "all"; // "abandoned" | "missed_no_answer" | "all"
   const hasTranscript = p.get("has_transcript") === "true";
+  // Specialist filter — used by the manager-command-center rep cards
+  // to drill into one rep's calls. Profile id, "unlinked", or "all".
+  const specialist = p.get("specialist") ?? "all";
 
   let dateRange: DateRange | null = getDefaultDateRange();
   const datePreset = p.get("date");
@@ -188,7 +192,7 @@ function readInitialFiltersFromUrl(): {
   } else if (startParam && endParam) {
     dateRange = { startDate: new Date(startParam), endDate: new Date(endParam) };
   }
-  return { direction, status, subtype, hasTranscript, dateRange };
+  return { direction, status, subtype, hasTranscript, dateRange, specialist };
 }
 
 export default function CTMCalls() {
@@ -208,8 +212,10 @@ export default function CTMCalls() {
   // returned rows client-side using ctm_raw_payload.call_status.
   const [subtypeFilter, setSubtypeFilter] = useState<string>(initialUrlFilters.subtype);
   const [hasTranscriptFilter, setHasTranscriptFilter] = useState<boolean>(initialUrlFilters.hasTranscript);
-  // Rep filter: "all" | "unlinked" | profile.id
-  const [specialistFilter, setSpecialistFilter] = useState<string>("all");
+  // Rep filter: "all" | "unlinked" | profile.id. Hydrated from URL so
+  // dashboard drill-throughs (e.g. /ctm-calls?specialist=<id>) land
+  // pre-filtered.
+  const [specialistFilter, setSpecialistFilter] = useState<string>(initialUrlFilters.specialist);
   const [specialists, setSpecialists] = useState<Array<{ id: string; full_name: string | null; email: string | null }>>([]);
   const [dateRange, setDateRange] = useState<DateRange | null>(initialUrlFilters.dateRange);
   const [expandedId, setExpandedId] = useState<string | null>(null);

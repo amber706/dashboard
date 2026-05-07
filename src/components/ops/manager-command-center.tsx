@@ -776,59 +776,124 @@ export function RepWorkloadCards() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
             {reps.map((r) => (
-              <Link key={r.id} href={`/ops/specialist/${r.id}`} className="block">
-                <div className="border rounded-lg p-3 hover:bg-accent/30 transition-colors h-full">
-                  <div className="flex items-center justify-between gap-2 mb-2.5">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[r.status]} ${r.is_on_call ? "animate-pulse" : ""}`} />
-                      <span className="text-sm font-medium truncate">{r.full_name ?? r.email}</span>
-                    </div>
-                    {r.is_on_call && r.current_call_started_at ? (
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">
-                        {fmtElapsed(r.current_call_started_at)}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground shrink-0 capitalize">
-                        {STATUS_LABEL[r.status]}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 text-center">
-                    <div>
-                      <div className="text-lg font-semibold tabular-nums leading-tight">{r.calls_today}</div>
-                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">calls</div>
-                    </div>
-                    <div>
-                      <div className={`text-lg font-semibold tabular-nums leading-tight ${r.missed_today > 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
-                        {r.missed_today}
-                      </div>
-                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">missed</div>
-                    </div>
-                    <div>
-                      <div className={`text-lg font-semibold tabular-nums leading-tight ${
-                        r.avg_qa_today == null ? "text-muted-foreground"
-                          : r.avg_qa_today >= 80 ? "text-emerald-600 dark:text-emerald-400"
-                          : r.avg_qa_today >= 60 ? "text-amber-600 dark:text-amber-400"
-                          : "text-rose-600 dark:text-rose-400"
-                      }`}>
-                        {r.avg_qa_today ?? "—"}
-                      </div>
-                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">avg QA</div>
-                    </div>
-                    <div>
-                      <div className={`text-lg font-semibold tabular-nums leading-tight ${r.callbacks_pending > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>
-                        {r.callbacks_pending}
-                      </div>
-                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">cb owed</div>
-                    </div>
-                  </div>
-                </div>
-              </Link>
+              <RepCardTile key={r.id} rep={r} />
             ))}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// One specialist's workload card. Each of the four metric tiles is its
+// OWN clickable surface — clicking the rep's name goes to their full
+// specialist profile, but clicking calls / missed / avg-QA / cb-owed
+// drills into a per-rep filtered view of THAT metric specifically.
+// The metric labels each carry an Info tooltip explaining exactly
+// what they count, the source field, and any color thresholds.
+function RepCardTile({ rep: r }: { rep: RepCard }) {
+  return (
+    <div className="border rounded-lg p-3 hover:bg-accent/20 transition-colors h-full">
+      {/* Header — rep name links to the specialist profile. */}
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <Link href={`/ops/specialist/${r.id}`} className="flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[r.status]} ${r.is_on_call ? "animate-pulse" : ""}`} />
+          <span className="text-sm font-medium truncate">{r.full_name ?? r.email}</span>
+        </Link>
+        {r.is_on_call && r.current_call_started_at ? (
+          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">
+            {fmtElapsed(r.current_call_started_at)}
+          </span>
+        ) : (
+          <span className="text-[10px] text-muted-foreground shrink-0 capitalize">
+            {STATUS_LABEL[r.status]}
+          </span>
+        )}
+      </div>
+
+      {/* Metric tiles — each one is independently clickable + has an
+          info badge explaining what it measures. */}
+      <div className="grid grid-cols-4 gap-2 text-center">
+        <MetricTile
+          value={r.calls_today}
+          label="calls"
+          href={`/ctm-calls?date=today&specialist=${r.id}`}
+          info="Every call_session today (since midnight local) where this rep was the specialist_id. Includes connected, missed, abandoned, voicemail — every inbound or outbound that touched this rep's queue. Click to drill into the call list filtered to today + this rep."
+        />
+        <MetricTile
+          value={r.missed_today}
+          label="missed"
+          href={`/ctm-calls?date=today&specialist=${r.id}&status=missed`}
+          tone={r.missed_today > 0 ? "rose" : "default"}
+          info="Calls today where this rep was assigned but the call ended in status=missed, abandoned, or no_answer — the caller hung up before connecting or rang out. Card metric turns red when > 0. Click to see exactly which calls."
+        />
+        <MetricTile
+          value={r.avg_qa_today ?? "—"}
+          label="avg QA"
+          // QA Review doesn't accept a per-rep filter today, so we send
+          // the user to the specialist profile where their QA score
+          // history surfaces. (Adding a specialist filter to QA Review
+          // is a separate task.)
+          href={`/ops/specialist/${r.id}`}
+          tone={
+            r.avg_qa_today == null ? "muted"
+              : r.avg_qa_today >= 80 ? "emerald"
+              : r.avg_qa_today >= 60 ? "amber"
+              : "rose"
+          }
+          info="Average composite_score across this rep's calls scored today (out of 100). Calls without a QA score are excluded from the average — it's only the rated calls. Color thresholds: green ≥ 80, amber ≥ 60, rose < 60. Click to open the rep's profile with their QA history."
+        />
+        <MetricTile
+          value={r.callbacks_pending}
+          label="cb owed"
+          href={`/ops/callbacks?specialist_id=${r.id}`}
+          tone={r.callbacks_pending > 0 ? "amber" : "default"}
+          info="Open callbacks where THIS rep was the specialist_id on the original call AND callback_status is pending. These are calls THEY personally owe a callback on — not callbacks delegated to the team queue. Click to see the queue filtered to just their callbacks."
+        />
+      </div>
+    </div>
+  );
+}
+
+// One metric inside a rep card. Independent click target with an info
+// tooltip on the label.
+function MetricTile({ value, label, href, tone = "default", info }: {
+  value: number | string;
+  label: string;
+  href: string;
+  tone?: "default" | "rose" | "amber" | "emerald" | "muted";
+  info: string;
+}) {
+  const valueColor =
+    tone === "rose"   ? "text-rose-600 dark:text-rose-400"
+    : tone === "amber" ? "text-amber-600 dark:text-amber-400"
+    : tone === "emerald" ? "text-emerald-600 dark:text-emerald-400"
+    : tone === "muted" ? "text-muted-foreground"
+    : "";
+  return (
+    <div className="rounded-md hover:bg-accent/40 transition-colors">
+      <Link href={href} className="block py-1 px-0.5">
+        <div className={`text-lg font-semibold tabular-nums leading-tight ${valueColor}`}>{value}</div>
+        <div className="text-[9px] uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 justify-center w-full">
+          <span>{label}</span>
+          <Tooltip delayDuration={150}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={`About ${label}`}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                className="inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-colors"
+              >
+                <Info className="w-2.5 h-2.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed normal-case font-normal tracking-normal">
+              {info}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </Link>
+    </div>
   );
 }
 
