@@ -36,7 +36,10 @@ interface ZohoEvent {
   End_DateTime: string | null;
   Venue: string | null;
   "Owner.id": string | null;
+  // What_Id is the related record (typically Account / Deal / Lead).
+  // Who_Id is the related Contact (the actual person met).
   What_Id?: { id?: string; name?: string } | string | null;
+  Who_Id?: { id?: string; name?: string } | string | null;
 }
 
 interface BdMeetingsResponse {
@@ -378,7 +381,9 @@ function MeetingList({ rows, repName }: { rows: ZohoEvent[]; repName: (z: string
     <div className="space-y-2">
       {rows.map((m) => {
         const what = m.What_Id;
-        const linkedName = typeof what === "string" ? what : (what?.name ?? null);
+        const who = m.Who_Id;
+        const companyName = typeof what === "string" ? what : (what?.name ?? null);
+        const contactName = typeof who === "string" ? who : (who?.name ?? null);
         return (
           <div key={m.id} className="border rounded-md p-3 hover:bg-accent/20 transition-colors">
             <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -386,8 +391,20 @@ function MeetingList({ rows, repName }: { rows: ZohoEvent[]; repName: (z: string
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-sm">{m.Event_Title ?? "(untitled)"}</span>
                   <Badge variant="outline" className="text-[10px]">{daysFromNow(m.Start_DateTime)}</Badge>
-                  {linkedName && (
-                    <Badge variant="outline" className="text-[10px]">{linkedName}</Badge>
+                  {companyName && (
+                    <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-700 dark:text-blue-300">
+                      {companyName}
+                    </Badge>
+                  )}
+                  {contactName && (
+                    <Badge variant="outline" className="text-[10px] border-violet-500/30 text-violet-700 dark:text-violet-300">
+                      with {contactName}
+                    </Badge>
+                  )}
+                  {!companyName && !contactName && (
+                    <Badge variant="outline" className="text-[10px] text-muted-foreground" title="No related record set in Zoho — link this meeting to a company or contact for better attribution">
+                      no link
+                    </Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">

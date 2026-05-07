@@ -500,7 +500,11 @@ export default function BdDashboard() {
   );
 }
 
-// ── Today's meetings strip ───────────────────────────────────────────
+// ── Today's meetings table ───────────────────────────────────────────
+// Structured table layout — Company is the primary identifier (not the
+// usually-throwaway "Check-in at X PM" title). Sorted by time. Linked
+// meetings (with company or contact) come first; unlinked ones get a
+// muted "data quality gap" footer so they're flagged but not lost.
 function TodaysMeetingsStrip({ rows, users, loading }: { rows: any[]; users: Record<string, { full_name: string | null; email: string | null }>; loading: boolean }) {
   if (loading && rows.length === 0) {
     return (
@@ -512,32 +516,87 @@ function TodaysMeetingsStrip({ rows, users, loading }: { rows: any[]; users: Rec
     );
   }
   if (rows.length === 0) return null;
+
+  const enriched = rows.map((m: any) => {
+    const what = m.What_Id;
+    const who = m.Who_Id;
+    const companyName = typeof what === "string" ? what : (what?.name ?? null);
+    const contactName = typeof who === "string" ? who : (who?.name ?? null);
+    const ownerId = m["Owner.id"] as string | null;
+    const owner = ownerId ? (users[ownerId]?.full_name ?? users[ownerId]?.email ?? "—") : "—";
+    return { m, companyName, contactName, owner, time: m.Start_DateTime ? new Date(m.Start_DateTime) : null };
+  });
+  enriched.sort((a, b) => (a.time?.getTime() ?? 0) - (b.time?.getTime() ?? 0));
+  const linked = enriched.filter((e) => e.companyName || e.contactName);
+  const unlinked = enriched.filter((e) => !e.companyName && !e.contactName);
+
+  const fmtTime = (d: Date | null) => d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+
   return (
     <Card className="border-blue-500/30 bg-blue-500/5">
-      <CardContent className="pt-3 pb-3">
-        <div className="flex items-center gap-2 mb-2">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
           <Calendar className="w-4 h-4 text-blue-500" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Today's meetings</span>
+          <span>Today's meetings</span>
           <Badge variant="outline" className="text-[10px]">{rows.length}</Badge>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {rows.slice(0, 12).map((m: any) => {
-            const ownerId = m["Owner.id"] as string | null;
-            const owner = ownerId ? (users[ownerId]?.full_name ?? users[ownerId]?.email ?? "—") : "—";
-            const what = m.What_Id;
-            const linked = typeof what === "string" ? what : (what?.name ?? null);
-            const start = m.Start_DateTime ? new Date(m.Start_DateTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
-            return (
-              <a key={m.id} href={`https://crm.zoho.com/crm/tab/Events/${m.id}`} target="_blank" rel="noopener noreferrer"
-                className="text-xs px-2 py-1 rounded border bg-background hover:bg-accent/40 transition-colors inline-flex items-center gap-2">
-                <span className="text-muted-foreground tabular-nums">{start}</span>
-                <span className="font-medium">{m.Event_Title ?? "(untitled)"}</span>
-                {linked && <span className="text-muted-foreground">· {linked}</span>}
-                <span className="text-[10px] text-muted-foreground">— {owner}</span>
-              </a>
-            );
-          })}
-          {rows.length > 12 && <Link href="/bd/meetings" className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">+ {rows.length - 12} more</Link>}
+          <span className="text-xs font-normal text-muted-foreground ml-auto">
+            {linked.length} linked · {unlinked.length} unlinked
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
+              <tr>
+                <th className="text-left py-1.5 pr-3 w-20">Time</th>
+                <th className="text-left py-1.5 pr-3">Company</th>
+                <th className="text-left py-1.5 pr-3">Contact</th>
+                <th className="text-left py-1.5 pr-3">BD rep</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {linked.map(({ m, companyName, contactName, owner, time }) => (
+                <tr key={m.id} className="border-t hover:bg-accent/20">
+                  <td className="py-1.5 pr-3 text-xs tabular-nums text-muted-foreground">{fmtTime(time)}</td>
+                  <td className="py-1.5 pr-3 font-medium">
+                    {companyName ?? <span className="text-muted-foreground italic">contact only</span>}
+                  </td>
+                  <td className="py-1.5 pr-3 text-xs">{contactName ?? <span className="text-muted-foreground">—</span>}</td>
+                  <td className="py-1.5 pr-3 text-xs">{owner}</td>
+                  <td className="py-1.5 pr-3 text-right">
+                    <a href={`https://crm.zoho.com/crm/tab/Events/${m.id}`} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">
+                      Zoho <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </td>
+                </tr>
+              ))}
+              {unlinked.length > 0 && (
+                <>
+                  <tr><td colSpan={5} className="pt-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Unlinked · no company or contact set in Zoho
+                  </td></tr>
+                  {unlinked.map(({ m, owner, time }) => (
+                    <tr key={m.id} className="border-t opacity-70 hover:opacity-100 hover:bg-accent/20">
+                      <td className="py-1.5 pr-3 text-xs tabular-nums text-muted-foreground">{fmtTime(time)}</td>
+                      <td className="py-1.5 pr-3 text-xs italic text-muted-foreground" colSpan={2}>
+                        {m.Event_Title ?? "(untitled)"}
+                      </td>
+                      <td className="py-1.5 pr-3 text-xs">{owner}</td>
+                      <td className="py-1.5 pr-3 text-right">
+                        <a href={`https://crm.zoho.com/crm/tab/Events/${m.id}`} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">
+                          Zoho <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              )}
+            </tbody>
+          </table>
         </div>
       </CardContent>
     </Card>
@@ -690,15 +749,25 @@ function MeetingsList({ rows }: { rows: any[] }) {
   return (
     <table className="w-full text-sm">
       <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        <tr><th className="text-left py-2 pr-3">Title</th><th className="text-left py-2 pr-3">With</th><th className="text-left py-2 pr-3">Venue</th><th className="text-right py-2 pr-3">When</th><th></th></tr>
+        <tr>
+          <th className="text-left py-2 pr-3">Title</th>
+          <th className="text-left py-2 pr-3">Company</th>
+          <th className="text-left py-2 pr-3">Contact</th>
+          <th className="text-left py-2 pr-3">Venue</th>
+          <th className="text-right py-2 pr-3">When</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
         {rows.map((m) => {
-          const what = m.What_Id; const linked = typeof what === "string" ? what : what?.name ?? "—";
+          const what = m.What_Id; const who = m.Who_Id;
+          const companyName = typeof what === "string" ? what : what?.name ?? null;
+          const contactName = typeof who === "string" ? who : who?.name ?? null;
           return (
             <tr key={m.id} className="border-t align-top">
               <td className="py-2 pr-3 font-medium">{m.Event_Title ?? "(untitled)"}</td>
-              <td className="py-2 pr-3 text-xs">{linked}</td>
+              <td className="py-2 pr-3 text-xs">{companyName ? <span className="text-blue-600 dark:text-blue-400">{companyName}</span> : <span className="text-muted-foreground">—</span>}</td>
+              <td className="py-2 pr-3 text-xs">{contactName ? <span className="text-violet-600 dark:text-violet-400">{contactName}</span> : <span className="text-muted-foreground">—</span>}</td>
               <td className="py-2 pr-3 text-xs">{m.Venue ?? "—"}</td>
               <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{m.Start_DateTime ? new Date(m.Start_DateTime).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</td>
               <td className="py-2 pr-3"><a href={`https://crm.zoho.com/crm/tab/Events/${m.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">Zoho <ExternalLink className="w-3 h-3" /></a></td>
