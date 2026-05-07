@@ -98,6 +98,9 @@ interface RefRow {
   contact_email: string | null;
   loc: string | null;
   timestamp: string | null;
+  // Outbound-only fields. Null on inbound rows.
+  refer_out_type?: string | null;       // why we sent them out
+  admitted_at_referred?: boolean | null; // did they admit at the destination
 }
 
 interface BdReferralsList {
@@ -235,15 +238,17 @@ export default function BdReferrals() {
     if (!data) return;
     exportCsv<RefRow>(`bd-referrals-${direction}-${isoToDay(win.startIso)}-to-${isoToDay(win.endIso)}.csv`, [
       { header: "Direction", value: (r) => r.direction },
-      { header: "When", value: (r) => r.timestamp ?? "" },
+      { header: direction === "out" ? "Refer-out date" : "When", value: (r) => r.timestamp ?? "" },
       { header: "Deal", value: (r) => r.deal_name ?? "" },
-      { header: "Account", value: (r) => r.account_name ?? "" },
+      { header: direction === "out" ? "Referred to" : "Referring company", value: (r) => r.account_name ?? "" },
       { header: "Account ID", value: (r) => r.account_id ?? "" },
       { header: "Contact", value: (r) => r.contact_name ?? "" },
       { header: "Contact email", value: (r) => r.contact_email ?? "" },
       { header: "Status (Stage)", value: (r) => r.stage ?? "" },
       { header: "Pipeline", value: (r) => r.pipeline ?? "" },
       { header: "LOC", value: (r) => r.loc ?? "" },
+      { header: "Refer-out reason", value: (r) => r.refer_out_type ?? "" },
+      { header: "Admitted at referred facility", value: (r) => r.admitted_at_referred === true ? "yes" : r.admitted_at_referred === false ? "no" : "" },
       { header: "BD rep", value: (r) => resolveBdRep(r.bd_rep) },
       { header: "Admissions rep", value: (r) => resolveAdmissionsRep(r.owner_id) },
     ], filtered);
@@ -333,10 +338,12 @@ export default function BdReferrals() {
             <table className="w-full text-sm">
               <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
                 <tr>
-                  <th className="text-left py-2 pr-3">{header("timestamp", "When")}</th>
+                  <th className="text-left py-2 pr-3">{header("timestamp", direction === "out" ? "Refer-out date" : "When")}</th>
                   <th className="text-left py-2 pr-3">Deal</th>
                   <th className="text-left py-2 pr-3">{header("account", direction === "in" ? "Referring company" : "Referred to")}</th>
-                  <th className="text-left py-2 pr-3">Contact</th>
+                  {direction === "in" && <th className="text-left py-2 pr-3">Contact</th>}
+                  {direction === "out" && <th className="text-left py-2 pr-3">Refer-out reason</th>}
+                  {direction === "out" && <th className="text-left py-2 pr-3">Admitted there?</th>}
                   <th className="text-left py-2 pr-3">{header("stage", "Status")}</th>
                   <th className="text-left py-2 pr-3">Pipeline</th>
                   <th className="text-left py-2 pr-3">LOC</th>
@@ -355,14 +362,32 @@ export default function BdReferrals() {
                         <Link href={`/bd/account?id=${r.account_id}`} className="text-primary hover:underline">{r.account_name ?? "—"}</Link>
                       ) : (r.account_name ?? "—")}
                     </td>
-                    <td className="py-2 pr-3 text-xs">
-                      {r.contact_name ? (
-                        <div className="space-y-0.5">
-                          <div>{r.contact_name}</div>
-                          {r.contact_email && <div className="text-[10px] text-muted-foreground">{r.contact_email}</div>}
-                        </div>
-                      ) : <span className="text-muted-foreground">—</span>}
-                    </td>
+                    {direction === "in" && (
+                      <td className="py-2 pr-3 text-xs">
+                        {r.contact_name ? (
+                          <div className="space-y-0.5">
+                            <div>{r.contact_name}</div>
+                            {r.contact_email && <div className="text-[10px] text-muted-foreground">{r.contact_email}</div>}
+                          </div>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                    )}
+                    {direction === "out" && (
+                      <td className="py-2 pr-3 text-xs">
+                        {r.refer_out_type ? (
+                          <Badge variant="outline" className="text-[9px] border-orange-500/30 text-orange-700 dark:text-orange-300">{r.refer_out_type}</Badge>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                    )}
+                    {direction === "out" && (
+                      <td className="py-2 pr-3 text-xs">
+                        {r.admitted_at_referred === true ? (
+                          <Badge variant="outline" className="text-[9px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/5">Yes</Badge>
+                        ) : r.admitted_at_referred === false ? (
+                          <span className="text-muted-foreground">No</span>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                    )}
                     <td className="py-2 pr-3 text-xs"><Badge variant="outline" className="text-[10px]">{r.stage ?? "—"}</Badge></td>
                     <td className="py-2 pr-3 text-xs"><Badge variant="outline" className="text-[9px]">{r.pipeline ?? "—"}</Badge></td>
                     <td className="py-2 pr-3 text-xs">{r.loc ? <Badge variant="outline" className="text-[9px]">{r.loc}</Badge> : <span className="text-muted-foreground">—</span>}</td>
