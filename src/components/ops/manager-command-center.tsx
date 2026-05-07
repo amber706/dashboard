@@ -830,18 +830,14 @@ function RepCardTile({ rep: r }: { rep: RepCard }) {
         <MetricTile
           value={r.avg_qa_today ?? "—"}
           label="avg QA"
-          // QA Review doesn't accept a per-rep filter today, so we send
-          // the user to the specialist profile where their QA score
-          // history surfaces. (Adding a specialist filter to QA Review
-          // is a separate task.)
-          href={`/ops/specialist/${r.id}`}
+          href={`/ops/qa-review?specialist=${r.id}`}
           tone={
             r.avg_qa_today == null ? "muted"
               : r.avg_qa_today >= 80 ? "emerald"
               : r.avg_qa_today >= 60 ? "amber"
               : "rose"
           }
-          info="Average composite_score across this rep's calls scored today (out of 100). Calls without a QA score are excluded from the average — it's only the rated calls. Color thresholds: green ≥ 80, amber ≥ 60, rose < 60. Click to open the rep's profile with their QA history."
+          info="Average composite_score across this rep's calls scored today (out of 100). Calls without a QA score are excluded from the average — it's only the rated calls. Color thresholds: green ≥ 80, amber ≥ 60, rose < 60. Click to open QA Review filtered to this rep's calls."
         />
         <MetricTile
           value={r.callbacks_pending}

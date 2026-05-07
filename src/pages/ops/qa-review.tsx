@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import { ShieldAlert, Loader2, Phone, Clock, Timer, User as UserIcon, Headphones, AlertTriangle, ChevronDown, ChevronRight, FileText } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { ShieldAlert, Loader2, Phone, Clock, Timer, User as UserIcon, Headphones, AlertTriangle, ChevronDown, ChevronRight, FileText, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageShell } from "@/components/dashboard/PageShell";
@@ -83,9 +83,40 @@ export default function QAReview() {
   const [transcripts, setTranscripts] = useState<Record<string, TranscriptChunk[]>>({});
   const [transcriptLoading, setTranscriptLoading] = useState<string | null>(null);
 
+  // Optional per-rep filter, hydrated from ?specialist=<profile.id> in
+  // the URL — used by the Rep workload card on /ops/overview to drill
+  // into one rep's QA performance. Cleared via the badge in the header.
+  const initialSpecialist = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("specialist");
+  }, []);
+  const [specialistFilter, setSpecialistFilter] = useState<string | null>(initialSpecialist);
+  // Look up the rep's display name when filtered, so the header pill
+  // says "Joey Masterson" not the raw uuid.
+  const [specialistName, setSpecialistName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!specialistFilter) { setSpecialistName(null); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", specialistFilter)
+        .maybeSingle();
+      if (data) setSpecialistName(data.full_name ?? data.email ?? null);
+    })();
+  }, [specialistFilter]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    // When a specialist filter is set we use !inner on the joined
+    // call_sessions so PostgREST applies the .eq() to the join (inner-
+    // join semantics). Without specialist filter we keep the default
+    // left-join shape so calls with no specialist still surface.
+    const callJoin = specialistFilter
+      ? "call:call_sessions!inner(id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds, ctm_raw_payload, specialist_id)"
+      : "call:call_sessions(id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds, ctm_raw_payload)";
+
     let q = supabase
       .from("call_scores")
       .select(`
@@ -94,7 +125,7 @@ export default function QAReview() {
         next_step_clarity, script_adherence, compliance, booking_or_transfer, overall_quality,
         quality_signals, compliance_flags, coaching_takeaways, graded_by_service_version,
         supervisor_signoff_at, created_at,
-        call:call_sessions(id, ctm_call_id, caller_phone_normalized, caller_name, started_at, talk_seconds, ctm_raw_payload)
+        ${callJoin}
       `)
       .order("created_at", { ascending: false })
       .limit(100);
@@ -102,11 +133,12 @@ export default function QAReview() {
     else if (filter === "low") q = q.lt("composite_score", 50);
     else if (filter === "high") q = q.gte("composite_score", 80);
     else if (filter === "unsigned") q = q.is("supervisor_signoff_at", null).eq("needs_supervisor_review", true);
+    if (specialistFilter) q = q.eq("call.specialist_id", specialistFilter);
     const { data, error } = await q;
     if (error) setError(error.message);
     else setRows((data ?? []) as unknown as ScoreRow[]);
     setLoading(false);
-  }, [filter]);
+  }, [filter, specialistFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -138,12 +170,24 @@ export default function QAReview() {
       subtitle="AI-scored calls with the same 9-category rubric. Review flagged calls and sign off."
     >
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center">
         {(["needs_review", "unsigned", "low", "high", "all"] as const).map((f) => (
           <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} onClick={() => setFilter(f)}>
             {f.replace("_", " ")}
           </Button>
         ))}
+        {specialistFilter && (
+          <Badge
+            variant="outline"
+            className="text-[11px] gap-1 border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/5 cursor-pointer hover:bg-blue-500/10"
+            onClick={() => setSpecialistFilter(null)}
+            title="Clear specialist filter"
+          >
+            <UserIcon className="w-3 h-3" />
+            {specialistName ?? "this rep"}
+            <X className="w-3 h-3" />
+          </Badge>
+        )}
       </div>
 
       {loading && (
