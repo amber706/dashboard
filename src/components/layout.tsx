@@ -133,6 +133,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/admin/audit", label: "Audit Log", icon: <Shield className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
     { href: "/admin/settings", label: "Notification Settings", icon: <Settings className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
     { href: "/settings", label: "Settings", icon: <Wrench className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
+
+    // Business Development workspace — Phase 1 surfaces. Restricted to
+    // managers + admins for now; BD reps will get access in Phase 2 once
+    // the row-level filters are in place.
+    { href: "/bd", label: "Performance Dashboard", icon: <BarChart3 className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
+    { href: "/bd/account", label: "Account Intelligence", icon: <Search className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
+    { href: "/bd/meetings", label: "Meetings", icon: <Calendar className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
   ];
 
   // Master tab: top-level taxonomy. Each tab owns a set of sidebar

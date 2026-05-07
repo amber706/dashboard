@@ -60,8 +60,8 @@ export const MASTER_TABS: MasterTab[] = [
     icon: TrendingUp,
     defaultPath: "/bd",
     prefixes: ["/bd"],
-    sections: [],
-    empty: true,
+    sections: ["BD"],
+    empty: false,
   },
   {
     key: "intake",
