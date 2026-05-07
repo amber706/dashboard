@@ -40,18 +40,19 @@ export const MASTER_TABS: MasterTab[] = [
     label: "Admissions",
     icon: Phone,
     defaultPath: "/",
-    // Admissions owns the bulk of the existing dashboard.
+    // Admissions owns the bulk of the existing dashboard. Note: the
+    // Executive tab below claims more-specific Quality / Staffing /
+    // Insights / Admin paths first via getActiveMasterTab's iteration
+    // order, so navigating to e.g. /ops/qa-review activates Executive
+    // even though /ops/ is in Admissions' broad prefix list.
     prefixes: [
       "/", "/me", "/ctm-calls", "/ctm-agents", "/ctm-attribution",
       "/queue", "/kb", "/knowledge-review",
       "/pre-call", "/live", "/wrap-up", "/leads",
-      "/onboarding", "/settings", "/suggestion",
+      "/onboarding", "/suggestion",
       "/ops/", "/admin",
     ],
-    sections: [
-      "Overview", "Workflow", "Alerts", "Live Ops",
-      "Quality", "Staffing", "Insights", "Admin",
-    ],
+    sections: ["Overview", "Workflow", "Alerts", "Live Ops"],
     empty: false,
   },
   {
@@ -95,9 +96,27 @@ export const MASTER_TABS: MasterTab[] = [
     label: "Executive",
     icon: LayoutDashboard,
     defaultPath: "/executive",
-    prefixes: ["/executive"],
-    // Executive Overview page already exists; no sub-sections yet.
-    sections: [],
+    // Executive owns the management surfaces — Quality, Staffing,
+    // Insights, Admin — that used to live under Admissions but are
+    // really exec/ops oversight territory rather than day-to-day
+    // intake workflow. The specific URL prefixes below match in
+    // getActiveMasterTab BEFORE Admissions' broad /ops/ + /admin
+    // catch-alls, so navigating to e.g. /ops/qa-review or /admin/audit
+    // activates the Executive tab.
+    prefixes: [
+      "/executive",
+      // Quality
+      "/ops/qa-review", "/ops/dispositions", "/ops/ai-bot-feedback",
+      // Staffing
+      "/ops/team", "/ops/staffing", "/ops/workload",
+      // Insights
+      "/ops/funnel", "/ops/outcomes", "/ops/attribution",
+      "/ops/training-analytics", "/ops/kb-drafts", "/ops/objections",
+      // Admin
+      "/admin/leads", "/admin/health", "/admin/audit", "/admin/settings",
+      "/admin", "/settings",
+    ],
+    sections: ["Quality", "Staffing", "Insights", "Admin"],
     empty: false,
   },
   {
