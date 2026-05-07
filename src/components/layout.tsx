@@ -128,6 +128,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
     // ADMIN
     { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Admin", roles: ["manager", "admin"] as const },
+    { href: "/admin/users", label: "Users", icon: <UserCheck className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
     { href: "/admin", label: "Admin Panel", icon: <Settings className="w-4 h-4" />, section: "Admin", roles: ["manager", "admin"] as const },
     { href: "/admin/health", label: "System Health", icon: <Activity className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
     { href: "/admin/audit", label: "Audit Log", icon: <Shield className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },

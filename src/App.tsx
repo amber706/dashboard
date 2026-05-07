@@ -73,6 +73,7 @@ import OpsTeam from "@/pages/ops/team";
 import AuditPage from "@/pages/admin/audit";
 import OpsStaffing from "@/pages/ops/staffing";
 import AdminSettings from "@/pages/admin/settings";
+import AdminUsers from "@/pages/admin/users";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -168,6 +169,7 @@ function AppRoutes() {
         <Route path="/admin/health" component={AdminOnly(HealthPage)} />
         <Route path="/admin/audit" component={AdminOnly(AuditPage)} />
         <Route path="/admin/settings" component={AdminOnly(AdminSettings)} />
+        <Route path="/admin/users" component={AdminOnly(AdminUsers)} />
         <Route path="/settings" component={AdminOnly(SettingsPage)} />
 
         {/* Business Development workspace — manager + admin. */}
