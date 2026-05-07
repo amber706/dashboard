@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { ScheduleMeetingModal, type EditingMeetingRecord } from "@/components/bd/schedule-meeting-modal";
 import { useToast } from "@/hooks/use-toast";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Download } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -234,6 +234,8 @@ export default function BdMeetings() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast]);
 
+  const [importing, setImporting] = useState(false);
+
   // Open the modal in edit mode, prefilled from a Zoho event row's
   // local-record decoration. Only available for rows we have a
   // meeting_records id for (i.e. created via this app).
@@ -310,6 +312,41 @@ export default function BdMeetings() {
       setLoading(false);
     }
   }, [range, repIds]);
+
+  // Pull every Zoho event in the current window into meeting_records
+  // (idempotent — events already mirrored are skipped). After a
+  // successful run, every event in the window has a meeting_records.id
+  // and Edit / Cancel buttons appear on every row.
+  const importFromZoho = useCallback(async () => {
+    setImporting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-meetings-import`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ start_iso: range.startIso, end_iso: range.endIso }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        toast({ title: "Import failed", description: json.error ?? "Unknown error", variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Synced from Zoho",
+        description: json.imported > 0
+          ? `Imported ${json.imported} meeting${json.imported === 1 ? "" : "s"}; ${json.skipped} already in sync.`
+          : `All ${json.total_zoho} meetings already mirrored — nothing new to import.`,
+      });
+      // Refresh so the new local records show up with Edit / Cancel.
+      load();
+    } catch (e) {
+      toast({ title: "Import failed", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setImporting(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range.startIso, range.endIso, toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -538,6 +575,11 @@ export default function BdMeetings() {
           <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 h-9">
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={importFromZoho} disabled={importing || loading} className="gap-1.5 h-9 text-xs"
+            title="Import every Zoho event in this window into the local mirror so they become editable from the app. Idempotent.">
+            {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            Sync from Zoho
           </Button>
           <Button variant="outline" size="sm" onClick={downloadCsv} disabled={!data || (upcoming.length === 0 && recent.length === 0)} className="h-9 text-xs">
             Download CSV
