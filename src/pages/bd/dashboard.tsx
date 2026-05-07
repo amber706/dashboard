@@ -20,8 +20,9 @@ import {
   Loader2, RefreshCw, TrendingUp, Calendar, Target,
   ArrowRight, Search, ArrowLeftRight, ExternalLink, X,
   ChevronRight, ChevronDown, BarChart3, Activity,
-  Phone, ListTodo, ClipboardCheck, Save, Bookmark,
+  Phone, ListTodo, ClipboardCheck, Save, Bookmark, Info,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -371,15 +372,24 @@ export default function BdDashboard() {
 
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <Kpi label="Referrals in"  value={data?.kpis.referrals_in ?? null} loading={loading} icon={<TrendingUp className="w-4 h-4 text-blue-500" />} sub="Deals w/ Referring Co." />
-            <Kpi label="VOBs"           value={data?.kpis.vobs ?? null}         loading={loading} icon={<ClipboardCheck className="w-4 h-4 text-cyan-500" />} sub="VOB_Submitted_Date" />
-            <Kpi label="Admits"         value={data?.kpis.admits ?? null}       loading={loading} icon={<Target className="w-4 h-4 text-emerald-500" />}    sub="From referred-in deals" />
-            <Kpi label="Referrals out"  value={data?.kpis.referrals_out ?? null} loading={loading} icon={<ArrowRight className="w-4 h-4 text-orange-500" />} sub="Stage + Referred_Out" />
-            <Kpi label="Net balance"    value={data?.kpis.net_referral_balance ?? null} loading={loading} icon={<ArrowLeftRight className="w-4 h-4 text-slate-500" />} sub="In − Out" />
-            <Kpi label="Conversion"     value={data?.kpis.conversion_rate != null ? `${data.kpis.conversion_rate}%` : "—"} loading={loading} icon={<Target className="w-4 h-4 text-amber-500" />} sub="Referral → Admit" />
-            <Kpi label="Meetings"       value={data?.kpis.meetings_completed ?? null} loading={loading} icon={<Calendar className="w-4 h-4 text-violet-500" />} sub="Events tied to records" />
-            <Kpi label="Calls"          value={data?.kpis.calls ?? null}        loading={loading} icon={<Phone className="w-4 h-4 text-sky-500" />}        sub="Zoho Calls module" />
-            <Kpi label="Tasks"          value={data?.kpis.tasks ?? null}        loading={loading} icon={<ListTodo className="w-4 h-4 text-rose-500" />}     sub="Created in window" />
+            <Kpi label="Referrals in"  value={data?.kpis.referrals_in ?? null} loading={loading} icon={<TrendingUp className="w-4 h-4 text-blue-500" />} sub="Deals w/ Referring Co."
+              info="Count of Zoho deals created in this window that have a Referring Company set on the deal. Deduped by deal id (a deal is never double-counted even if it appears on a related list under both an account and a contact). Outbound (referred-out) deals are excluded — those are counted under Referrals out." />
+            <Kpi label="VOBs"           value={data?.kpis.vobs ?? null}         loading={loading} icon={<ClipboardCheck className="w-4 h-4 text-cyan-500" />} sub="VOB_Submitted_Date"
+              info="Count of deals whose VOB Submitted Date falls inside the window. This is the 'we ran insurance' moment — happens after a referral comes in and before an admit. Filtered by the same Pipeline selection as everything else (DUI/DV are separate service lines, not treatment)." />
+            <Kpi label="Admits"         value={data?.kpis.admits ?? null}       loading={loading} icon={<Target className="w-4 h-4 text-emerald-500" />}    sub="From referred-in deals"
+              info="Deals that hit an Admitted stage in this window. Counts only deals that originated from a referral in (Referring Company set) — walk-ins and self-referrals are excluded. Use the Conversion KPI to see admit rate against the matching Referrals in cohort." />
+            <Kpi label="Referrals out"  value={data?.kpis.referrals_out ?? null} loading={loading} icon={<ArrowRight className="w-4 h-4 text-orange-500" />} sub="Stage + Referred_Out"
+              info="Patients we sent elsewhere in this window. Unioned across two Zoho signals and deduped by deal id: (1) Stage = 'Referred Out - Coming Back' or 'Closed - Referred Out Unattached', (2) the Referred_Out lookup field is set with a Refer Out Date in window. Account on each row is where we sent them, NOT the original referrer." />
+            <Kpi label="Net balance"    value={data?.kpis.net_referral_balance ?? null} loading={loading} icon={<ArrowLeftRight className="w-4 h-4 text-slate-500" />} sub="In − Out"
+              info="Referrals in minus Referrals out. Positive means we netted patients from the referral network this window; negative means we sent more out than we took in. Useful for spotting reciprocity gaps with specific accounts on the Top Referring Accounts page." />
+            <Kpi label="Conversion"     value={data?.kpis.conversion_rate != null ? `${data.kpis.conversion_rate}%` : "—"} loading={loading} icon={<Target className="w-4 h-4 text-amber-500" />} sub="Referral → Admit"
+              info="Admits ÷ Referrals in for this window, expressed as a percentage. Cohort is the deals counted in the Referrals in tile — same window, same Pipeline filter. Note: an admit can come in a later window than the referral, so very short windows can skew low." />
+            <Kpi label="Meetings"       value={data?.kpis.meetings_completed ?? null} loading={loading} icon={<Calendar className="w-4 h-4 text-violet-500" />} sub="Events tied to records"
+              info="Completed Zoho Events in the window where the BD rep is the host. Includes outreach meetings, partner check-ins, and lunches. Cancelled / no-show events are excluded. Each event is linked to a Company (What_Id) or Contact (Who_Id) — drill into a rep on Today's Meetings to see the company-by-company breakdown." />
+            <Kpi label="Calls"          value={data?.kpis.calls ?? null}        loading={loading} icon={<Phone className="w-4 h-4 text-sky-500" />}        sub="Zoho Calls module"
+              info="Logged calls from the Zoho Calls module in this window, attributed to the BD rep. Inbound + outbound, completed only. Voicemails are counted; missed calls without a logged record are not." />
+            <Kpi label="Tasks"          value={data?.kpis.tasks ?? null}        loading={loading} icon={<ListTodo className="w-4 h-4 text-rose-500" />}     sub="Created in window"
+              info="Zoho Tasks created in this window, owned by the BD rep. Counts creation, not completion — helps measure outreach activity even when follow-ups stretch beyond the window. Status (open / closed) is visible on the per-rep drilldown." />
           </div>
 
           {/* Top referring accounts */}
@@ -738,11 +748,40 @@ function TodaysMeetingsStrip({
 }
 
 // ── KPI ──────────────────────────────────────────────────────────────
-function Kpi({ label, value, loading, icon, sub }: { label: string; value: number | string | null; loading: boolean; icon: React.ReactNode; sub?: string }) {
+function Kpi({ label, value, loading, icon, sub, info }: {
+  label: string;
+  value: number | string | null;
+  loading: boolean;
+  icon: React.ReactNode;
+  sub?: string;
+  /** Plain-English explanation shown on hovering the small "i" badge.
+   *  Should describe what's counted, the source field, and any
+   *  edge cases (dedupe, window basis, exclusions). */
+  info?: string;
+}) {
   return (
     <Card>
       <CardContent className="pt-4 pb-4">
-        <div className="text-xs text-muted-foreground flex items-center gap-1.5">{icon} {label}</div>
+        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+          {icon}
+          <span>{label}</span>
+          {info && (
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`About ${label}`}
+                  className="inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-colors"
+                >
+                  <Info className="w-3 h-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                {info}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
         <div className="text-2xl font-semibold mt-1 tabular-nums">{loading && value == null ? <Loader2 className="w-4 h-4 animate-spin" /> : (value ?? "—")}</div>
         {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
       </CardContent>
