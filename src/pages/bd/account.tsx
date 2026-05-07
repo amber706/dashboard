@@ -54,10 +54,19 @@ interface BdAccountDetail {
   deals_in_pipeline: any[];
   referrals_out: any[];
   meetings: any[];
+  business_contacts: Array<{
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    title: string | null;
+    referral_count: number;
+    last_referral_at: string | null;
+  }>;
   window: { days: number; start: string; end: string };
 }
 
-type TabKey = "referrals" | "admits" | "pipeline" | "out" | "meetings";
+type TabKey = "referrals" | "admits" | "pipeline" | "out" | "meetings" | "contacts";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -317,6 +326,7 @@ export default function BdAccountIntelligence() {
               { key: "admits", label: "Admits", count: detail.admits.length },
               { key: "pipeline", label: "In pipeline", count: detail.deals_in_pipeline.length },
               { key: "out", label: "Referrals out", count: detail.referrals_out.length },
+              { key: "contacts", label: "Business contacts", count: detail.business_contacts?.length ?? 0 },
               { key: "meetings", label: "Meetings", count: detail.meetings.length },
             ] as const).map((t) => (
               <Button
@@ -337,6 +347,7 @@ export default function BdAccountIntelligence() {
           {tab === "admits" && <DealsInTable rows={detail.admits} repName={repName} />}
           {tab === "pipeline" && <DealsInTable rows={detail.deals_in_pipeline} repName={repName} />}
           {tab === "out" && <DealsOutTable rows={detail.referrals_out} repName={repName} />}
+          {tab === "contacts" && <BusinessContactsTable rows={detail.business_contacts ?? []} />}
           {tab === "meetings" && <MeetingsTable rows={detail.meetings} repName={repName} />}
         </>
       )}
@@ -368,8 +379,8 @@ function Stat({ label, value, accent }: {
 }
 
 // Inbound deal table — Deal rows tied to Referring_Company. Columns:
-// Deal name, Stage, BD rep (picklist), Owner (Zoho), LOC if admitted,
-// Subcategory, Last touch.
+// Deal name, Stage, Referring contact (the person at the partner who
+// sent it), BD rep, LOC, Subcategory, Updated.
 function DealsInTable({ rows, repName }: { rows: any[]; repName: (z: string | null | undefined) => string }) {
   if (rows.length === 0) {
     return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No deals in this category for the window.</CardContent></Card>;
@@ -382,8 +393,8 @@ function DealsInTable({ rows, repName }: { rows: any[]; repName: (z: string | nu
             <tr>
               <th className="text-left py-2 pr-3">Deal</th>
               <th className="text-left py-2 pr-3">Stage</th>
+              <th className="text-left py-2 pr-3">Referred by</th>
               <th className="text-left py-2 pr-3">BD rep</th>
-              <th className="text-left py-2 pr-3">Owner</th>
               <th className="text-left py-2 pr-3">LOC</th>
               <th className="text-left py-2 pr-3">Subcategory</th>
               <th className="text-right py-2 pr-3">Updated</th>
@@ -391,20 +402,90 @@ function DealsInTable({ rows, repName }: { rows: any[]; repName: (z: string | nu
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="py-2 pr-3 font-medium">{r.Deal_Name ?? "(no name)"}</td>
-                <td className="py-2 pr-3"><Badge variant="outline" className="text-[10px]">{r.Stage}</Badge></td>
-                <td className="py-2 pr-3 text-xs">{r.BD_Rep ?? "—"}</td>
-                <td className="py-2 pr-3 text-xs">{repName(r["Owner.id"])}</td>
-                <td className="py-2 pr-3 text-xs">{r.Admitted_Level_of_Care ?? "—"}</td>
-                <td className="py-2 pr-3 text-xs">{r.Business_Development_Subcategory ?? "—"}</td>
+            {rows.map((r) => {
+              const contactName = r["Referring_Business_Contact.Full_Name"] as string | null;
+              const contactEmail = r["Referring_Business_Contact.Email"] as string | null;
+              const contactPhone = r["Referring_Business_Contact.Phone"] as string | null;
+              return (
+                <tr key={r.id} className="border-t align-top">
+                  <td className="py-2 pr-3 font-medium">{r.Deal_Name ?? "(no name)"}</td>
+                  <td className="py-2 pr-3"><Badge variant="outline" className="text-[10px]">{r.Stage}</Badge></td>
+                  <td className="py-2 pr-3 text-xs">
+                    {contactName ? (
+                      <div className="space-y-0.5">
+                        <div className="font-medium">{contactName}</div>
+                        {(contactEmail || contactPhone) && (
+                          <div className="text-[10px] text-muted-foreground">
+                            {contactEmail}{contactEmail && contactPhone ? " · " : ""}{contactPhone}
+                          </div>
+                        )}
+                      </div>
+                    ) : <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="py-2 pr-3 text-xs">{r.BD_Rep ?? "—"}</td>
+                  <td className="py-2 pr-3 text-xs">{r.Admitted_Level_of_Care ?? "—"}</td>
+                  <td className="py-2 pr-3 text-xs">{r.Business_Development_Subcategory ?? "—"}</td>
+                  <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">
+                    {r.Modified_Time ? daysSince(r.Modified_Time) : "—"}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <a
+                      href={`https://crm.zoho.com/crm/tab/Potentials/${r.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"
+                    >
+                      Zoho <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Distinct business contacts who've sent referrals from this account.
+function BusinessContactsTable({ rows }: { rows: Array<{ id: string; name: string; email: string | null; phone: string | null; title: string | null; referral_count: number; last_referral_at: string | null }> }) {
+  if (rows.length === 0) {
+    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No business contacts found in this window. Referrals from this account had no Referring_Business_Contact set in Zoho.</CardContent></Card>;
+  }
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-4 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-xs text-muted-foreground uppercase tracking-wide">
+            <tr>
+              <th className="text-left py-2 pr-3">Name</th>
+              <th className="text-left py-2 pr-3">Title</th>
+              <th className="text-left py-2 pr-3">Email</th>
+              <th className="text-left py-2 pr-3">Phone</th>
+              <th className="text-right py-2 pr-3">Referrals</th>
+              <th className="text-right py-2 pr-3">Last referral</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c) => (
+              <tr key={c.id} className="border-t align-top">
+                <td className="py-2 pr-3 font-medium">{c.name}</td>
+                <td className="py-2 pr-3 text-xs">{c.title ?? "—"}</td>
+                <td className="py-2 pr-3 text-xs">
+                  {c.email ? <a href={`mailto:${c.email}`} className="text-primary hover:underline">{c.email}</a> : "—"}
+                </td>
+                <td className="py-2 pr-3 text-xs">
+                  {c.phone ? <a href={`tel:${c.phone}`} className="text-primary hover:underline">{c.phone}</a> : "—"}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums">{c.referral_count}</td>
                 <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">
-                  {r.Modified_Time ? daysSince(r.Modified_Time) : "—"}
+                  {c.last_referral_at ? daysSince(c.last_referral_at) : "—"}
                 </td>
                 <td className="py-2 pr-3">
                   <a
-                    href={`https://crm.zoho.com/crm/tab/Potentials/${r.id}`}
+                    href={`https://crm.zoho.com/crm/tab/Contacts/${c.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"

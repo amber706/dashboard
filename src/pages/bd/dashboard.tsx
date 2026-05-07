@@ -550,12 +550,14 @@ function RepDrilldown({ drilldown, days, pipelines, repName }: {
 }
 
 function DealsList({ rows, category }: { rows: any[]; category: DrilldownCategory }) {
+  const showContact = category === "in" || category === "admits";
   return (
     <table className="w-full text-sm">
       <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
         <tr>
           <th className="text-left py-2 pr-3">Deal</th>
           <th className="text-left py-2 pr-3">{category === "out" ? "Referred to" : "Referring co."}</th>
+          {showContact && <th className="text-left py-2 pr-3">Contact</th>}
           <th className="text-left py-2 pr-3">{category === "out" ? "Refer-out" : "Stage"}</th>
           <th className="text-left py-2 pr-3">Pipeline</th>
           <th></th>
@@ -569,10 +571,25 @@ function DealsList({ rows, category }: { rows: any[]; category: DrilldownCategor
           const middle = category === "out"
             ? (d.Refer_Out_Date ? new Date(d.Refer_Out_Date).toLocaleDateString() : "—")
             : (d.Stage as string) ?? "—";
+          const contactName = d["Referring_Business_Contact.Full_Name"] as string | null;
+          const contactEmail = d["Referring_Business_Contact.Email"] as string | null;
+          const contactPhone = d["Referring_Business_Contact.Phone"] as string | null;
           return (
             <tr key={d.id} className="border-t align-top">
               <td className="py-2 pr-3 font-medium">{d.Deal_Name ?? "(no name)"}</td>
               <td className="py-2 pr-3 text-xs">{account}</td>
+              {showContact && (
+                <td className="py-2 pr-3 text-xs">
+                  {contactName ? (
+                    <div className="space-y-0.5">
+                      <div>{contactName}</div>
+                      {(contactEmail || contactPhone) && (
+                        <div className="text-[10px] text-muted-foreground">{contactEmail}{contactEmail && contactPhone ? " · " : ""}{contactPhone}</div>
+                      )}
+                    </div>
+                  ) : <span className="text-muted-foreground">—</span>}
+                </td>
+              )}
               <td className="py-2 pr-3 text-xs">{middle}</td>
               <td className="py-2 pr-3 text-xs"><Badge variant="outline" className="text-[9px]">{d.Pipeline ?? "—"}</Badge></td>
               <td className="py-2 pr-3">
