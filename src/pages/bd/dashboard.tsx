@@ -20,7 +20,7 @@ import {
   Loader2, RefreshCw, TrendingUp, Calendar, Target,
   ArrowRight, Search, ArrowLeftRight, ExternalLink, X,
   ChevronRight, ChevronDown, BarChart3, Activity,
-  Phone, ListTodo, ClipboardCheck, Save, Bookmark, Info,
+  Phone, ListTodo, ClipboardCheck, Save, Bookmark, Info, AlertTriangle,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/lib/supabase";
@@ -373,6 +373,12 @@ export default function BdDashboard() {
           </div>
 
           {error && <Card className="border-red-500/30 bg-red-500/5"><CardContent className="pt-4 pb-4 text-sm text-red-600 dark:text-red-400">{error}</CardContent></Card>}
+
+          {/* Needs-attention banner — surfaces the reactivation queue
+              right above the KPI grid so managers don't have to navigate
+              to /bd/stuck-accounts to discover the count. Inert when
+              the queue is empty (no rendering at all). */}
+          <NeedsAttentionBanner />
 
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -1500,6 +1506,96 @@ function ReferralsView({
         </Card>
       )}
     </>
+  );
+}
+
+// ── Needs-attention banner ───────────────────────────────────────────
+// Reads bd-top-accounts (which already computes the reactivation
+// flags) and rolls them up to a single per-severity count + CTA into
+// /bd/stuck-accounts. Independent of the dashboard's own data window
+// — uses a fixed 90-day lookback because reactivation signals don't
+// change with the user's filter selection. Renders nothing when the
+// queue is empty, so the dashboard isn't crowded on quiet days.
+function NeedsAttentionBanner() {
+  const [counts, setCounts] = useState<{ high: number; medium: number; low: number; total: number } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-top-accounts`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ days: 90, min_referrals: 1 }),
+        });
+        const json = await res.json();
+        if (cancelled || !json.ok) return;
+        const REACTIVATION = ["high_value_dormant", "no_recent_contact", "no_recent_meeting"] as const;
+        const sevRank = (s: string | undefined) => s === "high" ? 3 : s === "medium" ? 2 : s === "low" ? 1 : 0;
+        let high = 0, medium = 0, low = 0;
+        for (const a of json.accounts ?? []) {
+          let max = 0;
+          for (const k of REACTIVATION) {
+            const f = a.flags?.[k];
+            if (f?.state === "active") max = Math.max(max, sevRank(f.severity));
+          }
+          if (max === 3) high++;
+          else if (max === 2) medium++;
+          else if (max === 1) low++;
+        }
+        setCounts({ high, medium, low, total: high + medium + low });
+      } catch { /* silent — banner just won't render */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!counts || counts.total === 0) return null;
+
+  // Tone follows the worst-severity in the queue. If there are any
+  // high-priority accounts, the banner is rose; otherwise amber.
+  const tone = counts.high > 0
+    ? "border-rose-500/30 bg-rose-500/5"
+    : "border-amber-500/30 bg-amber-500/5";
+  const accent = counts.high > 0 ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400";
+
+  return (
+    <Card className={tone}>
+      <CardContent className="pt-3 pb-3 flex items-center gap-3 flex-wrap">
+        <AlertTriangle className={`w-5 h-5 shrink-0 ${accent}`} />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium">
+            {counts.total} referring account{counts.total === 1 ? "" : "s"} need outreach
+          </div>
+          <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap mt-0.5">
+            {counts.high > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                {counts.high} high-priority
+              </span>
+            )}
+            {counts.medium > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                {counts.medium} medium
+              </span>
+            )}
+            {counts.low > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                {counts.low} low
+              </span>
+            )}
+          </div>
+        </div>
+        <Link href="/bd/stuck-accounts">
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5">
+            Open queue <ArrowRight className="w-3 h-3" />
+          </Button>
+        </Link>
+      </CardContent>
+    </Card>
   );
 }
 
