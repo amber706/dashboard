@@ -324,7 +324,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <div className="text-[13px] font-medium truncate text-[#F4EFE6]">{userName}</div>
             <div className="text-[11px] text-[#6E7E9E] flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
-              {role === "admin" ? "Administrator" : role === "manager" ? "Manager" : "Representative"}
+              {role === "admin" ? "Administrator" : role === "manager" ? "Manager" : "Staff"}
             </div>
           </div>
           <ChevronDown className={`w-3.5 h-3.5 text-[#6E7E9E] transition-transform ${showUserMenu ? "rotate-180" : ""}`} />

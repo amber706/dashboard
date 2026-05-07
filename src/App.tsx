@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { RoleProvider } from "@/lib/role-context";
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { RequireRole } from "@/components/require-role";
 
 import Home from "@/pages/home-v2";
 import LegacyHome from "@/pages/home";
@@ -82,72 +83,100 @@ const queryClient = new QueryClient({
   },
 });
 
+// Role-gating helpers. RequireRole renders an "unauthorized" screen
+// (with a back-to-dashboard CTA) when the current user's role isn't in
+// the allowed list. The two helpers below cover the common cases —
+// any path that needs a different shape (admin-only, etc.) wraps
+// inline. Defined at module scope so React doesn't re-create the
+// wrapper on every render.
+const Mgr = (Component: React.ComponentType) => () => (
+  <RequireRole roles={["manager", "admin"]}>
+    <Component />
+  </RequireRole>
+);
+const AdminOnly = (Component: React.ComponentType) => () => (
+  <RequireRole roles={["admin"]}>
+    <Component />
+  </RequireRole>
+);
+
 function AppRoutes() {
   return (
     <Layout>
       <ErrorBoundary>
       <Switch>
+        {/* Open to every authenticated role (staff + manager + admin). */}
         <Route path="/" component={Home} />
-        <Route path="/legacy-home" component={LegacyHome} />
-        <Route path="/pre-call/:id" component={PreCall} />
-        <Route path="/live/:id" component={LiveCall} />
-        <Route path="/wrap-up/:id" component={WrapUp} />
-        <Route path="/admin" component={Admin} />
-        <Route path="/executive" component={ExecutiveOverview} />
-        <Route path="/analytics" component={Analytics} />
+        <Route path="/me" component={MyCoaching} />
         <Route path="/onboarding" component={Onboarding} />
-        <Route path="/settings" component={SettingsPage} />
-        <Route path="/suggestion/:id" component={SuggestionDetail} />
         <Route path="/ctm-calls" component={CTMCalls} />
-        <Route path="/ctm-agents" component={CTMAgents} />
-        <Route path="/ctm-attribution" component={CTMAttribution} />
-        <Route path="/knowledge-review" component={KnowledgeReview} />
+        <Route path="/queue" component={QueuePage} />
         <Route path="/kb" component={KnowledgeBase} />
         <Route path="/training" component={TrainingScenarios} />
         <Route path="/training/:id" component={TrainingSession} />
-        <Route path="/ops/overview" component={OpsOverview} />
-        <Route path="/ops/suggestions" component={OpsSuggestions} />
-        <Route path="/ops/workload" component={OpsWorkload} />
-        <Route path="/ops/attribution" component={OpsAttribution} />
-        <Route path="/ops/supervisor-review" component={OpsSupervisorReview} />
-        <Route path="/ops/knowledge" component={OpsKnowledge} />
-        <Route path="/ops/alerts" component={OpsAlerts} />
-        <Route path="/ops/kb-drafts" component={OpsKBDrafts} />
-        <Route path="/ops/scenario-review" component={OpsScenarioReview} />
-        <Route path="/ops/training-analytics" component={OpsTrainingAnalytics} />
-        <Route path="/ops/training-assignments" component={OpsTrainingAssignments} />
-        <Route path="/ops/qa-review" component={OpsQAReview} />
-        <Route path="/ops/coaching" component={OpsCoaching} />
-        <Route path="/ops/outreach" component={OpsOutreach} />
-        <Route path="/ops/stuck-leads" component={OpsStuckLeads} />
-        <Route path="/ops/vob" component={OpsVOB} />
-        <Route path="/ops/intakes" component={OpsIntakes} />
-        <Route path="/ops/training-paths" component={OpsTrainingPaths} />
-        <Route path="/queue" component={QueuePage} />
-        <Route path="/ops/funnel" component={OpsFunnel} />
-        <Route path="/ops/objections" component={OpsObjections} />
-        <Route path="/ops/dispositions" component={OpsDispositions} />
-        <Route path="/ops/specialist/:id" component={SpecialistDeepDive} />
-        <Route path="/ops/rep-leads/:id" component={RepLeadsDrilldown} />
-        <Route path="/admin/leads" component={AdminLeads} />
-        <Route path="/ops/abandoned-calls" component={OpsAbandonedCalls} />
-        <Route path="/ops/ai-bot-feedback" component={OpsAIBotFeedback} />
-        <Route path="/ops/outcomes" component={OpsOutcomes} />
-        <Route path="/me" component={MyCoaching} />
+        <Route path="/pre-call/:id" component={PreCall} />
+        <Route path="/live/:id" component={LiveCall} />
+        <Route path="/wrap-up/:id" component={WrapUp} />
         <Route path="/leads/:id" component={LeadDetail} />
-        <Route path="/ops/callbacks" component={OpsCallbacks} />
-        <Route path="/admin/health" component={HealthPage} />
-        <Route path="/ops/team" component={OpsTeam} />
-        <Route path="/admin/audit" component={AuditPage} />
-        <Route path="/ops/staffing" component={OpsStaffing} />
-        <Route path="/admin/settings" component={AdminSettings} />
-        {/* Business Development workspace */}
-        <Route path="/bd" component={BdDashboard} />
-        <Route path="/bd/referrals" component={BdReferrals} />
-        <Route path="/bd/stuck-accounts" component={BdStuckAccounts} />
-        <Route path="/bd/account" component={BdAccountIntelligence} />
-        <Route path="/bd/top-accounts" component={BdTopAccounts} />
-        <Route path="/bd/meetings" component={BdMeetings} />
+
+        {/* Manager + admin only. RLS would already filter the data
+            for staff, but the page shells expose information that
+            isn't theirs to see (other reps' QA, compliance flags,
+            executive boards, BD reporting, ops command center). */}
+        <Route path="/legacy-home" component={Mgr(LegacyHome)} />
+        <Route path="/admin" component={Mgr(Admin)} />
+        <Route path="/executive" component={Mgr(ExecutiveOverview)} />
+        <Route path="/analytics" component={Mgr(Analytics)} />
+        <Route path="/suggestion/:id" component={Mgr(SuggestionDetail)} />
+        <Route path="/ctm-agents" component={Mgr(CTMAgents)} />
+        <Route path="/ctm-attribution" component={Mgr(CTMAttribution)} />
+        <Route path="/knowledge-review" component={Mgr(KnowledgeReview)} />
+        <Route path="/ops/overview" component={Mgr(OpsOverview)} />
+        <Route path="/ops/suggestions" component={Mgr(OpsSuggestions)} />
+        <Route path="/ops/workload" component={Mgr(OpsWorkload)} />
+        <Route path="/ops/attribution" component={Mgr(OpsAttribution)} />
+        <Route path="/ops/supervisor-review" component={Mgr(OpsSupervisorReview)} />
+        <Route path="/ops/knowledge" component={Mgr(OpsKnowledge)} />
+        <Route path="/ops/alerts" component={Mgr(OpsAlerts)} />
+        <Route path="/ops/kb-drafts" component={Mgr(OpsKBDrafts)} />
+        <Route path="/ops/scenario-review" component={Mgr(OpsScenarioReview)} />
+        <Route path="/ops/training-analytics" component={Mgr(OpsTrainingAnalytics)} />
+        <Route path="/ops/training-assignments" component={Mgr(OpsTrainingAssignments)} />
+        <Route path="/ops/qa-review" component={Mgr(OpsQAReview)} />
+        <Route path="/ops/coaching" component={Mgr(OpsCoaching)} />
+        <Route path="/ops/outreach" component={Mgr(OpsOutreach)} />
+        <Route path="/ops/stuck-leads" component={Mgr(OpsStuckLeads)} />
+        <Route path="/ops/vob" component={Mgr(OpsVOB)} />
+        <Route path="/ops/intakes" component={Mgr(OpsIntakes)} />
+        <Route path="/ops/training-paths" component={Mgr(OpsTrainingPaths)} />
+        <Route path="/ops/funnel" component={Mgr(OpsFunnel)} />
+        <Route path="/ops/objections" component={Mgr(OpsObjections)} />
+        <Route path="/ops/dispositions" component={Mgr(OpsDispositions)} />
+        <Route path="/ops/specialist/:id" component={Mgr(SpecialistDeepDive)} />
+        <Route path="/ops/rep-leads/:id" component={Mgr(RepLeadsDrilldown)} />
+        <Route path="/ops/abandoned-calls" component={Mgr(OpsAbandonedCalls)} />
+        <Route path="/ops/ai-bot-feedback" component={Mgr(OpsAIBotFeedback)} />
+        <Route path="/ops/outcomes" component={Mgr(OpsOutcomes)} />
+        <Route path="/ops/callbacks" component={Mgr(OpsCallbacks)} />
+        <Route path="/ops/team" component={Mgr(OpsTeam)} />
+        <Route path="/ops/staffing" component={Mgr(OpsStaffing)} />
+        <Route path="/admin/leads" component={Mgr(AdminLeads)} />
+
+        {/* Admin only. Health check, audit log, notification + global
+            settings — these expose org-level config that managers
+            shouldn't touch either. */}
+        <Route path="/admin/health" component={AdminOnly(HealthPage)} />
+        <Route path="/admin/audit" component={AdminOnly(AuditPage)} />
+        <Route path="/admin/settings" component={AdminOnly(AdminSettings)} />
+        <Route path="/settings" component={AdminOnly(SettingsPage)} />
+
+        {/* Business Development workspace — manager + admin. */}
+        <Route path="/bd" component={Mgr(BdDashboard)} />
+        <Route path="/bd/referrals" component={Mgr(BdReferrals)} />
+        <Route path="/bd/stuck-accounts" component={Mgr(BdStuckAccounts)} />
+        <Route path="/bd/account" component={Mgr(BdAccountIntelligence)} />
+        <Route path="/bd/top-accounts" component={Mgr(BdTopAccounts)} />
+        <Route path="/bd/meetings" component={Mgr(BdMeetings)} />
 
         {/* Master-tab placeholder routes — modules not yet built.
             Each one lands on the same Coming Soon page which
