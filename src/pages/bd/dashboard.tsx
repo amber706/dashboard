@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { loadSavedViews, saveView, deleteView, type BdSavedView } from "@/lib/bd-saved-views";
+import { exportCsv, isoToDay } from "@/lib/bd-csv";
 
 // ── Pipeline grouping (frontend label → Zoho Pipeline values) ────────
 const PIPELINE_GROUPS = {
@@ -126,7 +127,7 @@ interface Drilldown { bd_rep: string; category: DrilldownCategory; zoho_user_id:
 
 // ── Component ────────────────────────────────────────────────────────
 export default function BdDashboard() {
-  const [tab, setTab] = useState<"live" | "referrals" | "trends">("live");
+  const [tab, setTab] = useState<"live" | "trends">("live");
 
   // Window state
   const [preset, setPreset] = useState<WindowPreset>("mtd"); // default per Amber: MTD
@@ -293,7 +294,8 @@ export default function BdDashboard() {
         </div>
       }
     >
-      {/* Top tab bar — Live metrics / Referrals / Trends */}
+      {/* Top tab bar — Live metrics / Trends. Referrals was promoted
+          to its own page at /bd/referrals (see left nav). */}
       <div className="flex items-center gap-1 border-b">
         <button
           onClick={() => setTab("live")}
@@ -302,14 +304,6 @@ export default function BdDashboard() {
           }`}
         >
           <Activity className="w-4 h-4" /> Live metrics
-        </button>
-        <button
-          onClick={() => setTab("referrals")}
-          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-            tab === "referrals" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <ArrowLeftRight className="w-4 h-4" /> Referrals
         </button>
         <button
           onClick={() => setTab("trends")}
@@ -323,20 +317,8 @@ export default function BdDashboard() {
 
       {tab === "trends" ? (
         <TrendsView pipelinesParam={pipelinesParam} resolveRep={resolveRep} />
-      ) : tab === "referrals" ? (
-        <ReferralsView startIso={win.startIso} endIso={win.endIso} winLabel={win.label}
-          preset={preset} setPreset={setPreset}
-          customStart={customStart} setCustomStart={setCustomStart}
-          customEnd={customEnd} setCustomEnd={setCustomEnd}
-          pipelineGroups={pipelineGroups} togglePipeline={togglePipeline} clearPipelines={() => { clearActiveOnEdit(); setPipelineGroups(new Set()); }}
-          pipelinesParam={pipelinesParam}
-          resolveRep={resolveRep}
-        />
       ) : (
         <>
-          {/* Today's meetings strip — always visible regardless of window */}
-          <TodaysMeetingsStrip rows={todaysMeetings} users={todaysUsers} loading={loading} />
-
           {/* Saved Views — named filter combos persisted to localStorage */}
           <SavedViewsRow
             views={savedViews}
@@ -403,9 +385,26 @@ export default function BdDashboard() {
           {/* Top referring accounts */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
+              <CardTitle className="text-base flex items-center justify-between gap-2">
                 <span>Top referring accounts</span>
-                <span className="text-xs font-normal text-muted-foreground">grouped by Deal.Referring_Company</span>
+                <span className="flex items-center gap-2">
+                  <span className="text-xs font-normal text-muted-foreground">grouped by Deal.Referring_Company</span>
+                  <Button size="sm" variant="outline" disabled={!data || data.top_accounts.length === 0} onClick={() => {
+                    if (!data) return;
+                    exportCsv<any>(`bd-top-accounts-${isoToDay(win.startIso)}-to-${isoToDay(win.endIso)}.csv`, [
+                      { header: "Rank", value: (_a, i) => i + 1 },
+                      { header: "Account", value: (a) => a.account_name },
+                      { header: "Account ID", value: (a) => a.account_id },
+                      { header: "Referrals in", value: (a) => a.referrals_in },
+                      { header: "Referrals out", value: (a) => a.referrals_out },
+                      { header: "Net", value: (a) => a.net_balance },
+                      { header: "Admits", value: (a) => a.admits },
+                      { header: "Conversion %", value: (a) => a.conversion_rate },
+                      { header: "Last referral", value: (a) => a.last_referral_at },
+                      { header: "Last meeting", value: (a) => a.last_meeting_at },
+                    ], data.top_accounts);
+                  }} className="h-7 text-[11px] px-2">CSV</Button>
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -451,9 +450,27 @@ export default function BdDashboard() {
           {/* Per-rep table */}
           <Card>
             <CardHeader className="space-y-2">
-              <CardTitle className="text-base flex items-center justify-between">
+              <CardTitle className="text-base flex items-center justify-between gap-2">
                 <span>Per BD rep</span>
-                <span className="text-xs font-normal text-muted-foreground">click ▸ to expand LOC breakdown · click any number to drill into the underlying records</span>
+                <span className="flex items-center gap-2">
+                  <span className="text-xs font-normal text-muted-foreground">click ▸ to expand LOC · click any number to drill</span>
+                  <Button size="sm" variant="outline" disabled={!data || visibleReps.length === 0} onClick={() => {
+                    if (!data) return;
+                    exportCsv<any>(`bd-per-rep-${isoToDay(win.startIso)}-to-${isoToDay(win.endIso)}.csv`, [
+                      { header: "Rep", value: (r) => resolveRep(r.bd_rep).name },
+                      { header: "BD_Rep (Zoho picklist)", value: (r) => r.bd_rep },
+                      { header: "Referrals in", value: (r) => r.referrals_in },
+                      { header: "VOBs", value: (r) => r.vobs },
+                      { header: "Admits", value: (r) => r.admits },
+                      { header: "Referrals out", value: (r) => r.referrals_out },
+                      { header: "Net", value: (r) => r.net_balance },
+                      { header: "Conversion %", value: (r) => r.conversion_rate },
+                      { header: "Meetings", value: (r) => r.meetings },
+                      { header: "Calls", value: (r) => r.calls },
+                      { header: "Tasks", value: (r) => r.tasks },
+                    ], visibleReps);
+                  }} className="h-7 text-[11px] px-2">CSV</Button>
+                </span>
               </CardTitle>
               {data && data.reps.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -559,6 +576,10 @@ export default function BdDashboard() {
             </CardContent>
           </Card>
 
+          {/* Today's meetings — at the bottom of the page so it doesn't
+              dominate the metrics view. Grouped by BD rep, collapsible. */}
+          <TodaysMeetingsStrip rows={todaysMeetings} users={todaysUsers} loading={loading} resolveRep={resolveRep} />
+
           {/* Drilldown sheet */}
           <Sheet open={drilldown != null} onOpenChange={(o) => { if (!o) setDrilldown(null); }}>
             <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
@@ -574,12 +595,27 @@ export default function BdDashboard() {
   );
 }
 
-// ── Today's meetings table ───────────────────────────────────────────
-// Structured table layout — Company is the primary identifier (not the
-// usually-throwaway "Check-in at X PM" title). Sorted by time. Linked
-// meetings (with company or contact) come first; unlinked ones get a
-// muted "data quality gap" footer so they're flagged but not lost.
-function TodaysMeetingsStrip({ rows, users, loading }: { rows: any[]; users: Record<string, { full_name: string | null; email: string | null }>; loading: boolean }) {
+// ── Today's meetings panel ───────────────────────────────────────────
+// Grouped by BD rep, collapsible (collapsed by default to keep the
+// dashboard compact). Lives at the bottom of the page since today's
+// meetings are reference material, not the primary metric view.
+//
+// Subject column: prefers Zoho's What_Id.name (company) → Who_Id.name
+// (contact) → meeting title. Cornerstone BD reps put the partner name
+// in the title for unlinked check-ins ("Drop NW Sahuarita", "OV
+// Psychiatry"), so the title fallback is usually the most useful
+// identifier we have for those rows.
+function TodaysMeetingsStrip({
+  rows, users, loading, resolveRep,
+}: {
+  rows: any[];
+  users: Record<string, { full_name: string | null; email: string | null }>;
+  loading: boolean;
+  resolveRep: (s: string) => { name: string; profileId: string | null };
+}) {
+  const [openReps, setOpenReps] = useState<Set<string>>(new Set());
+  const [allOpen, setAllOpen] = useState(false);
+
   if (loading && rows.length === 0) {
     return (
       <Card className="border-blue-500/30 bg-blue-500/5">
@@ -591,20 +627,42 @@ function TodaysMeetingsStrip({ rows, users, loading }: { rows: any[]; users: Rec
   }
   if (rows.length === 0) return null;
 
+  // Enrich every meeting with the best available company-ish label.
   const enriched = rows.map((m: any) => {
     const what = m.What_Id;
     const who = m.Who_Id;
     const companyName = typeof what === "string" ? what : (what?.name ?? null);
     const contactName = typeof who === "string" ? who : (who?.name ?? null);
     const ownerId = m["Owner.id"] as string | null;
-    const owner = ownerId ? (users[ownerId]?.full_name ?? users[ownerId]?.email ?? "—") : "—";
-    return { m, companyName, contactName, owner, time: m.Start_DateTime ? new Date(m.Start_DateTime) : null };
+    const ownerRaw = ownerId ? (users[ownerId]?.full_name ?? users[ownerId]?.email ?? null) : null;
+    const ownerKey = ownerRaw ?? "(unassigned)";
+    const ownerName = ownerRaw ? resolveRep(ownerRaw).name : "(unassigned)";
+    const subject = companyName ?? contactName ?? m.Event_Title ?? "(untitled)";
+    const linked = !!(companyName || contactName);
+    return {
+      m, ownerKey, ownerName,
+      subject, companyName, contactName, linked,
+      time: m.Start_DateTime ? new Date(m.Start_DateTime) : null,
+    };
   });
   enriched.sort((a, b) => (a.time?.getTime() ?? 0) - (b.time?.getTime() ?? 0));
-  const linked = enriched.filter((e) => e.companyName || e.contactName);
-  const unlinked = enriched.filter((e) => !e.companyName && !e.contactName);
+
+  // Group by BD rep.
+  const byRep = new Map<string, typeof enriched>();
+  for (const row of enriched) {
+    const list = byRep.get(row.ownerKey) ?? [];
+    list.push(row);
+    byRep.set(row.ownerKey, list);
+  }
+  const repGroups = Array.from(byRep.entries())
+    .map(([key, list]) => ({ key, name: list[0].ownerName, list }))
+    .sort((a, b) => b.list.length - a.list.length); // busiest first
 
   const fmtTime = (d: Date | null) => d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  function toggle(rep: string) {
+    setOpenReps((prev) => { const n = new Set(prev); n.has(rep) ? n.delete(rep) : n.add(rep); return n; });
+  }
+  const isOpen = (rep: string) => allOpen || openReps.has(rep);
 
   return (
     <Card className="border-blue-500/30 bg-blue-500/5">
@@ -613,65 +671,67 @@ function TodaysMeetingsStrip({ rows, users, loading }: { rows: any[]; users: Rec
           <Calendar className="w-4 h-4 text-blue-500" />
           <span>Today's meetings</span>
           <Badge variant="outline" className="text-[10px]">{rows.length}</Badge>
-          <span className="text-xs font-normal text-muted-foreground ml-auto">
-            {linked.length} linked · {unlinked.length} unlinked
-          </span>
+          <Button
+            size="sm" variant="outline"
+            onClick={() => { setAllOpen(!allOpen); setOpenReps(new Set()); }}
+            className="ml-auto h-7 text-[11px] px-2"
+          >
+            {allOpen ? "Collapse all" : "Expand all"}
+          </Button>
         </CardTitle>
       </CardHeader>
-      <CardContent className="pt-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              <tr>
-                <th className="text-left py-1.5 pr-3 w-20">Time</th>
-                <th className="text-left py-1.5 pr-3">Company</th>
-                <th className="text-left py-1.5 pr-3">Contact</th>
-                <th className="text-left py-1.5 pr-3">BD rep</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {linked.map(({ m, companyName, contactName, owner, time }) => (
-                <tr key={m.id} className="border-t hover:bg-accent/20">
-                  <td className="py-1.5 pr-3 text-xs tabular-nums text-muted-foreground">{fmtTime(time)}</td>
-                  <td className="py-1.5 pr-3 font-medium">
-                    {companyName ?? <span className="text-muted-foreground italic">contact only</span>}
-                  </td>
-                  <td className="py-1.5 pr-3 text-xs">{contactName ?? <span className="text-muted-foreground">—</span>}</td>
-                  <td className="py-1.5 pr-3 text-xs">{owner}</td>
-                  <td className="py-1.5 pr-3 text-right">
-                    <a href={`https://crm.zoho.com/crm/tab/Events/${m.id}`} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">
-                      Zoho <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </td>
-                </tr>
-              ))}
-              {unlinked.length > 0 && (
-                <>
-                  <tr><td colSpan={5} className="pt-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                    Unlinked · no company or contact set in Zoho
-                  </td></tr>
-                  {unlinked.map(({ m, owner, time }) => (
-                    <tr key={m.id} className="border-t opacity-70 hover:opacity-100 hover:bg-accent/20">
-                      <td className="py-1.5 pr-3 text-xs tabular-nums text-muted-foreground">{fmtTime(time)}</td>
-                      <td className="py-1.5 pr-3 text-xs italic text-muted-foreground" colSpan={2}>
-                        {m.Event_Title ?? "(untitled)"}
-                      </td>
-                      <td className="py-1.5 pr-3 text-xs">{owner}</td>
-                      <td className="py-1.5 pr-3 text-right">
-                        <a href={`https://crm.zoho.com/crm/tab/Events/${m.id}`} target="_blank" rel="noopener noreferrer"
-                          className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">
-                          Zoho <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </>
+      <CardContent className="pt-0 space-y-1">
+        {repGroups.map((g) => {
+          const open = isOpen(g.key);
+          const linkedCount = g.list.filter((r) => r.linked).length;
+          return (
+            <div key={g.key} className="border rounded-md bg-background/50">
+              <button
+                onClick={() => toggle(g.key)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent/40 transition-colors text-left"
+              >
+                {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                <span className="font-medium">{g.name}</span>
+                <Badge variant="outline" className="text-[10px]">{g.list.length}</Badge>
+                {linkedCount < g.list.length && (
+                  <span className="text-[10px] text-muted-foreground">{linkedCount} linked · {g.list.length - linkedCount} unlinked</span>
+                )}
+              </button>
+              {open && (
+                <div className="overflow-x-auto border-t">
+                  <table className="w-full text-sm">
+                    <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                      <tr>
+                        <th className="text-left py-1.5 px-3 w-20">Time</th>
+                        <th className="text-left py-1.5 pr-3">Company / subject</th>
+                        <th className="text-left py-1.5 pr-3">Contact</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.list.map(({ m, subject, contactName, time, linked }) => (
+                        <tr key={m.id} className={`border-t hover:bg-accent/20 ${linked ? "" : "opacity-75"}`}>
+                          <td className="py-1.5 px-3 text-xs tabular-nums text-muted-foreground">{fmtTime(time)}</td>
+                          <td className="py-1.5 pr-3">
+                            <span className={linked ? "font-medium" : "italic text-muted-foreground"}>{subject}</span>
+                            {!linked && <span className="ml-2 text-[10px] text-muted-foreground" title="No What_Id or Who_Id set in Zoho">unlinked</span>}
+                          </td>
+                          <td className="py-1.5 pr-3 text-xs">{contactName ?? <span className="text-muted-foreground">—</span>}</td>
+                          <td className="py-1.5 pr-3 text-right">
+                            <a href={`https://crm.zoho.com/crm/tab/Events/${m.id}`} target="_blank" rel="noopener noreferrer"
+                              className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">
+                              Zoho <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
@@ -1101,10 +1161,11 @@ function SavedViewsRow({
   );
 }
 
-// ── Referrals tab ────────────────────────────────────────────────────
-// All referrals (in + out) for the window, with status, sortable.
-// Defaults to MTD via the dashboard's window picker so toggling tabs
-// keeps the same date context.
+// ── Referrals (legacy inline view) ───────────────────────────────────
+// Promoted to its own page at /bd/referrals (see src/pages/bd/referrals.tsx
+// + the left-nav entry). The inline component below is dead code kept
+// only as a quick rollback path — not rendered anywhere. Safe to delete
+// once /bd/referrals has been in production for a release or two.
 interface BdReferralsList {
   ok: boolean;
   window: { start: string; end: string };
