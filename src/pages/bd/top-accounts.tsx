@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/dashboard/PageShell";
+import { exportCsv, isoToday } from "@/lib/bd-csv";
 
 interface FlagState {
   state: "active" | "ok" | "no_data";
@@ -127,6 +128,32 @@ export default function BdTopAccounts() {
 
   useEffect(() => { load(); }, [load]);
 
+  function downloadCsv() {
+    if (!data) return;
+    exportCsv<TopAccount>(`bd-top-accounts-${days}d-${isoToday()}.csv`, [
+      { header: "Rank", value: (_a, i) => i + 1 },
+      { header: "Account", value: (a) => a.name },
+      { header: "Account ID", value: (a) => a.id },
+      { header: "Type", value: (a) => a.type ?? "" },
+      { header: "Industry", value: (a) => a.industry ?? "" },
+      { header: "Reciprocal", value: (a) => a.is_reciprocal ? "yes" : "" },
+      { header: "Referrals in (window)", value: (a) => a.referrals_recent },
+      { header: "Referrals out (window)", value: (a) => a.referrals_out_recent },
+      { header: "Net balance", value: (a) => a.net_balance },
+      { header: "Admits (window)", value: (a) => a.admits_recent },
+      { header: "Conversion %", value: (a) => a.conversion_rate ?? "" },
+      { header: "Lifetime referrals", value: (a) => a.referrals_lifetime },
+      { header: "Meetings (window)", value: (a) => a.meetings_recent },
+      { header: "Last referral in", value: (a) => a.last_referral_in ?? "" },
+      { header: "Last referral out", value: (a) => a.last_referral_out ?? "" },
+      { header: "Last meeting", value: (a) => a.last_meeting ?? "" },
+      { header: "Active flags", value: (a) => (Object.keys(FLAG_LABELS) as Array<keyof typeof FLAG_LABELS>)
+        .filter((k) => a.flags[k].state === "active")
+        .map((k) => FLAG_LABELS[k])
+        .join("; ") },
+    ], data.accounts);
+  }
+
   return (
     <PageShell
       eyebrow="BUSINESS DEVELOPMENT"
@@ -143,6 +170,9 @@ export default function BdTopAccounts() {
           <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 h-9">
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={downloadCsv} disabled={!data || data.accounts.length === 0} className="h-9 text-xs">
+            Download CSV
           </Button>
         </div>
       }

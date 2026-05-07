@@ -833,6 +833,63 @@ function RepDrilldown({ drilldown, startIso, endIso, pipelines, repName }: {
     })();
   }, [drilldown, startIso, endIso, pipelines]);
 
+  // Export the drilldown rows as CSV. Column set varies by category —
+  // deal-shaped rows (in/out/admits/vobs/pipeline) share one schema,
+  // meetings/calls/tasks each get their own.
+  function downloadCsv() {
+    if (!deals || deals.length === 0) return;
+    const repSlug = repName.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+    const stamp = `${isoToDay(startIso)}-to-${isoToDay(endIso)}`;
+    const cat = drilldown.category;
+    const fname = `bd-drilldown-${repSlug}-${cat}${drilldown.loc ? `-${drilldown.loc}` : ""}-${stamp}.csv`;
+    if (cat === "meetings") {
+      exportCsv<any>(fname, [
+        { header: "Title", value: (m) => m.Event_Title ?? "" },
+        { header: "Start", value: (m) => m.Start_DateTime ?? "" },
+        { header: "End", value: (m) => m.End_DateTime ?? "" },
+        { header: "Company (What_Id)", value: (m) => (typeof m.What_Id === "string" ? m.What_Id : (m.What_Id?.name ?? "")) },
+        { header: "Contact (Who_Id)", value: (m) => (typeof m.Who_Id === "string" ? m.Who_Id : (m.Who_Id?.name ?? "")) },
+        { header: "Venue", value: (m) => m.Venue ?? "" },
+        { header: "Zoho ID", value: (m) => m.id },
+      ], deals);
+    } else if (cat === "calls") {
+      exportCsv<any>(fname, [
+        { header: "Subject", value: (c) => c.Subject ?? "" },
+        { header: "Call type", value: (c) => c.Call_Type ?? "" },
+        { header: "Status", value: (c) => c.Call_Status ?? "" },
+        { header: "Duration (s)", value: (c) => c.Call_Duration_in_seconds ?? "" },
+        { header: "Start", value: (c) => c.Call_Start_Time ?? "" },
+        { header: "Related (What_Id)", value: (c) => (typeof c.What_Id === "string" ? c.What_Id : (c.What_Id?.name ?? "")) },
+        { header: "Zoho ID", value: (c) => c.id },
+      ], deals);
+    } else if (cat === "tasks") {
+      exportCsv<any>(fname, [
+        { header: "Subject", value: (t) => t.Subject ?? "" },
+        { header: "Status", value: (t) => t.Status ?? "" },
+        { header: "Priority", value: (t) => t.Priority ?? "" },
+        { header: "Due", value: (t) => t.Due_Date ?? "" },
+        { header: "Created", value: (t) => t.Created_Time ?? "" },
+        { header: "Related (What_Id)", value: (t) => (typeof t.What_Id === "string" ? t.What_Id : (t.What_Id?.name ?? "")) },
+        { header: "Zoho ID", value: (t) => t.id },
+      ], deals);
+    } else {
+      // Deal-shaped categories: in / out / admits / vobs / pipeline
+      exportCsv<any>(fname, [
+        { header: "Deal", value: (d) => d.Deal_Name ?? "" },
+        { header: cat === "out" ? "Referred to" : "Referring company", value: (d) => cat === "out" ? (d["Referred_Out.Account_Name"] ?? "") : (d["Referring_Company.Account_Name"] ?? "") },
+        { header: "Contact", value: (d) => d["Referring_Business_Contact.Full_Name"] ?? "" },
+        { header: "Contact email", value: (d) => d["Referring_Business_Contact.Email"] ?? "" },
+        { header: "Stage", value: (d) => d.Stage ?? "" },
+        { header: "Pipeline", value: (d) => d.Pipeline ?? "" },
+        { header: "LOC", value: (d) => d.Admitted_Level_of_Care ?? "" },
+        { header: "VOB date", value: (d) => d.VOB_Submitted_Date ?? "" },
+        { header: "Refer-out date", value: (d) => d.Refer_Out_Date ?? "" },
+        { header: "Modified", value: (d) => d.Modified_Time ?? "" },
+        { header: "Zoho ID", value: (d) => d.id },
+      ], deals);
+    }
+  }
+
   return (
     <>
       <SheetHeader>
@@ -841,9 +898,16 @@ function RepDrilldown({ drilldown, startIso, endIso, pipelines, repName }: {
           <Badge variant="outline" className="text-[10px]">{CATEGORY_LABEL[drilldown.category]}</Badge>
           {drilldown.loc && <Badge variant="outline" className="text-[10px]">LOC: {drilldown.loc}</Badge>}
         </SheetTitle>
-        <SheetDescription>
-          {deals == null ? "Loading…" : `${deals.length} record${deals.length === 1 ? "" : "s"}`}
-          {pipelines && pipelines.length > 0 && <span className="ml-1">· {pipelines.join(", ")}</span>}
+        <SheetDescription className="flex items-center gap-2 flex-wrap">
+          <span>
+            {deals == null ? "Loading…" : `${deals.length} record${deals.length === 1 ? "" : "s"}`}
+            {pipelines && pipelines.length > 0 && <span className="ml-1">· {pipelines.join(", ")}</span>}
+          </span>
+          {deals && deals.length > 0 && (
+            <Button size="sm" variant="outline" onClick={downloadCsv} className="h-7 text-[11px] ml-auto">
+              Download CSV
+            </Button>
+          )}
         </SheetDescription>
       </SheetHeader>
 

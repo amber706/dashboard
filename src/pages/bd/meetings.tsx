@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { PageShell } from "@/components/dashboard/PageShell";
+import { exportCsv, isoToDay } from "@/lib/bd-csv";
 
 interface ZohoEvent {
   id: string;
@@ -236,6 +237,39 @@ export default function BdMeetings() {
   const upcoming = data?.upcoming ?? [];
   const recent = data?.recent ?? [];
 
+  function downloadCsv() {
+    if (!data) return;
+    const all: Array<ZohoEvent & { _bucket: "upcoming" | "recent" }> = [
+      ...upcoming.map((m) => ({ ...m, _bucket: "upcoming" as const })),
+      ...recent.map((m) => ({ ...m, _bucket: "recent" as const })),
+    ];
+    const companyName = (m: ZohoEvent) => {
+      const w = m.What_Id;
+      return typeof w === "string" ? w : (w?.name ?? "");
+    };
+    const contactName = (m: ZohoEvent) => {
+      const w = m.Who_Id;
+      return typeof w === "string" ? w : (w?.name ?? "");
+    };
+    exportCsv<ZohoEvent & { _bucket: "upcoming" | "recent" }>(
+      `bd-meetings-${isoToDay(range.startIso)}-to-${isoToDay(range.endIso)}.csv`,
+      [
+        { header: "Bucket", value: (m) => m._bucket },
+        { header: "Title", value: (m) => m.Event_Title ?? "" },
+        { header: "Start", value: (m) => m.Start_DateTime ?? "" },
+        { header: "End", value: (m) => m.End_DateTime ?? "" },
+        { header: "Company (What_Id)", value: (m) => companyName(m) },
+        { header: "Contact (Who_Id)", value: (m) => contactName(m) },
+        { header: "Owner (BD rep)", value: (m) => repName(m["Owner.id"]) },
+        { header: "Owner Zoho ID", value: (m) => m["Owner.id"] ?? "" },
+        { header: "Venue", value: (m) => m.Venue ?? "" },
+        { header: "Description", value: (m) => m.Description ?? "" },
+        { header: "Zoho ID", value: (m) => m.id },
+      ],
+      all,
+    );
+  }
+
   return (
     <PageShell
       eyebrow="BUSINESS DEVELOPMENT"
@@ -252,6 +286,9 @@ export default function BdMeetings() {
           <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 h-9">
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={downloadCsv} disabled={!data || (upcoming.length === 0 && recent.length === 0)} className="h-9 text-xs">
+            Download CSV
           </Button>
         </div>
       }

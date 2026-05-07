@@ -10,6 +10,7 @@ import { Link, useSearch } from "wouter";
 import {
   Loader2, Search, ArrowLeft, ExternalLink, Building2, User,
   Calendar, TrendingUp, RefreshCw, ArrowRight, ArrowLeftRight,
+  Clock, Target, ClipboardCheck,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { PageShell } from "@/components/dashboard/PageShell";
+import { exportCsv, isoToday } from "@/lib/bd-csv";
 
 interface AccountSearchResult {
   id: string;
@@ -66,7 +68,7 @@ interface BdAccountDetail {
   window: { days: number; start: string; end: string };
 }
 
-type TabKey = "referrals" | "admits" | "pipeline" | "out" | "meetings" | "contacts";
+type TabKey = "timeline" | "referrals" | "admits" | "pipeline" | "out" | "meetings" | "contacts";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -97,7 +99,7 @@ export default function BdAccountIntelligence() {
   const [detail, setDetail] = useState<BdAccountDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabKey>("referrals");
+  const [tab, setTab] = useState<TabKey>("timeline");
   const [profiles, setProfiles] = useState<Array<{ id: string; full_name: string | null; email: string | null; zoho_user_id: string | null }>>([]);
 
   // Load profiles once for owner-id → name resolution.
@@ -174,6 +176,72 @@ export default function BdAccountIntelligence() {
     if (selectedAccountId) loadDetail();
     else setDetail(null);
   }, [selectedAccountId, loadDetail]);
+
+  // Export the rows in the currently-active tab as CSV. Each tab has
+  // its own column set, so we branch on `tab`. Filename includes the
+  // account name + tab so multiple exports per session don't collide.
+  function downloadActiveTabCsv() {
+    if (!detail) return;
+    const slug = detail.account.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+    const stamp = isoToday();
+    if (tab === "referrals" || tab === "admits" || tab === "pipeline") {
+      const rows = tab === "referrals" ? detail.referrals_in : tab === "admits" ? detail.admits : detail.deals_in_pipeline;
+      exportCsv<any>(`bd-account-${slug}-${tab}-${stamp}.csv`, [
+        { header: "Deal", value: (r) => r.Deal_Name ?? "" },
+        { header: "Stage", value: (r) => r.Stage ?? "" },
+        { header: "Referring contact", value: (r) => r["Referring_Business_Contact.Full_Name"] ?? "" },
+        { header: "Contact email", value: (r) => r["Referring_Business_Contact.Email"] ?? "" },
+        { header: "Contact phone", value: (r) => r["Referring_Business_Contact.Phone"] ?? "" },
+        { header: "BD rep", value: (r) => r.BD_Rep ?? "" },
+        { header: "LOC", value: (r) => r.Admitted_Level_of_Care ?? "" },
+        { header: "Subcategory", value: (r) => r.Business_Development_Subcategory ?? "" },
+        { header: "Pipeline", value: (r) => r.Pipeline ?? "" },
+        { header: "Modified", value: (r) => r.Modified_Time ?? "" },
+        { header: "Zoho ID", value: (r) => r.id },
+      ], rows);
+    } else if (tab === "out") {
+      exportCsv<any>(`bd-account-${slug}-referrals-out-${stamp}.csv`, [
+        { header: "Deal", value: (r) => r.Deal_Name ?? "" },
+        { header: "Refer-out type", value: (r) => r.Refer_Out_Type ?? "" },
+        { header: "Outbound BD rep", value: (r) => r.Outbound_Referral_BD_Rep ?? "" },
+        { header: "Owner", value: (r) => repName(r["Owner.id"]) },
+        { header: "Admitted at referred facility", value: (r) => r.Admitted_at_Referred_Facility === true ? "yes" : "" },
+        { header: "Refer-out date", value: (r) => r.Refer_Out_Date ?? "" },
+        { header: "Stage", value: (r) => r.Stage ?? "" },
+        { header: "Pipeline", value: (r) => r.Pipeline ?? "" },
+        { header: "Zoho ID", value: (r) => r.id },
+      ], detail.referrals_out);
+    } else if (tab === "contacts") {
+      exportCsv<typeof detail.business_contacts[number]>(`bd-account-${slug}-contacts-${stamp}.csv`, [
+        { header: "Name", value: (c) => c.name },
+        { header: "Title", value: (c) => c.title ?? "" },
+        { header: "Email", value: (c) => c.email ?? "" },
+        { header: "Phone", value: (c) => c.phone ?? "" },
+        { header: "Referrals (window)", value: (c) => c.referral_count },
+        { header: "Last referral", value: (c) => c.last_referral_at ?? "" },
+        { header: "Zoho ID", value: (c) => c.id },
+      ], detail.business_contacts ?? []);
+    } else if (tab === "meetings") {
+      exportCsv<any>(`bd-account-${slug}-meetings-${stamp}.csv`, [
+        { header: "Title", value: (r) => r.Event_Title ?? "" },
+        { header: "Owner", value: (r) => repName(r["Owner.id"]) },
+        { header: "Venue", value: (r) => r.Venue ?? "" },
+        { header: "Start", value: (r) => r.Start_DateTime ?? "" },
+        { header: "End", value: (r) => r.End_DateTime ?? "" },
+        { header: "Zoho ID", value: (r) => r.id },
+      ], detail.meetings);
+    } else if (tab === "timeline") {
+      const events = buildTimeline(detail);
+      exportCsv<TimelineEvent>(`bd-account-${slug}-timeline-${stamp}.csv`, [
+        { header: "When", value: (e) => e.iso ?? "" },
+        { header: "Type", value: (e) => e.kind },
+        { header: "Title", value: (e) => e.title },
+        { header: "Detail", value: (e) => e.detail ?? "" },
+        { header: "Zoho module", value: (e) => e.module },
+        { header: "Zoho ID", value: (e) => e.zohoId },
+      ], events);
+    }
+  }
 
   return (
     <PageShell
@@ -322,6 +390,15 @@ export default function BdAccountIntelligence() {
           {/* Tabs */}
           <div className="flex items-center gap-2 flex-wrap border-b pb-2">
             {([
+              {
+                key: "timeline",
+                label: "Timeline",
+                count:
+                  detail.referrals_in.length +
+                  detail.admits.length +
+                  detail.referrals_out.length +
+                  detail.meetings.length,
+              },
               { key: "referrals", label: "Referrals in", count: detail.referrals_in.length },
               { key: "admits", label: "Admits", count: detail.admits.length },
               { key: "pipeline", label: "In pipeline", count: detail.deals_in_pipeline.length },
@@ -340,9 +417,19 @@ export default function BdAccountIntelligence() {
                 <Badge variant={tab === t.key ? "secondary" : "outline"} className="text-[10px] h-4 px-1.5">{t.count}</Badge>
               </Button>
             ))}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={downloadActiveTabCsv}
+              className="h-8 text-xs ml-auto"
+              title={`Download the ${tab} tab as CSV`}
+            >
+              Download CSV
+            </Button>
           </div>
 
           {/* Tab content */}
+          {tab === "timeline" && <TimelineView detail={detail} repName={repName} />}
           {tab === "referrals" && <DealsInTable rows={detail.referrals_in} repName={repName} />}
           {tab === "admits" && <DealsInTable rows={detail.admits} repName={repName} />}
           {tab === "pipeline" && <DealsInTable rows={detail.deals_in_pipeline} repName={repName} />}
@@ -603,5 +690,163 @@ function MeetingsTable({ rows, repName }: { rows: any[]; repName: (z: string | n
   );
 }
 
+// ── Timeline ─────────────────────────────────────────────────────────
+// Chronological merge of the four time-stamped activity streams Zoho
+// gives us for an account: referrals in, admits, referrals out, and
+// meetings. Sorted newest-first. Pipeline deals are excluded — they're
+// in-flight, not events.
+
+type TimelineKind = "referral_in" | "admit" | "referral_out" | "meeting";
+
+interface TimelineEvent {
+  iso: string | null;
+  kind: TimelineKind;
+  title: string;
+  detail?: string;
+  module: "Potentials" | "Events";
+  zohoId: string;
+}
+
+function buildTimeline(detail: BdAccountDetail): TimelineEvent[] {
+  const out: TimelineEvent[] = [];
+  // Referrals in — Modified_Time is what the edge fn already orders by.
+  for (const r of detail.referrals_in) {
+    out.push({
+      iso: (r.Modified_Time as string) ?? (r.Created_Time as string) ?? null,
+      kind: "referral_in",
+      title: (r.Deal_Name as string) ?? "(no name)",
+      detail: [
+        r.Stage,
+        r["Referring_Business_Contact.Full_Name"],
+        r.Admitted_Level_of_Care,
+      ].filter(Boolean).join(" · "),
+      module: "Potentials",
+      zohoId: r.id,
+    });
+  }
+  // Admits are a subset of inbound deals — count them as their own
+  // event when they appear in the admits array.
+  const admittedIds = new Set(detail.admits.map((a: any) => a.id));
+  for (const a of detail.admits) {
+    out.push({
+      iso: (a.Modified_Time as string) ?? null,
+      kind: "admit",
+      title: (a.Deal_Name as string) ?? "(no name)",
+      detail: [a.Stage, a.Admitted_Level_of_Care].filter(Boolean).join(" · "),
+      module: "Potentials",
+      zohoId: a.id,
+    });
+  }
+  // Avoid double-counting an inbound row if it's already an admit.
+  // (We keep both events so timeline shows the path: referral in → admit.)
+  void admittedIds;
+  // Referrals out — Refer_Out_Date is a date (no time component).
+  for (const o of detail.referrals_out) {
+    out.push({
+      iso: (o.Refer_Out_Date as string) ?? (o.Modified_Time as string) ?? null,
+      kind: "referral_out",
+      title: (o.Deal_Name as string) ?? "(no name)",
+      detail: [o.Refer_Out_Type, o.Admitted_at_Referred_Facility === true ? "admitted there" : null].filter(Boolean).join(" · "),
+      module: "Potentials",
+      zohoId: o.id,
+    });
+  }
+  // Meetings — Start_DateTime is the visit moment.
+  for (const m of detail.meetings) {
+    out.push({
+      iso: (m.Start_DateTime as string) ?? null,
+      kind: "meeting",
+      title: (m.Event_Title as string) ?? "(untitled)",
+      detail: m.Venue ? `at ${m.Venue}` : undefined,
+      module: "Events",
+      zohoId: m.id,
+    });
+  }
+  // Sort newest-first, putting nulls at the end.
+  out.sort((a, b) => {
+    if (!a.iso && !b.iso) return 0;
+    if (!a.iso) return 1;
+    if (!b.iso) return -1;
+    return b.iso.localeCompare(a.iso);
+  });
+  return out;
+}
+
+const KIND_META: Record<TimelineKind, { label: string; tone: string; icon: React.ReactNode }> = {
+  referral_in: {
+    label: "Referral in",
+    tone: "border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/5",
+    icon: <TrendingUp className="w-3.5 h-3.5" />,
+  },
+  admit: {
+    label: "Admit",
+    tone: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/5",
+    icon: <Target className="w-3.5 h-3.5" />,
+  },
+  referral_out: {
+    label: "Referral out",
+    tone: "border-orange-500/40 text-orange-700 dark:text-orange-400 bg-orange-500/5",
+    icon: <ArrowRight className="w-3.5 h-3.5" />,
+  },
+  meeting: {
+    label: "Meeting",
+    tone: "border-violet-500/40 text-violet-700 dark:text-violet-300 bg-violet-500/5",
+    icon: <Calendar className="w-3.5 h-3.5" />,
+  },
+};
+
+function TimelineView({ detail, repName }: { detail: BdAccountDetail; repName: (z: string | null | undefined) => string }) {
+  void repName;
+  const events = buildTimeline(detail);
+  if (events.length === 0) {
+    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No timeline events for this account in the window.</CardContent></Card>;
+  }
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-4">
+        <div className="relative pl-6">
+          {/* Vertical rail */}
+          <div className="absolute left-2 top-2 bottom-2 w-px bg-border" />
+          <ul className="space-y-3">
+            {events.map((e, i) => {
+              const meta = KIND_META[e.kind];
+              return (
+                <li key={`${e.kind}-${e.zohoId}-${i}`} className="relative">
+                  {/* Dot on the rail */}
+                  <span className={`absolute -left-[18px] top-1.5 w-2.5 h-2.5 rounded-full border-2 bg-background ${meta.tone.split(" ")[0]}`} />
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className={`text-[10px] gap-1 ${meta.tone}`}>
+                          {meta.icon} {meta.label}
+                        </Badge>
+                        <span className="text-sm font-medium truncate">{e.title}</span>
+                      </div>
+                      {e.detail && <p className="text-xs text-muted-foreground">{e.detail}</p>}
+                      <div className="text-[10px] text-muted-foreground inline-flex items-center gap-1 tabular-nums">
+                        <Clock className="w-3 h-3" />
+                        {e.iso ? `${fmtDate(e.iso)} · ${daysSince(e.iso)}` : "no date"}
+                      </div>
+                    </div>
+                    <a
+                      href={`https://crm.zoho.com/crm/tab/${e.module}/${e.zohoId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline inline-flex items-center gap-0.5 shrink-0"
+                    >
+                      Zoho <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Reference unused imports to keep the linter quiet during the rewrite.
 void ArrowLeftRight;
+void ClipboardCheck;
