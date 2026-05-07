@@ -340,11 +340,65 @@ export default function BdDashboard() {
     setExpandedReps((prev) => { const n = new Set(prev); n.has(bdRep) ? n.delete(bdRep) : n.add(bdRep); return n; });
   }
 
-  const visibleReps = useMemo(() => {
+  // Active BD reps. Inactive reps (Farah, Sean, Dane, Amber, Kimberly,
+  // Gene from the historical BD_Rep picklist) are dropped from the
+  // per-rep view even when they have legacy deals in the window — they
+  // shouldn't appear in pacing / activity reporting. The list is small
+  // enough to live in code; if it changes more than once a quarter
+  // we'll move it to a config row.
+  const ACTIVE_BD_REPS = ["Casey", "Mindy", "Joey", "Jacob"] as const;
+
+  const repsAfterActiveFilter = useMemo(() => {
     if (!data) return [];
-    if (selectedReps.size === 0) return data.reps;
-    return data.reps.filter((r) => selectedReps.has(r.bd_rep));
-  }, [data, selectedReps]);
+    // Filter to active reps + (unassigned). Build a synthetic zero-row
+    // for any active rep that didn't appear in the response so the
+    // table always shows the full active roster.
+    const active = data.reps.filter((r) =>
+      (ACTIVE_BD_REPS as readonly string[]).includes(r.bd_rep) || r.bd_rep === "(unassigned)",
+    );
+    const present = new Set(active.map((r) => r.bd_rep));
+    for (const name of ACTIVE_BD_REPS) {
+      if (present.has(name)) continue;
+      // Resolve zoho_user_id from the local profiles table by first-
+      // name match — same logic as resolveRep, just inline so we can
+      // construct a row that the existing Stuck column resolves
+      // correctly.
+      const target = name.toLowerCase();
+      const profile =
+        profiles.find((p) => ((p.full_name ?? "").trim().split(/\s+/)[0] ?? "").toLowerCase() === target) ??
+        profiles.find((p) => (p.full_name ?? "").trim().toLowerCase() === target);
+      active.push({
+        bd_rep: name,
+        zoho_user_id: profile?.zoho_user_id ?? null,
+        owner_ids: [],
+        referrals_in: 0,
+        admits: 0,
+        referrals_out: 0,
+        vobs: 0,
+        meetings: 0,
+        calls: 0,
+        tasks: 0,
+        net_balance: 0,
+        conversion_rate: null,
+        meetings_completed: 0,
+        by_loc: [],
+      });
+    }
+    // Stable sort: ACTIVE_BD_REPS in defined order, then (unassigned)
+    // at the end. Within each group preserve relative order.
+    const order = (name: string) => {
+      const idx = (ACTIVE_BD_REPS as readonly string[]).indexOf(name);
+      if (idx >= 0) return idx;
+      if (name === "(unassigned)") return ACTIVE_BD_REPS.length + 1;
+      return ACTIVE_BD_REPS.length;
+    };
+    return active.sort((a, b) => order(a.bd_rep) - order(b.bd_rep));
+  }, [data, profiles]);
+
+  const visibleReps = useMemo(() => {
+    if (selectedReps.size === 0) return repsAfterActiveFilter;
+    return repsAfterActiveFilter.filter((r) => selectedReps.has(r.bd_rep));
+  }, [repsAfterActiveFilter, selectedReps]);
 
   return (
     <PageShell
@@ -539,7 +593,7 @@ export default function BdDashboard() {
               per rep, per key metric. Renders only when bd-rep-trend
               has loaded; takes ~1 fetch and aligns with the dashboard's
               "this week" mental model. */}
-          {paceTrend && <PacingStrip trend={paceTrend} resolveRep={resolveRep} />}
+          {paceTrend && <PacingStrip trend={paceTrend} resolveRep={resolveRep} activeReps={ACTIVE_BD_REPS as unknown as string[]} />}
 
           {/* Per-rep table */}
           <Card>
@@ -567,13 +621,13 @@ export default function BdDashboard() {
                   }} className="h-7 text-[11px] px-2">CSV</Button>
                 </span>
               </CardTitle>
-              {data && data.reps.length > 0 && (
+              {data && repsAfterActiveFilter.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Show only</span>
                   <Button size="sm" variant={selectedReps.size === 0 ? "default" : "outline"} onClick={() => setSelectedReps(new Set())} className="h-7 text-[11px] px-2">
-                    All ({data.reps.length})
+                    All ({repsAfterActiveFilter.length})
                   </Button>
-                  {data.reps.map((r) => {
+                  {repsAfterActiveFilter.map((r) => {
                     const { name } = resolveRep(r.bd_rep);
                     return (
                       <Button key={r.bd_rep} size="sm" variant={selectedReps.has(r.bd_rep) ? "default" : "outline"} onClick={() => toggleRep(r.bd_rep)} className="h-7 text-[11px] px-2 gap-1">
@@ -1730,16 +1784,17 @@ function paceLabel(ratio: number | null): string {
   return `${pct}%`;
 }
 
-function PacingStrip({ trend, resolveRep }: {
+function PacingStrip({ trend, resolveRep, activeReps }: {
   trend: BdTrend;
   resolveRep: (s: string) => { name: string; profileId: string | null };
+  activeReps: string[];
 }) {
-  // Skip reps with zero activity across all metrics in the entire 35d
-  // window — they're either inactive or unassigned and would just clutter
-  // the strip with all-grey pills.
-  const visibleReps = trend.reps.filter((r) =>
-    Object.values(r.totals).some((n) => n > 0),
-  );
+  // Filter to active BD reps only — same scoping as the per-rep table
+  // so a manager reading the strip and the table side-by-side sees a
+  // consistent roster. An active rep with zero activity in 35d still
+  // shows so their absence isn't silently hidden.
+  const activeSet = new Set(activeReps);
+  const visibleReps = trend.reps.filter((r) => activeSet.has(r.bd_rep));
   if (visibleReps.length === 0) return null;
 
   return (
