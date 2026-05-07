@@ -93,6 +93,10 @@ function fmtDate(iso: string | null): string {
 export default function BdTopAccounts() {
   const [days, setDays] = useState(90);
   const [minReferrals, setMinReferrals] = useState(1);
+  // "real" hides Generated_By category buckets (Digital Referral, BD
+  // Referral, etc.) and shows only rows that resolved to a real Zoho
+  // Account. "all" shows both with a visible category badge.
+  const [rowType, setRowType] = useState<"all" | "real">("real");
   const [data, setData] = useState<TopAccountsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -169,6 +173,24 @@ export default function BdTopAccounts() {
           <option value="5">5+</option>
           <option value="10">10+</option>
         </select>
+        <span className="mx-3 h-4 w-px bg-border" />
+        <Button
+          size="sm"
+          variant={rowType === "real" ? "default" : "outline"}
+          onClick={() => setRowType("real")}
+          className="h-8 text-xs"
+          title="Hide Generated_By category buckets (Digital Referral, BD Referral, etc.) — show only rows that matched a real Zoho Account."
+        >
+          Real accounts only
+        </Button>
+        <Button
+          size="sm"
+          variant={rowType === "all" ? "default" : "outline"}
+          onClick={() => setRowType("all")}
+          className="h-8 text-xs"
+        >
+          Include categories
+        </Button>
       </div>
 
       {/* Scope warnings */}
@@ -250,7 +272,9 @@ export default function BdTopAccounts() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.accounts.map((a, i) => {
+                  {data.accounts
+                    .filter((a) => rowType === "all" || a.type !== "(category)")
+                    .map((a, i) => {
                     const activeFlags = (Object.keys(FLAG_LABELS) as Array<keyof typeof FLAG_LABELS>)
                       .filter((k) => a.flags[k].state === "active");
                     return (
@@ -260,9 +284,14 @@ export default function BdTopAccounts() {
                           <div className="font-medium flex items-center gap-1.5">
                             <Building2 className="w-3 h-3 text-muted-foreground" />
                             {a.name}
+                            {a.type === "(category)" && (
+                              <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400" title="This is a Generated_By category, not a real Zoho Account. Add a structured Account link on the Lead record to attribute to a specific partner.">
+                                category
+                              </Badge>
+                            )}
                             {a.is_reciprocal && <Badge variant="outline" className="text-[9px]">reciprocal</Badge>}
                           </div>
-                          {a.type && <div className="text-[10px] text-muted-foreground">{a.type}</div>}
+                          {a.type && a.type !== "(category)" && <div className="text-[10px] text-muted-foreground">{a.type}</div>}
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums font-medium">{a.referrals_recent}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{a.admits_recent}</td>
