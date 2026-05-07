@@ -1,14 +1,15 @@
 // /bd/account — Account Intelligence workspace.
 //
 // Search a company → see the full relationship picture: referrals in,
-// admits, deals in pipeline, meetings, BD owner, last activity.
-// Real Zoho data via bd-account-search + bd-account-detail.
+// admits, deals in pipeline, referrals out, meetings, BD owner, last
+// activity. Driven by structured Zoho fields via bd-account-search +
+// bd-account-detail.
 
 import { useEffect, useState, useCallback } from "react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import {
   Loader2, Search, ArrowLeft, ExternalLink, Building2, User,
-  Phone, Mail, Calendar, TrendingUp, Target, RefreshCw,
+  Calendar, TrendingUp, RefreshCw, ArrowRight, ArrowLeftRight,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,19 +43,21 @@ interface BdAccountDetail {
     conversion_rate: number | null;
     meetings_count: number;
     last_referral_in: string | null;
+    referrals_out: number;
+    outbound_admits: number;
+    last_referral_out: string | null;
+    net_referral_balance: number;
     last_meeting: string | null;
-    referrals_out: number | null;
-    net_referral_balance: number | null;
-    last_contacted: string | null;
   };
   referrals_in: any[];
   admits: any[];
   deals_in_pipeline: any[];
+  referrals_out: any[];
   meetings: any[];
-  not_yet_wired: string[];
+  window: { days: number; start: string; end: string };
 }
 
-type TabKey = "referrals" | "admits" | "pipeline" | "meetings";
+type TabKey = "referrals" | "admits" | "pipeline" | "out" | "meetings";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -71,10 +74,17 @@ function daysSince(iso: string | null): string {
 }
 
 export default function BdAccountIntelligence() {
+  // Read ?id= so dashboard "Open" links land on a specific account.
+  const search = useSearch();
+  const initialId = (() => {
+    const params = new URLSearchParams(search);
+    return params.get("id");
+  })();
+
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<AccountSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(initialId);
   const [detail, setDetail] = useState<BdAccountDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,7 +170,7 @@ export default function BdAccountIntelligence() {
     <PageShell
       eyebrow="BUSINESS DEVELOPMENT"
       title="Account Intelligence"
-      subtitle="Search a referring company to see referrals, admits, pipeline, meetings, and BD ownership in one view. Live from Zoho CRM."
+      subtitle="Search a referring company to see referrals in & out, admits, pipeline, meetings, and BD ownership in one view. Live from Zoho CRM."
       maxWidth={1600}
       actions={
         <div className="flex items-center gap-2">
@@ -265,20 +275,32 @@ export default function BdAccountIntelligence() {
                 )}
                 {detail.summary.last_referral_in && (
                   <span className="inline-flex items-center gap-1">
-                    <TrendingUp className="w-3 h-3" /> Last referral: {fmtDate(detail.summary.last_referral_in)} ({daysSince(detail.summary.last_referral_in)})
+                    <TrendingUp className="w-3 h-3" /> Last in: {fmtDate(detail.summary.last_referral_in)} ({daysSince(detail.summary.last_referral_in)})
+                  </span>
+                )}
+                {detail.summary.last_referral_out && (
+                  <span className="inline-flex items-center gap-1">
+                    <ArrowRight className="w-3 h-3" /> Last out: {fmtDate(detail.summary.last_referral_out)} ({daysSince(detail.summary.last_referral_out)})
                   </span>
                 )}
               </div>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-0">
+            <CardContent className="grid grid-cols-2 md:grid-cols-6 gap-3 pt-0">
               <Stat label="Referrals in" value={detail.summary.referrals_in} accent="blue" />
+              <Stat label="Referrals out" value={detail.summary.referrals_out} accent="orange" />
+              <Stat
+                label="Net balance"
+                value={detail.summary.net_referral_balance > 0
+                  ? `+${detail.summary.net_referral_balance}`
+                  : detail.summary.net_referral_balance}
+                accent={detail.summary.net_referral_balance < 0 ? "red" : "slate"}
+              />
               <Stat label="Admits" value={detail.summary.admits} accent="emerald" />
               <Stat
                 label="Conversion"
                 value={detail.summary.conversion_rate != null ? `${detail.summary.conversion_rate}%` : "—"}
                 accent="amber"
               />
-              <Stat label="In pipeline" value={detail.summary.deals_in_pipeline} accent="violet" />
               <Stat label="Meetings" value={detail.summary.meetings_count} accent="cyan" />
             </CardContent>
             {detail.account.description && (
@@ -294,6 +316,7 @@ export default function BdAccountIntelligence() {
               { key: "referrals", label: "Referrals in", count: detail.referrals_in.length },
               { key: "admits", label: "Admits", count: detail.admits.length },
               { key: "pipeline", label: "In pipeline", count: detail.deals_in_pipeline.length },
+              { key: "out", label: "Referrals out", count: detail.referrals_out.length },
               { key: "meetings", label: "Meetings", count: detail.meetings.length },
             ] as const).map((t) => (
               <Button
@@ -310,33 +333,31 @@ export default function BdAccountIntelligence() {
           </div>
 
           {/* Tab content */}
-          {tab === "referrals" && <ReferralsTable rows={detail.referrals_in} repName={repName} />}
-          {tab === "admits" && <AdmitsTable rows={detail.admits} repName={repName} />}
-          {tab === "pipeline" && <AdmitsTable rows={detail.deals_in_pipeline} repName={repName} />}
+          {tab === "referrals" && <DealsInTable rows={detail.referrals_in} repName={repName} />}
+          {tab === "admits" && <DealsInTable rows={detail.admits} repName={repName} />}
+          {tab === "pipeline" && <DealsInTable rows={detail.deals_in_pipeline} repName={repName} />}
+          {tab === "out" && <DealsOutTable rows={detail.referrals_out} repName={repName} />}
           {tab === "meetings" && <MeetingsTable rows={detail.meetings} repName={repName} />}
-
-          {/* Phase 2 hint */}
-          <Card className="border-dashed">
-            <CardContent className="pt-3 pb-3 text-xs text-muted-foreground space-y-1">
-              <div className="font-semibold uppercase tracking-wider">Coming next (Phase 2)</div>
-              <ul className="list-disc list-inside space-y-0.5">
-                {detail.not_yet_wired.map((s) => <li key={s}>{s}</li>)}
-              </ul>
-            </CardContent>
-          </Card>
         </>
       )}
     </PageShell>
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: number | string; accent: "blue" | "emerald" | "amber" | "violet" | "cyan" }) {
+function Stat({ label, value, accent }: {
+  label: string;
+  value: number | string;
+  accent: "blue" | "emerald" | "amber" | "violet" | "cyan" | "orange" | "slate" | "red";
+}) {
   const tone: Record<string, string> = {
     blue: "text-blue-500 dark:text-blue-400",
     emerald: "text-emerald-500 dark:text-emerald-400",
     amber: "text-amber-500 dark:text-amber-400",
     violet: "text-violet-500 dark:text-violet-400",
     cyan: "text-cyan-500 dark:text-cyan-400",
+    orange: "text-orange-500 dark:text-orange-400",
+    slate: "text-slate-600 dark:text-slate-300",
+    red: "text-red-500 dark:text-red-400",
   };
   return (
     <div className="text-center">
@@ -346,9 +367,12 @@ function Stat({ label, value, accent }: { label: string; value: number | string;
   );
 }
 
-function ReferralsTable({ rows, repName }: { rows: any[]; repName: (z: string | null | undefined) => string }) {
+// Inbound deal table — Deal rows tied to Referring_Company. Columns:
+// Deal name, Stage, BD rep (picklist), Owner (Zoho), LOC if admitted,
+// Subcategory, Last touch.
+function DealsInTable({ rows, repName }: { rows: any[]; repName: (z: string | null | undefined) => string }) {
   if (rows.length === 0) {
-    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No referrals from this account in the last 180 days.</CardContent></Card>;
+    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No deals in this category for the window.</CardContent></Card>;
   }
   return (
     <Card>
@@ -356,29 +380,31 @@ function ReferralsTable({ rows, repName }: { rows: any[]; repName: (z: string | 
         <table className="w-full text-sm">
           <thead className="text-xs text-muted-foreground uppercase tracking-wide">
             <tr>
-              <th className="text-left py-2 pr-3">Caller</th>
-              <th className="text-left py-2 pr-3">Status</th>
-              <th className="text-left py-2 pr-3">LOC</th>
-              <th className="text-left py-2 pr-3">Insurance</th>
+              <th className="text-left py-2 pr-3">Deal</th>
+              <th className="text-left py-2 pr-3">Stage</th>
               <th className="text-left py-2 pr-3">BD rep</th>
-              <th className="text-right py-2 pr-3">Last touch</th>
+              <th className="text-left py-2 pr-3">Owner</th>
+              <th className="text-left py-2 pr-3">LOC</th>
+              <th className="text-left py-2 pr-3">Subcategory</th>
+              <th className="text-right py-2 pr-3">Updated</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} className="border-t align-top">
-                <td className="py-2 pr-3 font-medium">{[r.First_Name, r.Last_Name].filter(Boolean).join(" ") || "(no name)"}</td>
-                <td className="py-2 pr-3"><Badge variant="outline" className="text-[10px]">{r.Lead_Status ?? "—"}</Badge></td>
-                <td className="py-2 pr-3 text-xs">{r.Level_of_Care_Requested ?? "—"}</td>
-                <td className="py-2 pr-3 text-xs">{r.Insurance_Type ?? "—"}</td>
+              <tr key={r.id} className="border-t">
+                <td className="py-2 pr-3 font-medium">{r.Deal_Name ?? "(no name)"}</td>
+                <td className="py-2 pr-3"><Badge variant="outline" className="text-[10px]">{r.Stage}</Badge></td>
+                <td className="py-2 pr-3 text-xs">{r.BD_Rep ?? "—"}</td>
                 <td className="py-2 pr-3 text-xs">{repName(r["Owner.id"])}</td>
+                <td className="py-2 pr-3 text-xs">{r.Admitted_Level_of_Care ?? "—"}</td>
+                <td className="py-2 pr-3 text-xs">{r.Business_Development_Subcategory ?? "—"}</td>
                 <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">
                   {r.Modified_Time ? daysSince(r.Modified_Time) : "—"}
                 </td>
                 <td className="py-2 pr-3">
                   <a
-                    href={`https://crm.zoho.com/crm/tab/Leads/${r.id}`}
+                    href={`https://crm.zoho.com/crm/tab/Potentials/${r.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"
@@ -395,9 +421,12 @@ function ReferralsTable({ rows, repName }: { rows: any[]; repName: (z: string | 
   );
 }
 
-function AdmitsTable({ rows, repName }: { rows: any[]; repName: (z: string | null | undefined) => string }) {
+// Outbound deal table — Deal rows where this account is the destination
+// of a referral we sent out. Columns: Deal, Refer-out date, Type,
+// Outbound BD rep, Admitted at facility, Owner, Updated.
+function DealsOutTable({ rows, repName }: { rows: any[]; repName: (z: string | null | undefined) => string }) {
   if (rows.length === 0) {
-    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No deals in this category for the window.</CardContent></Card>;
+    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No outbound referrals to this account in the window.</CardContent></Card>;
   }
   return (
     <Card>
@@ -406,9 +435,11 @@ function AdmitsTable({ rows, repName }: { rows: any[]; repName: (z: string | nul
           <thead className="text-xs text-muted-foreground uppercase tracking-wide">
             <tr>
               <th className="text-left py-2 pr-3">Deal</th>
-              <th className="text-left py-2 pr-3">Stage</th>
-              <th className="text-left py-2 pr-3">BD rep</th>
-              <th className="text-right py-2 pr-3">Updated</th>
+              <th className="text-left py-2 pr-3">Type</th>
+              <th className="text-left py-2 pr-3">Outbound BD rep</th>
+              <th className="text-left py-2 pr-3">Owner</th>
+              <th className="text-left py-2 pr-3">Admitted there</th>
+              <th className="text-right py-2 pr-3">Refer-out date</th>
               <th></th>
             </tr>
           </thead>
@@ -416,10 +447,16 @@ function AdmitsTable({ rows, repName }: { rows: any[]; repName: (z: string | nul
             {rows.map((r) => (
               <tr key={r.id} className="border-t">
                 <td className="py-2 pr-3 font-medium">{r.Deal_Name ?? "(no name)"}</td>
-                <td className="py-2 pr-3"><Badge variant="outline" className="text-[10px]">{r.Stage}</Badge></td>
+                <td className="py-2 pr-3 text-xs">{r.Refer_Out_Type ?? "—"}</td>
+                <td className="py-2 pr-3 text-xs">{r.Outbound_Referral_BD_Rep ?? "—"}</td>
                 <td className="py-2 pr-3 text-xs">{repName(r["Owner.id"])}</td>
+                <td className="py-2 pr-3 text-xs">
+                  {r.Admitted_at_Referred_Facility === true
+                    ? <Badge variant="default" className="text-[10px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">Yes</Badge>
+                    : <span className="text-muted-foreground">—</span>}
+                </td>
                 <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">
-                  {r.Modified_Time ? daysSince(r.Modified_Time) : "—"}
+                  {fmtDate(r.Refer_Out_Date)}
                 </td>
                 <td className="py-2 pr-3">
                   <a
@@ -485,4 +522,5 @@ function MeetingsTable({ rows, repName }: { rows: any[]; repName: (z: string | n
   );
 }
 
-void Phone; void Mail; void Target;
+// Reference unused imports to keep the linter quiet during the rewrite.
+void ArrowLeftRight;

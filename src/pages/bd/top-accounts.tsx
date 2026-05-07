@@ -1,12 +1,13 @@
 // /bd/top-accounts — secondary BD dashboard ranking referring accounts
 // by activity in the window, with flag indicators (reciprocal gap,
 // no recent contact, no recent meeting, high-value dormant, low
-// conversion). The BD action list.
+// conversion). Driven by structured Zoho fields — every row maps to a
+// real Account.id (no more category buckets).
 
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "wouter";
 import {
-  Loader2, ArrowLeft, RefreshCw, Flag, AlertTriangle, Building2,
+  Loader2, ArrowLeft, RefreshCw, Flag, AlertTriangle, Building2, ArrowRight,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +31,7 @@ interface AccountFlags {
 }
 
 interface TopAccount {
-  id: string | null;
+  id: string;
   name: string;
   type: string | null;
   industry: string | null;
@@ -39,9 +40,12 @@ interface TopAccount {
   referrals_recent: number;
   admits_recent: number;
   referrals_lifetime: number;
+  referrals_out_recent: number;
   meetings_recent: number;
+  net_balance: number;
   conversion_rate: number | null;
   last_referral_in: string | null;
+  last_referral_out: string | null;
   last_meeting: string | null;
   flags: AccountFlags;
 }
@@ -53,6 +57,7 @@ interface TopAccountsResponse {
   totals: {
     referrals_in: number;
     admits: number;
+    referrals_out: number;
     meetings: number;
     flagged: number;
     reciprocal: number;
@@ -61,7 +66,6 @@ interface TopAccountsResponse {
   };
   query_errors: string[];
   accounts: TopAccount[];
-  not_yet_wired: string[];
 }
 
 const PRESETS = [
@@ -93,10 +97,6 @@ function fmtDate(iso: string | null): string {
 export default function BdTopAccounts() {
   const [days, setDays] = useState(90);
   const [minReferrals, setMinReferrals] = useState(1);
-  // "real" hides Generated_By category buckets (Digital Referral, BD
-  // Referral, etc.) and shows only rows that resolved to a real Zoho
-  // Account. "all" shows both with a visible category badge.
-  const [rowType, setRowType] = useState<"all" | "real">("real");
   const [data, setData] = useState<TopAccountsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,38 +173,14 @@ export default function BdTopAccounts() {
           <option value="5">5+</option>
           <option value="10">10+</option>
         </select>
-        <span className="mx-3 h-4 w-px bg-border" />
-        <Button
-          size="sm"
-          variant={rowType === "real" ? "default" : "outline"}
-          onClick={() => setRowType("real")}
-          className="h-8 text-xs"
-          title="Hide Generated_By category buckets (Digital Referral, BD Referral, etc.) — show only rows that matched a real Zoho Account."
-        >
-          Real accounts only
-        </Button>
-        <Button
-          size="sm"
-          variant={rowType === "all" ? "default" : "outline"}
-          onClick={() => setRowType("all")}
-          className="h-8 text-xs"
-        >
-          Include categories
-        </Button>
       </div>
 
-      {/* Scope warnings */}
+      {/* Query-level warnings (only show real Zoho errors now). */}
       {data?.query_errors && data.query_errors.length > 0 && (
         <Card className="border-amber-500/30 bg-amber-500/5">
           <CardContent className="pt-3 pb-3 text-xs space-y-2">
             <div className="font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" /> Zoho scope gap — running in degraded mode
-            </div>
-            <div className="text-muted-foreground">
-              The Zoho refresh token doesn't have read access to one or more required modules.
-              Until that's fixed, account names are derived from <code>Lead.Generated_By</code>{" "}
-              (which on your tenant looks like categories: "Digital Referral", "BD Referral",
-              "Alumni Referral", etc.) instead of real Account records.
+              <AlertTriangle className="w-3 h-3" /> Some Zoho queries returned errors
             </div>
             <details className="text-muted-foreground">
               <summary className="cursor-pointer">Errors ({data.query_errors.length})</summary>
@@ -212,11 +188,6 @@ export default function BdTopAccounts() {
                 {data.query_errors.map((e, i) => <li key={i} className="font-mono text-[10px]">{e}</li>)}
               </ul>
             </details>
-            <div className="text-muted-foreground">
-              <strong>To fix:</strong> Re-authorize Zoho with these added scopes:{" "}
-              <code>ZohoCRM.modules.accounts.READ</code>, <code>ZohoCRM.modules.events.READ</code>{" "}
-              (or <code>ZohoCRM.modules.ALL</code>).
-            </div>
           </CardContent>
         </Card>
       )}
@@ -229,8 +200,9 @@ export default function BdTopAccounts() {
 
       {/* KPI cards */}
       {data && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <KpiCard label="Total referrals in" value={data.totals.referrals_in} />
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <KpiCard label="Referrals in" value={data.totals.referrals_in} />
+          <KpiCard label="Referrals out" value={data.totals.referrals_out} />
           <KpiCard label="Admits" value={data.totals.admits} />
           <KpiCard label="Conv rate" value={data.totals.referrals_in > 0 ? `${Math.round((data.totals.admits / data.totals.referrals_in) * 100)}%` : "—"} />
           <KpiCard label="Accounts flagged" value={data.totals.flagged} accent={data.totals.flagged > 0 ? "rose" : "default"} />
@@ -257,43 +229,43 @@ export default function BdTopAccounts() {
             <p className="text-sm text-muted-foreground">No accounts match the current filters.</p>
           ) : data && (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[1000px]">
+              <table className="w-full text-sm min-w-[1100px]">
                 <thead className="text-xs text-muted-foreground uppercase tracking-wide">
                   <tr>
                     <th className="text-left py-2 pr-3">#</th>
                     <th className="text-left py-2 pr-3">Account</th>
-                    <th className="text-right py-2 pr-3">Referrals</th>
+                    <th className="text-right py-2 pr-3">In</th>
+                    <th className="text-right py-2 pr-3">Out</th>
+                    <th className="text-right py-2 pr-3">Net</th>
                     <th className="text-right py-2 pr-3">Admits</th>
                     <th className="text-right py-2 pr-3">Conv</th>
                     <th className="text-right py-2 pr-3">Lifetime</th>
-                    <th className="text-right py-2 pr-3">Last ref</th>
+                    <th className="text-right py-2 pr-3">Last in</th>
                     <th className="text-right py-2 pr-3">Last mtg</th>
                     <th className="text-left py-2 pr-3">Flags</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.accounts
-                    .filter((a) => rowType === "all" || a.type !== "(category)")
-                    .map((a, i) => {
+                  {data.accounts.map((a, i) => {
                     const activeFlags = (Object.keys(FLAG_LABELS) as Array<keyof typeof FLAG_LABELS>)
                       .filter((k) => a.flags[k].state === "active");
                     return (
-                      <tr key={a.id ?? a.name} className="border-t align-top hover:bg-accent/20 transition-colors">
+                      <tr key={a.id} className="border-t align-top hover:bg-accent/20 transition-colors">
                         <td className="py-2 pr-3 text-muted-foreground tabular-nums">{i + 1}</td>
                         <td className="py-2 pr-3">
                           <div className="font-medium flex items-center gap-1.5">
                             <Building2 className="w-3 h-3 text-muted-foreground" />
                             {a.name}
-                            {a.type === "(category)" && (
-                              <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400" title="This is a Generated_By category, not a real Zoho Account. Add a structured Account link on the Lead record to attribute to a specific partner.">
-                                category
-                              </Badge>
-                            )}
                             {a.is_reciprocal && <Badge variant="outline" className="text-[9px]">reciprocal</Badge>}
                           </div>
-                          {a.type && a.type !== "(category)" && <div className="text-[10px] text-muted-foreground">{a.type}</div>}
+                          {a.type && <div className="text-[10px] text-muted-foreground">{a.type}</div>}
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums font-medium">{a.referrals_recent}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-orange-600 dark:text-orange-400">{a.referrals_out_recent}</td>
+                        <td className={`py-2 pr-3 text-right tabular-nums ${a.net_balance < 0 ? "text-red-600 dark:text-red-400" : ""}`}>
+                          {a.net_balance > 0 ? `+${a.net_balance}` : a.net_balance}
+                        </td>
                         <td className="py-2 pr-3 text-right tabular-nums">{a.admits_recent}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">
                           {a.conversion_rate != null ? `${a.conversion_rate}%` : "—"}
@@ -324,6 +296,11 @@ export default function BdTopAccounts() {
                             </div>
                           )}
                         </td>
+                        <td className="py-2 pr-3">
+                          <Link href={`/bd/account?id=${a.id}`} className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">
+                            Open <ArrowRight className="w-3 h-3" />
+                          </Link>
+                        </td>
                       </tr>
                     );
                   })}
@@ -331,19 +308,6 @@ export default function BdTopAccounts() {
               </table>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Phase 2 hint */}
-      <Card className="border-dashed">
-        <CardContent className="pt-3 pb-3 text-xs text-muted-foreground space-y-1">
-          <div className="font-semibold uppercase tracking-wider">What still needs to land</div>
-          <ul className="list-disc list-inside space-y-0.5">
-            <li>Re-auth Zoho with <code>ZohoCRM.modules.accounts.READ</code> + <code>ZohoCRM.modules.events.READ</code> for real Account_Name + Meetings data</li>
-            <li>Custom <code>Referring_Account</code> lookup field on Lead/Deal in Zoho — eliminates name-string fuzzy matching</li>
-            <li>Referrals Out tracking (today the workflow pushes to Slack; needs a Zoho field)</li>
-            <li>Two-way meeting sync (Phase 3)</li>
-          </ul>
         </CardContent>
       </Card>
     </PageShell>
@@ -360,4 +324,3 @@ function KpiCard({ label, value, accent }: { label: string; value: number | stri
     </Card>
   );
 }
-
