@@ -19,7 +19,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "wouter";
 import {
-  Loader2, Calendar, ArrowLeft, ExternalLink, RefreshCw, MapPin, User, Clock, X,
+  Loader2, Calendar, ArrowLeft, ExternalLink, RefreshCw, MapPin, Clock, X,
+  ChevronDown, ChevronRight,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -216,26 +217,110 @@ export default function BdMeetings() {
     });
   }
 
-  // Build the rep filter list — every Zoho user who appears in the
-  // current result PLUS every user in the cached map. Sort by name.
-  const allOwners = useMemo(() => {
-    if (!data) return [];
-    const ownerSet = new Set<string>();
-    for (const m of data.upcoming) if (m["Owner.id"]) ownerSet.add(m["Owner.id"]);
-    for (const m of data.recent) if (m["Owner.id"]) ownerSet.add(m["Owner.id"]);
-    // Also include selected reps that may have zero matches under the
-    // current window so they don't disappear from the chip row.
-    for (const id of repIds) ownerSet.add(id);
-    const list = Array.from(ownerSet).map((id) => ({
-      id,
-      name: data.users?.[id]?.full_name ?? data.users?.[id]?.email ?? `(zoho ${id.slice(-6)})`,
-    }));
-    list.sort((a, b) => a.name.localeCompare(b.name));
-    return list;
-  }, [data, repIds]);
-
   const upcoming = data?.upcoming ?? [];
   const recent = data?.recent ?? [];
+
+  // Per-rep summary — drives both the summary table at the top of the
+  // page AND the rep selector. Each row carries upcoming / today /
+  // recent counts. Sorted by total desc so the busiest reps surface
+  // first; ties broken by name.
+  interface RepSummary {
+    id: string;
+    name: string;
+    upcoming: number;
+    today: number;
+    recent: number;
+    total: number;
+  }
+  const repSummary = useMemo((): RepSummary[] => {
+    if (!data) return [];
+    const map = new Map<string, RepSummary>();
+    const todayKey = isoDay(new Date());
+    const upsert = (id: string | null) => {
+      if (!id) return null;
+      let r = map.get(id);
+      if (!r) {
+        r = {
+          id,
+          name: data.users?.[id]?.full_name ?? data.users?.[id]?.email ?? `(zoho ${id.slice(-6)})`,
+          upcoming: 0, today: 0, recent: 0, total: 0,
+        };
+        map.set(id, r);
+      }
+      return r;
+    };
+    for (const m of data.upcoming) {
+      const r = upsert(m["Owner.id"]);
+      if (!r) continue;
+      r.upcoming++; r.total++;
+      if (m.Start_DateTime && isoDay(new Date(m.Start_DateTime)) === todayKey) r.today++;
+    }
+    for (const m of data.recent) {
+      const r = upsert(m["Owner.id"]);
+      if (!r) continue;
+      r.recent++; r.total++;
+    }
+    // Make sure selected reps stay visible even when their counts are 0
+    // under the current window — otherwise the user can't deselect them.
+    for (const id of repIds) {
+      if (!map.has(id)) {
+        map.set(id, {
+          id,
+          name: data.users?.[id]?.full_name ?? data.users?.[id]?.email ?? `(zoho ${id.slice(-6)})`,
+          upcoming: 0, today: 0, recent: 0, total: 0,
+        });
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => b.total - a.total || a.name.localeCompare(b.name),
+    );
+  }, [data, repIds]);
+
+  // Group meetings by Owner.id — feeds the collapsible per-rep cards
+  // inside Upcoming / Recent. Unassigned (Owner.id null) is bucketed
+  // under a special "(unassigned)" key.
+  function groupByRep(rows: ZohoEvent[]): Map<string, ZohoEvent[]> {
+    const out = new Map<string, ZohoEvent[]>();
+    for (const m of rows) {
+      const id = m["Owner.id"] ?? "(unassigned)";
+      if (!out.has(id)) out.set(id, []);
+      out.get(id)!.push(m);
+    }
+    // Sort meetings within each rep by start time. Upcoming = soonest
+    // first; recent stays as Zoho returned (already most-recent first).
+    return out;
+  }
+  const upcomingByRep = useMemo(() => {
+    const m = groupByRep(upcoming);
+    for (const arr of m.values()) {
+      arr.sort((a, b) => (a.Start_DateTime ?? "").localeCompare(b.Start_DateTime ?? ""));
+    }
+    return m;
+  }, [upcoming]);
+  const recentByRep = useMemo(() => groupByRep(recent), [recent]);
+
+  // Collapse state — top-level Upcoming / Recent + each per-rep group.
+  // openReps keys are namespaced "up:<id>" / "re:<id>" so the same rep
+  // can be expanded in one bucket and collapsed in the other.
+  const [showUpcoming, setShowUpcoming] = useState(true);
+  const [showRecent, setShowRecent] = useState(false);
+  const [openReps, setOpenReps] = useState<Set<string>>(new Set());
+  function toggleRepOpen(key: string) {
+    setOpenReps((prev) => {
+      const n = new Set(prev);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
+  }
+  function expandAllReps() {
+    const all = new Set<string>();
+    for (const id of upcomingByRep.keys()) all.add(`up:${id}`);
+    for (const id of recentByRep.keys()) all.add(`re:${id}`);
+    setOpenReps(all);
+  }
+  function collapseAllReps() {
+    setOpenReps(new Set());
+  }
 
   function downloadCsv() {
     if (!data) return;
@@ -337,68 +422,170 @@ export default function BdMeetings() {
         )}
       </div>
 
-      {/* Rep filter */}
-      {allOwners.length > 0 && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rep</span>
-          <Button
-            size="sm"
-            variant={repIds.size === 0 ? "default" : "outline"}
-            onClick={() => setRepIds(new Set())}
-            className="h-7 text-[11px] px-2"
-          >
-            All ({allOwners.length})
-          </Button>
-          {allOwners.map((o) => (
-            <Button
-              key={o.id}
-              size="sm"
-              variant={repIds.has(o.id) ? "default" : "outline"}
-              onClick={() => toggleRep(o.id)}
-              className="h-7 text-[11px] px-2 gap-1"
-              title={`Owner.id ${o.id}`}
-            >
-              {o.name}
-              {repIds.has(o.id) && <X className="w-3 h-3" />}
-            </Button>
-          ))}
-          <span className="text-xs text-muted-foreground ml-2">
-            {loading ? "loading…" : `${upcoming.length} upcoming · ${recent.length} recent`}
-          </span>
-        </div>
-      )}
-
       {error && (
         <Card className="border-red-500/30 bg-red-500/5">
           <CardContent className="pt-4 pb-4 text-sm text-red-600 dark:text-red-400">{error}</CardContent>
         </Card>
       )}
 
-      {/* Upcoming — only meaningful when window includes the future. */}
-      {upcoming.length > 0 && (
+      {/* Per-rep summary table — also acts as the rep selector. Click a
+          row to toggle that rep into the filter; click the All chip to
+          clear. The visual emphasis (today count colored when > 0) is
+          deliberate so a manager scanning this can spot reps with no
+          customer-facing time today. */}
+      {data && repSummary.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-blue-500" /> Upcoming · {upcoming.length}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <MeetingList rows={upcoming} repName={repName} />
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 flex-wrap mb-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                By BD rep
+              </span>
+              <Button
+                size="sm"
+                variant={repIds.size === 0 ? "default" : "outline"}
+                onClick={() => setRepIds(new Set())}
+                className="h-7 text-[11px] px-2"
+              >
+                All ({repSummary.length})
+              </Button>
+              <span className="text-[10px] text-muted-foreground ml-auto">
+                Click a row to filter · {loading ? "loading…" : `${upcoming.length} upcoming · ${recent.length} recent`}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                  <tr>
+                    <th className="text-left py-1.5 pr-3">Rep</th>
+                    <th className="text-right py-1.5 pr-3">Today</th>
+                    <th className="text-right py-1.5 pr-3">Upcoming</th>
+                    <th className="text-right py-1.5 pr-3">Recent</th>
+                    <th className="text-right py-1.5 pr-3">Total</th>
+                    <th className="w-6"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {repSummary.map((r) => {
+                    const selected = repIds.has(r.id);
+                    return (
+                      <tr
+                        key={r.id}
+                        onClick={() => toggleRep(r.id)}
+                        className={`border-t cursor-pointer transition-colors ${selected ? "bg-primary/10" : "hover:bg-accent/30"}`}
+                      >
+                        <td className="py-1.5 pr-3 font-medium text-sm">{r.name}</td>
+                        <td className={`py-1.5 pr-3 text-right tabular-nums text-sm ${r.today > 0 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-muted-foreground"}`}>
+                          {r.today}
+                        </td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-sm">{r.upcoming}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-sm text-muted-foreground">{r.recent}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-sm font-semibold">{r.total}</td>
+                        <td className="py-1.5 text-right">
+                          {selected && <X className="w-3.5 h-3.5 text-primary inline" />}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Recent — only meaningful when window includes the past. */}
-      {recent.length > 0 && (
+      {/* Expand / collapse-all controls for the per-rep groups below. */}
+      {(upcoming.length > 0 || recent.length > 0) && (
+        <div className="flex items-center justify-end gap-2 -mt-2">
+          <button
+            onClick={expandAllReps}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Expand all
+          </button>
+          <span className="text-[10px] text-muted-foreground">·</span>
+          <button
+            onClick={collapseAllReps}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Collapse all
+          </button>
+        </div>
+      )}
+
+      {/* Upcoming — collapsible from the top, then each rep is its own
+          collapsible inside. Closed-by-default for Recent (which is
+          historical noise) and open-by-default for Upcoming (the live
+          schedule a manager actually needs to see). */}
+      {upcoming.length > 0 && (
         <Card>
-          <CardHeader>
+          <CardHeader
+            className="pb-3 cursor-pointer select-none"
+            onClick={() => setShowUpcoming((v) => !v)}
+          >
             <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="w-4 h-4 text-violet-500" /> Recent · {recent.length}
+              {showUpcoming ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+              <Calendar className="w-4 h-4 text-blue-500" />
+              <span>Upcoming</span>
+              <Badge variant="outline" className="text-[10px] ml-1">{upcoming.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <MeetingList rows={recent} repName={repName} />
-          </CardContent>
+          {showUpcoming && (
+            <CardContent className="space-y-2 pt-0">
+              {Array.from(upcomingByRep.entries())
+                .sort((a, b) => b[1].length - a[1].length)
+                .map(([repId, rows]) => {
+                  const key = `up:${repId}`;
+                  const open = openReps.has(key);
+                  return (
+                    <RepGroup
+                      key={key}
+                      open={open}
+                      onToggle={() => toggleRepOpen(key)}
+                      title={repName(repId === "(unassigned)" ? null : repId)}
+                      count={rows.length}
+                      rows={rows}
+                    />
+                  );
+                })}
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+      {/* Recent — same shape, closed by default. */}
+      {recent.length > 0 && (
+        <Card>
+          <CardHeader
+            className="pb-3 cursor-pointer select-none"
+            onClick={() => setShowRecent((v) => !v)}
+          >
+            <CardTitle className="text-base flex items-center gap-2">
+              {showRecent ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+              <Clock className="w-4 h-4 text-violet-500" />
+              <span>Recent</span>
+              <Badge variant="outline" className="text-[10px] ml-1">{recent.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          {showRecent && (
+            <CardContent className="space-y-2 pt-0">
+              {Array.from(recentByRep.entries())
+                .sort((a, b) => b[1].length - a[1].length)
+                .map(([repId, rows]) => {
+                  const key = `re:${repId}`;
+                  const open = openReps.has(key);
+                  return (
+                    <RepGroup
+                      key={key}
+                      open={open}
+                      onToggle={() => toggleRepOpen(key)}
+                      title={repName(repId === "(unassigned)" ? null : repId)}
+                      count={rows.length}
+                      rows={rows}
+                    />
+                  );
+                })}
+            </CardContent>
+          )}
         </Card>
       )}
 
@@ -413,66 +600,104 @@ export default function BdMeetings() {
   );
 }
 
-function MeetingList({ rows, repName }: { rows: ZohoEvent[]; repName: (z: string | null | undefined) => string }) {
+// One rep's group inside Upcoming / Recent. Collapsed shows just the
+// header row; expanded reveals the dense list of meetings.
+function RepGroup({ open, onToggle, title, count, rows }: {
+  open: boolean;
+  onToggle: () => void;
+  title: string;
+  count: number;
+  rows: ZohoEvent[];
+}) {
   return (
-    <div className="space-y-2">
-      {rows.map((m) => {
-        const what = m.What_Id;
-        const who = m.Who_Id;
-        const companyName = typeof what === "string" ? what : (what?.name ?? null);
-        const contactName = typeof who === "string" ? who : (who?.name ?? null);
-        return (
-          <div key={m.id} className="border rounded-md p-3 hover:bg-accent/20 transition-colors">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div className="flex-1 min-w-0 space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">{m.Event_Title ?? "(untitled)"}</span>
+    <div className="border rounded-md overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent/30 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {open ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+          <span className="font-medium truncate">{title}</span>
+          <Badge variant="outline" className="text-[10px]">{count}</Badge>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t">
+          <DenseMeetingList rows={rows} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Dense per-row meeting list inside an expanded rep group. Tabular,
+// one row per meeting — each row includes when, title, company,
+// contact, venue, and a Zoho deep link. Description is dropped from
+// the list view (too noisy in dense mode); it's still in CSV export.
+function DenseMeetingList({ rows }: { rows: ZohoEvent[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
+          <tr>
+            <th className="text-left py-1.5 px-3 w-28">When</th>
+            <th className="text-left py-1.5 px-3 w-20">Relative</th>
+            <th className="text-left py-1.5 px-3">Title</th>
+            <th className="text-left py-1.5 px-3">Company</th>
+            <th className="text-left py-1.5 px-3">Contact</th>
+            <th className="text-left py-1.5 px-3">Venue</th>
+            <th className="w-10"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((m) => {
+            const what = m.What_Id;
+            const who = m.Who_Id;
+            const companyName = typeof what === "string" ? what : (what?.name ?? null);
+            const contactName = typeof who === "string" ? who : (who?.name ?? null);
+            return (
+              <tr key={m.id} className="border-t hover:bg-accent/20 transition-colors align-top">
+                <td className="py-1.5 px-3 text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                  {fmtDateTime(m.Start_DateTime)}
+                </td>
+                <td className="py-1.5 px-3 text-[11px]">
                   <Badge variant="outline" className="text-[10px]">{daysFromNow(m.Start_DateTime)}</Badge>
-                  {companyName && (
-                    <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-700 dark:text-blue-300">
-                      {companyName}
-                    </Badge>
-                  )}
-                  {contactName && (
-                    <Badge variant="outline" className="text-[10px] border-violet-500/30 text-violet-700 dark:text-violet-300">
-                      with {contactName}
-                    </Badge>
-                  )}
-                  {!companyName && !contactName && (
-                    <Badge variant="outline" className="text-[10px] text-muted-foreground" title="No related record set in Zoho — link this meeting to a company or contact for better attribution">
-                      no link
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> {fmtDateTime(m.Start_DateTime)}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <User className="w-3 h-3" /> {repName(m["Owner.id"])}
-                  </span>
-                  {m.Venue && (
+                </td>
+                <td className="py-1.5 px-3 text-sm font-medium">{m.Event_Title ?? "(untitled)"}</td>
+                <td className="py-1.5 px-3 text-xs">
+                  {companyName ? (
+                    <span className="text-blue-700 dark:text-blue-300">{companyName}</span>
+                  ) : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="py-1.5 px-3 text-xs">
+                  {contactName ? (
+                    <span className="text-violet-700 dark:text-violet-300">{contactName}</span>
+                  ) : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="py-1.5 px-3 text-xs text-muted-foreground">
+                  {m.Venue ? (
                     <span className="inline-flex items-center gap-1">
-                      <MapPin className="w-3 h-3" /> {m.Venue}
+                      <MapPin className="w-3 h-3 shrink-0" />
+                      <span className="truncate max-w-[20ch]" title={m.Venue}>{m.Venue}</span>
                     </span>
-                  )}
-                </div>
-                {m.Description && (
-                  <p className="text-xs text-muted-foreground italic line-clamp-2 mt-1">{m.Description}</p>
-                )}
-              </div>
-              <a
-                href={`https://crm.zoho.com/crm/tab/Events/${m.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-primary hover:underline inline-flex items-center gap-1 shrink-0"
-              >
-                Zoho <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-          </div>
-        );
-      })}
+                  ) : "—"}
+                </td>
+                <td className="py-1.5 px-3 text-right">
+                  <a
+                    href={`https://crm.zoho.com/crm/tab/Events/${m.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"
+                  >
+                    Zoho <ExternalLink className="w-3 h-3" />
+                  </a>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
