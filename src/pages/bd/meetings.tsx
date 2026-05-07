@@ -22,7 +22,9 @@ import {
   Loader2, Calendar, ArrowLeft, ExternalLink, RefreshCw, MapPin, Clock, X,
   ChevronDown, ChevronRight, Plus,
 } from "lucide-react";
-import { ScheduleMeetingModal } from "@/components/bd/schedule-meeting-modal";
+import { ScheduleMeetingModal, type EditingMeetingRecord } from "@/components/bd/schedule-meeting-modal";
+import { useToast } from "@/hooks/use-toast";
+import { Pencil, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -196,8 +198,65 @@ export default function BdMeetings() {
   // mid-sync get a sync-status badge.
   const [localRecords, setLocalRecords] = useState<MeetingRecord[]>([]);
 
-  // Schedule-meeting modal state.
+  // Schedule-meeting modal state. `editingRecord` non-null = edit mode;
+  // null = create mode. Both share the same modal.
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<EditingMeetingRecord | null>(null);
+  const { toast } = useToast();
+
+  // Cancel a meeting via bd-meeting-delete. Confirm first; the operation
+  // is undoable inside Zoho but not from this UI.
+  const cancelMeeting = useCallback(async (recordId: string) => {
+    if (!window.confirm("Cancel this meeting? It'll be removed from Zoho too.")) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-meeting-delete`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ id: recordId }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        toast({ title: "Couldn't cancel", description: json.error ?? "Unknown error", variant: "destructive" });
+        return;
+      }
+      if (json.sync_status === "synced") {
+        toast({ title: "Meeting cancelled", description: "Removed from Zoho." });
+      } else {
+        toast({ title: "Cancelled locally — Zoho sync pending", description: json.sync_error ?? "We'll retry the Zoho delete.", variant: "destructive" });
+      }
+      // Refresh after a beat so Zoho has time to finalize the delete.
+      setTimeout(() => load(), 1200);
+    } catch (e) {
+      toast({ title: "Couldn't cancel", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast]);
+
+  // Open the modal in edit mode, prefilled from a Zoho event row's
+  // local-record decoration. Only available for rows we have a
+  // meeting_records id for (i.e. created via this app).
+  const openEdit = useCallback((row: ZohoEvent) => {
+    if (!row._local_record_id) return;
+    // Find the matching local record so we get all the fields the
+    // edit form needs. The row only carries a subset.
+    const local = localRecords.find((r) => r.id === row._local_record_id);
+    if (!local) return;
+    setEditingRecord({
+      id: local.id,
+      title: local.title,
+      description: local.description,
+      start_at: local.start_at,
+      end_at: local.end_at,
+      venue: local.venue,
+      account_zoho_id: local.account_zoho_id,
+      account_name: local.account_name,
+      contact_zoho_id: local.contact_zoho_id,
+      contact_name: local.contact_name,
+    });
+    setScheduleOpen(true);
+  }, [localRecords]);
 
   // Filters
   const [presetKey, setPresetKey] = useState<string>("spread"); // default −14 / +30
@@ -655,6 +714,8 @@ export default function BdMeetings() {
                       title={repName(repId === "(unassigned)" ? null : repId)}
                       count={rows.length}
                       rows={rows}
+                      onEdit={openEdit}
+                      onCancel={cancelMeeting}
                     />
                   );
                 })}
@@ -692,6 +753,8 @@ export default function BdMeetings() {
                       title={repName(repId === "(unassigned)" ? null : repId)}
                       count={rows.length}
                       rows={rows}
+                      onEdit={openEdit}
+                      onCancel={cancelMeeting}
                     />
                   );
                 })}
@@ -710,10 +773,16 @@ export default function BdMeetings() {
 
       <ScheduleMeetingModal
         open={scheduleOpen}
-        onOpenChange={setScheduleOpen}
+        onOpenChange={(next) => {
+          setScheduleOpen(next);
+          // Clearing editingRecord on close means the next plain "Schedule"
+          // click reopens in create mode without leaking the prior edit.
+          if (!next) setEditingRecord(null);
+        }}
+        editingRecord={editingRecord}
         onScheduled={() => {
-          // Give Zoho a moment to index the new event before refreshing,
-          // otherwise the just-scheduled meeting won't be in the response.
+          // Give Zoho a moment to index the new/updated event before
+          // refreshing, otherwise the change won't be in the response.
           setTimeout(() => load(), 1500);
         }}
       />
@@ -723,12 +792,14 @@ export default function BdMeetings() {
 
 // One rep's group inside Upcoming / Recent. Collapsed shows just the
 // header row; expanded reveals the dense list of meetings.
-function RepGroup({ open, onToggle, title, count, rows }: {
+function RepGroup({ open, onToggle, title, count, rows, onEdit, onCancel }: {
   open: boolean;
   onToggle: () => void;
   title: string;
   count: number;
   rows: ZohoEvent[];
+  onEdit: (row: ZohoEvent) => void;
+  onCancel: (recordId: string) => void;
 }) {
   return (
     <div className="border rounded-md overflow-hidden">
@@ -745,7 +816,7 @@ function RepGroup({ open, onToggle, title, count, rows }: {
       </button>
       {open && (
         <div className="border-t">
-          <DenseMeetingList rows={rows} />
+          <DenseMeetingList rows={rows} onEdit={onEdit} onCancel={onCancel} />
         </div>
       )}
     </div>
@@ -756,7 +827,11 @@ function RepGroup({ open, onToggle, title, count, rows }: {
 // one row per meeting — each row includes when, title, company,
 // contact, venue, and a Zoho deep link. Description is dropped from
 // the list view (too noisy in dense mode); it's still in CSV export.
-function DenseMeetingList({ rows }: { rows: ZohoEvent[] }) {
+function DenseMeetingList({ rows, onEdit, onCancel }: {
+  rows: ZohoEvent[];
+  onEdit: (row: ZohoEvent) => void;
+  onCancel: (recordId: string) => void;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -809,18 +884,46 @@ function DenseMeetingList({ rows }: { rows: ZohoEvent[] }) {
                   <SyncBadge status={m._sync_status} error={m._sync_error} />
                 </td>
                 <td className="py-1.5 px-3 text-right">
-                  {m.id.startsWith("local:") ? (
-                    <span className="text-[10px] text-muted-foreground italic">local</span>
-                  ) : (
-                    <a
-                      href={`https://crm.zoho.com/crm/tab/Events/${m.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"
-                    >
-                      Zoho <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
+                  <div className="inline-flex items-center gap-2 justify-end">
+                    {/* Edit + Cancel are only available for rows we
+                        have a meeting_records id for — i.e. meetings
+                        scheduled via this app. Pure Zoho events stay
+                        read-only here (open the Zoho link to edit). */}
+                    {m._local_record_id && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onEdit(m)}
+                          className="text-muted-foreground/70 hover:text-foreground transition-colors"
+                          title="Edit"
+                          aria-label="Edit meeting"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onCancel(m._local_record_id!)}
+                          className="text-muted-foreground/70 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                          title="Cancel meeting"
+                          aria-label="Cancel meeting"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </>
+                    )}
+                    {m.id.startsWith("local:") ? (
+                      <span className="text-[10px] text-muted-foreground italic">local</span>
+                    ) : (
+                      <a
+                        href={`https://crm.zoho.com/crm/tab/Events/${m.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"
+                      >
+                        Zoho <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
                 </td>
               </tr>
             );

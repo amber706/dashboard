@@ -28,15 +28,36 @@ import { useToast } from "@/hooks/use-toast";
 interface AccountResult { id: string; name: string; type: string | null }
 interface ContactResult { id: string; name: string; email: string | null }
 
+// Subset of public.meeting_records that the modal needs to prefill an
+// edit. Caller passes this when re-opening the modal to update an
+// existing meeting; the modal switches to action="update" + reuses
+// the same form.
+export interface EditingMeetingRecord {
+  id: string;                     // local meeting_records.id
+  title: string;
+  description: string | null;
+  start_at: string;               // ISO
+  end_at: string | null;
+  venue: string | null;
+  account_zoho_id: string | null;
+  account_name: string | null;
+  contact_zoho_id: string | null;
+  contact_name: string | null;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onScheduled?: () => void;
   // Pre-fill an account when launched from /bd/account or stuck-accounts.
   initialAccount?: { id: string; name: string } | null;
+  // When set, the modal opens in edit mode — title says "Edit meeting",
+  // submit dispatches action="update", and all fields prefill from this
+  // record.
+  editingRecord?: EditingMeetingRecord | null;
 }
 
-export function ScheduleMeetingModal({ open, onOpenChange, onScheduled, initialAccount }: Props) {
+export function ScheduleMeetingModal({ open, onOpenChange, onScheduled, initialAccount, editingRecord }: Props) {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
 
@@ -57,9 +78,39 @@ export function ScheduleMeetingModal({ open, onOpenChange, onScheduled, initialA
   const [contacts, setContacts] = useState<ContactResult[]>([]);
   const [selectedContact, setSelectedContact] = useState<ContactResult | null>(null);
 
-  // Reset form whenever the modal closes.
+  // Reset / prefill the form whenever the modal opens or the record
+  // changes. Edit mode hydrates from `editingRecord`; create mode
+  // resets to empty defaults.
   useEffect(() => {
-    if (!open) {
+    if (!open) return;
+    if (editingRecord) {
+      setTitle(editingRecord.title);
+      setStartAt(toLocalDatetimeInput(editingRecord.start_at));
+      const startMs = new Date(editingRecord.start_at).getTime();
+      const endMs = editingRecord.end_at ? new Date(editingRecord.end_at).getTime() : startMs + 30 * 60_000;
+      setDurationMin(Math.max(15, Math.min(480, Math.round((endMs - startMs) / 60_000) || 30)));
+      setVenue(editingRecord.venue ?? "");
+      setDescription(editingRecord.description ?? "");
+      if (editingRecord.account_zoho_id && editingRecord.account_name) {
+        setSelectedAccount({ id: editingRecord.account_zoho_id, name: editingRecord.account_name, type: null });
+        setAccountQuery(editingRecord.account_name);
+      } else {
+        setSelectedAccount(null);
+        setAccountQuery("");
+      }
+      // Contact prefill happens later when the contacts load triggers
+      // off the selected account; keep its id so we can match it.
+      if (editingRecord.contact_zoho_id) {
+        setSelectedContact({
+          id: editingRecord.contact_zoho_id,
+          name: editingRecord.contact_name ?? "",
+          email: null,
+        });
+      } else {
+        setSelectedContact(null);
+      }
+    } else {
+      // create mode
       setTitle("");
       setStartAt(defaultStart());
       setDurationMin(30);
@@ -71,7 +122,7 @@ export function ScheduleMeetingModal({ open, onOpenChange, onScheduled, initialA
       setContacts([]);
       setSelectedContact(null);
     }
-  }, [open, initialAccount]);
+  }, [open, initialAccount, editingRecord]);
 
   // Debounced account search.
   useEffect(() => {
@@ -131,7 +182,8 @@ export function ScheduleMeetingModal({ open, onOpenChange, onScheduled, initialA
         method: "POST",
         headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
-          action: "create",
+          action: editingRecord ? "update" : "create",
+          id: editingRecord?.id,
           title: title.trim(),
           start_at: start.toISOString(),
           end_at: end.toISOString(),
@@ -152,11 +204,12 @@ export function ScheduleMeetingModal({ open, onOpenChange, onScheduled, initialA
       // Success can mean two things:
       //   sync_status === 'synced'        — pushed to Zoho cleanly
       //   sync_status === 'pending_*'     — saved locally, Zoho push failed
+      const verb = editingRecord ? "updated" : "scheduled";
       if (j.sync_status === "synced") {
-        toast({ title: "Meeting scheduled", description: "Pushed to Zoho. It'll appear in the list on next refresh." });
+        toast({ title: `Meeting ${verb}`, description: `Pushed to Zoho. It'll appear in the list on next refresh.` });
       } else {
         toast({
-          title: "Saved locally — Zoho sync pending",
+          title: `Saved locally — Zoho sync pending`,
           description: j.sync_error ?? "We'll retry the Zoho push automatically.",
           variant: "destructive",
         });
@@ -174,9 +227,11 @@ export function ScheduleMeetingModal({ open, onOpenChange, onScheduled, initialA
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Schedule a meeting</DialogTitle>
+          <DialogTitle>{editingRecord ? "Edit meeting" : "Schedule a meeting"}</DialogTitle>
           <DialogDescription>
-            Saved locally first, then pushed to Zoho. If the Zoho push fails, the meeting still saves and we'll retry — you'll see a sync-error badge on the row until it lands.
+            {editingRecord
+              ? "Edits push to Zoho. If the Zoho update fails, the local copy still saves and we'll retry."
+              : "Saved locally first, then pushed to Zoho. If the Zoho push fails, the meeting still saves and we'll retry — you'll see a sync-error badge on the row until it lands."}
           </DialogDescription>
         </DialogHeader>
 
@@ -279,12 +334,23 @@ export function ScheduleMeetingModal({ open, onOpenChange, onScheduled, initialA
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={submitting} className="gap-1.5">
             {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            Schedule
+            {editingRecord ? "Save changes" : "Schedule"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+// Convert an ISO timestamp (with TZ) to the local-time-no-TZ format
+// that <input type="datetime-local"> expects: YYYY-MM-DDTHH:MM. We
+// intentionally drop sub-minute precision and the timezone — the
+// browser will display whatever value we give it as-is in the user's
+// local time, which is what we want for prefilling an edit.
+function toLocalDatetimeInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // Default = next 30 minutes, rounded up to the nearest 15-min boundary.
