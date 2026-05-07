@@ -396,10 +396,10 @@ export default function BdDashboard() {
               info="Admits ÷ Referrals in for this window, expressed as a percentage. Cohort is the deals counted in the Referrals in tile — same window, same Pipeline filter. Note: an admit can come in a later window than the referral, so very short windows can skew low." />
             <Kpi label="Meetings"       value={data?.kpis.meetings_completed ?? null} loading={loading} icon={<Calendar className="w-4 h-4 text-violet-500" />} sub="Events tied to records"
               info="Completed Zoho Events in the window where the BD rep is the host. Includes outreach meetings, partner check-ins, and lunches. Cancelled / no-show events are excluded. Each event is linked to a Company (What_Id) or Contact (Who_Id) — drill into a rep on Today's Meetings to see the company-by-company breakdown." />
-            <Kpi label="Calls"          value={data?.kpis.calls ?? null}        loading={loading} icon={<Phone className="w-4 h-4 text-sky-500" />}        sub="Zoho Calls module"
-              info="Logged calls from the Zoho Calls module in this window, attributed to the BD rep. Inbound + outbound, completed only. Voicemails are counted; missed calls without a logged record are not." />
-            <Kpi label="Tasks"          value={data?.kpis.tasks ?? null}        loading={loading} icon={<ListTodo className="w-4 h-4 text-rose-500" />}     sub="Created in window"
-              info="Zoho Tasks created in this window, owned by the BD rep. Counts creation, not completion — helps measure outreach activity even when follow-ups stretch beyond the window. Status (open / closed) is visible on the per-rep drilldown." />
+            <Kpi label="Calls"          value={data?.kpis.calls ?? null}        loading={loading} icon={<Phone className="w-4 h-4 text-sky-500" />}        sub="BD reps only"
+              info="Logged calls from the Zoho Calls module in this window, owned by a BD rep. The intake / admissions team shares the Calls module with BD, so the unfiltered count is massively inflated — this number filters to Owner.id ∈ {BD reps observed on deals in this window}. Inbound + outbound, completed only. Voicemails count; missed calls without a logged record don't." />
+            <Kpi label="Tasks"          value={data?.kpis.tasks ?? null}        loading={loading} icon={<ListTodo className="w-4 h-4 text-rose-500" />}     sub="BD reps only"
+              info="Zoho Tasks created in this window, owned by a BD rep. Same Owner.id filter as the Calls KPI — the Tasks module is also shared with the admissions team, so the BD-only filter excludes intake task volume from this number. Counts creation, not completion." />
           </div>
 
           {/* Top referring accounts */}
