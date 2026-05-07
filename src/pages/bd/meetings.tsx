@@ -20,8 +20,9 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "wouter";
 import {
   Loader2, Calendar, ArrowLeft, ExternalLink, RefreshCw, MapPin, Clock, X,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Plus,
 } from "lucide-react";
+import { ScheduleMeetingModal } from "@/components/bd/schedule-meeting-modal";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -156,6 +157,9 @@ export default function BdMeetings() {
   const [data, setData] = useState<BdMeetingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Schedule-meeting modal state.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   // Filters
   const [presetKey, setPresetKey] = useState<string>("spread"); // default −14 / +30
@@ -359,7 +363,7 @@ export default function BdMeetings() {
     <PageShell
       eyebrow="BUSINESS DEVELOPMENT"
       title="Meetings"
-      subtitle="Zoho meetings for any window — upcoming, recent, or custom range. Phase 1 read-only; two-way sync ships next."
+      subtitle="Zoho meetings for any window — upcoming, recent, or custom range. Two-way sync: scheduling here pushes to Zoho automatically."
       maxWidth={1400}
       actions={
         <div className="flex items-center gap-2">
@@ -374,6 +378,9 @@ export default function BdMeetings() {
           </Button>
           <Button variant="outline" size="sm" onClick={downloadCsv} disabled={!data || (upcoming.length === 0 && recent.length === 0)} className="h-9 text-xs">
             Download CSV
+          </Button>
+          <Button size="sm" onClick={() => setScheduleOpen(true)} className="gap-1.5 h-9">
+            <Plus className="w-3.5 h-3.5" /> Schedule
           </Button>
         </div>
       }
@@ -596,6 +603,16 @@ export default function BdMeetings() {
           </CardContent>
         </Card>
       )}
+
+      <ScheduleMeetingModal
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        onScheduled={() => {
+          // Give Zoho a moment to index the new event before refreshing,
+          // otherwise the just-scheduled meeting won't be in the response.
+          setTimeout(() => load(), 1500);
+        }}
+      />
     </PageShell>
   );
 }
