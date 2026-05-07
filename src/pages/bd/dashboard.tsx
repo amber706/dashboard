@@ -160,6 +160,30 @@ export default function BdDashboard() {
   // accounts whose owner_id is null.
   const [stuckByOwner, setStuckByOwner] = useState<Map<string, number>>(new Map());
   const [stuckSummary, setStuckSummary] = useState<{ high: number; medium: number; low: number; total: number } | null>(null);
+
+  // Pacing — 5 weeks of daily counts per rep so we can compute this
+  // week's volume against the average of the prior 4 weeks. Independent
+  // of the dashboard's window picker on purpose: pacing is a "this
+  // week vs typical week" lens, not a "selected window" lens.
+  const [paceTrend, setPaceTrend] = useState<BdTrend | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-rep-trend`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ days: 35 }),
+        });
+        const json = await res.json();
+        if (cancelled || !json.ok) return;
+        setPaceTrend(json);
+      } catch { /* silent — strip just won't render */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -510,6 +534,12 @@ export default function BdDashboard() {
               ) : <p className="text-sm text-muted-foreground">No referrals in this window.</p>}
             </CardContent>
           </Card>
+
+          {/* Weekly pacing — this week's pace vs avg of prior 4 weeks,
+              per rep, per key metric. Renders only when bd-rep-trend
+              has loaded; takes ~1 fetch and aligns with the dashboard's
+              "this week" mental model. */}
+          {paceTrend && <PacingStrip trend={paceTrend} resolveRep={resolveRep} />}
 
           {/* Per-rep table */}
           <Card>
@@ -1625,6 +1655,142 @@ function NeedsAttentionBanner({ counts }: {
             Open queue <ArrowRight className="w-3 h-3" />
           </Button>
         </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Pacing strip ─────────────────────────────────────────────────────
+// Per-rep pace pills for the current week. For each rep × each key
+// metric (referrals in, meetings, calls, vobs), we compute:
+//   - thisWeek: sum of daily counts from Monday → today
+//   - prior4WeeksAvg: average weekly total over the four prior full weeks
+// then render a colored pill. Tone:
+//   blue   ratio ≥ 1.2  → ahead of pace
+//   green  ratio ≥ 0.8  → on pace
+//   amber  ratio ≥ 0.4  → behind pace
+//   rose   ratio < 0.4  → significantly behind
+// When the prior baseline is 0 (rep wasn't active 4 weeks ago), we
+// hide the pill rather than show a misleading "infinity ahead".
+
+type PaceMetric = "referrals_in" | "meetings" | "calls" | "vobs";
+const PACE_METRICS: Array<{ key: PaceMetric; label: string }> = [
+  { key: "referrals_in", label: "Referrals" },
+  { key: "meetings", label: "Meetings" },
+  { key: "calls", label: "Calls" },
+  { key: "vobs", label: "VOBs" },
+];
+
+interface PaceStat { thisWeek: number; baseline: number; ratio: number | null; }
+
+function computePacePerMetric(daily: number[], dates: string[]): PaceStat {
+  if (daily.length === 0 || dates.length === 0) return { thisWeek: 0, baseline: 0, ratio: null };
+  // Find Monday of the current local week.
+  const now = new Date();
+  const dow = now.getDay(); // 0 = Sun
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+  const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+
+  // Indices for "this week" — every date >= mondayKey up to today.
+  let thisWeek = 0;
+  let mondayIdx = -1;
+  for (let i = 0; i < dates.length; i++) {
+    if (dates[i] >= mondayKey) {
+      if (mondayIdx === -1) mondayIdx = i;
+      thisWeek += daily[i] ?? 0;
+    }
+  }
+  if (mondayIdx === -1) return { thisWeek: 0, baseline: 0, ratio: null };
+
+  // Baseline = the 4 full weeks BEFORE mondayIdx. Walk back 28 days.
+  // If the trend window doesn't contain that much history, use what we have.
+  const baselineEnd = mondayIdx; // exclusive
+  const baselineStart = Math.max(0, mondayIdx - 28);
+  const baselineDays = baselineEnd - baselineStart;
+  if (baselineDays === 0) return { thisWeek, baseline: 0, ratio: null };
+  let baselineSum = 0;
+  for (let i = baselineStart; i < baselineEnd; i++) baselineSum += daily[i] ?? 0;
+  const baselineWeekly = (baselineSum / baselineDays) * 7; // average weekly total
+  if (baselineWeekly === 0) return { thisWeek, baseline: 0, ratio: null };
+  return { thisWeek, baseline: baselineWeekly, ratio: thisWeek / baselineWeekly };
+}
+
+function pacePillTone(ratio: number | null): string {
+  if (ratio == null) return "border-border text-muted-foreground";
+  if (ratio >= 1.2) return "border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/5";
+  if (ratio >= 0.8) return "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/5";
+  if (ratio >= 0.4) return "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/5";
+  return "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/5";
+}
+
+function paceLabel(ratio: number | null): string {
+  if (ratio == null) return "—";
+  const pct = Math.round(ratio * 100);
+  return `${pct}%`;
+}
+
+function PacingStrip({ trend, resolveRep }: {
+  trend: BdTrend;
+  resolveRep: (s: string) => { name: string; profileId: string | null };
+}) {
+  // Skip reps with zero activity across all metrics in the entire 35d
+  // window — they're either inactive or unassigned and would just clutter
+  // the strip with all-grey pills.
+  const visibleReps = trend.reps.filter((r) =>
+    Object.values(r.totals).some((n) => n > 0),
+  );
+  if (visibleReps.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center justify-between gap-2">
+          <span>Weekly pacing</span>
+          <span className="text-[10px] font-normal text-muted-foreground">
+            this week vs avg of prior 4 weeks · 100% = on pace
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
+            <tr>
+              <th className="text-left py-1.5 pr-3">Rep</th>
+              {PACE_METRICS.map((m) => (
+                <th key={m.key} className="text-right py-1.5 pr-3">{m.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visibleReps.map((r) => {
+              const { name } = resolveRep(r.bd_rep);
+              return (
+                <tr key={r.bd_rep} className="border-t">
+                  <td className="py-1.5 pr-3 font-medium">{name}</td>
+                  {PACE_METRICS.map((m) => {
+                    const stat = computePacePerMetric(r.daily[m.key], trend.dates);
+                    return (
+                      <td key={m.key} className="py-1.5 pr-3 text-right">
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] tabular-nums ${pacePillTone(stat.ratio)}`}
+                          title={
+                            stat.ratio == null
+                              ? `This week: ${stat.thisWeek}, no usable baseline`
+                              : `This week: ${stat.thisWeek} · baseline: ${stat.baseline.toFixed(1)}/wk`
+                          }
+                        >
+                          {stat.thisWeek}{stat.ratio != null && <span className="text-muted-foreground ml-1">· {paceLabel(stat.ratio)}</span>}
+                        </Badge>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </CardContent>
     </Card>
   );
