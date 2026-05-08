@@ -21,6 +21,7 @@ import Analytics from "@/pages/analytics";
 import Onboarding from "@/pages/onboarding";
 import SettingsPage from "@/pages/settings";
 import LoginPage from "@/pages/login";
+import ResetPasswordPage from "@/pages/reset-password";
 import CTMCalls from "@/pages/ctm-calls";
 import CTMAgents from "@/pages/ctm-agents";
 import CTMAttribution from "@/pages/ctm-attribution";
@@ -195,6 +196,20 @@ function AppRoutes() {
 
 function AuthGate() {
   const { isAuthenticated, isLoading } = useAuth();
+
+  // Password-recovery landing page must short-circuit BOTH the loading
+  // and the authenticated-redirect branches. The recovery email link
+  // creates a session via the URL hash, which makes isAuthenticated
+  // true — without this check, the user would land on / instead of
+  // the password-set form. The page itself uses wouter's useLocation
+  // for navigation, so wrap it in a minimal Router.
+  if (typeof window !== "undefined" && window.location.pathname.endsWith("/reset-password")) {
+    return (
+      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+        <ResetPasswordPage />
+      </WouterRouter>
+    );
+  }
 
   if (isLoading) {
     return (
