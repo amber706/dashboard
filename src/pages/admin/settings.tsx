@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useFeatureFlags, type FeatureKey } from "@/lib/feature-flags-context";
+import { useFeatureFlags, type FeatureKey, type ModuleKey } from "@/lib/feature-flags-context";
 import { useToast } from "@/hooks/use-toast";
 
 type TestState = "idle" | "running" | "ok" | "skipped" | "error";
@@ -44,10 +44,13 @@ export default function AdminSettings() {
   );
 }
 
-// Feature toggles — admin can flip individual modules on/off org-wide.
-// Each flag controls a route gate (RequireFeature) AND a sidebar item.
-// Realtime: flipping a flag here propagates to every open browser
-// without a refresh (subscribed in FeatureFlagsProvider).
+// Feature toggles — admin can flip modules AND individual pages on/off
+// org-wide. Each flag controls a route gate (RequireFeature) AND a
+// sidebar item. Sub-features are grouped under their parent module;
+// the cascade rule means turning a module off ALSO disables its pages
+// (the page toggles stay visible but are visually muted).
+//
+// Realtime: a flip here propagates to every open browser within ~1s.
 function FeatureTogglesCard() {
   const { flags, loading, refresh } = useFeatureFlags();
   const { toast } = useToast();
@@ -65,78 +68,133 @@ function FeatureTogglesCard() {
         return;
       }
       await refresh();
-      toast({ title: next ? "Module enabled" : "Module disabled", description: flags[key]?.label ?? key });
+      toast({ title: next ? "Enabled" : "Disabled", description: flags[key]?.label ?? key });
     } finally {
       setBusy(null);
     }
   }, [flags, refresh, toast]);
 
-  // Stable display order — same order the toggles will appear in the
-  // sidebar, so the UI matches the user's mental model.
-  const ORDER: FeatureKey[] = [
+  // Module display order — same order the tabs appear in the sidebar so
+  // the UI matches the user's mental model.
+  const MODULE_ORDER: ModuleKey[] = [
     "module_bd", "module_executive", "module_training", "module_kb", "module_qa", "module_ctm",
   ];
+
+  // "Floating" pages — those with no parent module. Rendered in a
+  // dedicated group at the top so they don't get lost.
+  const FLOATING_PAGES: FeatureKey[] = ["page_supervisor_review", "page_suggestions"];
+
+  // Pages keyed by their parent module — built fresh from the loaded
+  // flag list so new sub-features auto-appear in the right group when
+  // a future migration adds them.
+  const pagesByParent: Record<ModuleKey, FeatureKey[]> = {
+    module_bd: [], module_executive: [], module_training: [],
+    module_kb: [], module_qa: [], module_ctm: [],
+  };
+  for (const f of Object.values(flags)) {
+    if (!f || !f.parent) continue;
+    pagesByParent[f.parent].push(f.key);
+  }
+
+  function renderToggleRow(key: FeatureKey, indent = false) {
+    const f = flags[key];
+    if (!f) return null;
+    const isBusy = busy === key;
+    // Cascade-disabled: parent is off so this page is implicitly off
+    // even if its own enabled flag says otherwise. Render as muted +
+    // an explanatory pill.
+    const parentOff = f.parent ? flags[f.parent]?.enabled === false : false;
+    return (
+      <div
+        key={key}
+        className={`flex items-start justify-between gap-3 rounded-md border bg-card px-3 py-2.5 ${
+          indent ? "ml-4 border-dashed" : ""
+        } ${parentOff ? "opacity-60" : ""}`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
+            {f.label}
+            {!f.enabled && (
+              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">
+                Off
+              </Badge>
+            )}
+            {parentOff && f.enabled && (
+              <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground">
+                hidden — module off
+              </Badge>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+            {f.description}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={f.enabled}
+          disabled={isBusy}
+          onClick={() => toggle(key, !f.enabled)}
+          className={`shrink-0 mt-0.5 relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 ${
+            f.enabled ? "bg-primary" : "bg-muted"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+              f.enabled ? "translate-x-4" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <ToggleRight className="w-4 h-4 text-primary" />
-          Module toggles
+          Module & feature toggles
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          Turn individual workspaces on or off for everyone. Disabled modules disappear from
-          the sidebar and their routes show a "module off" screen. Changes propagate to all
-          users instantly — no refresh needed.
+          Turn workspaces and individual pages on or off for everyone. Pages cascade — a page
+          stays hidden whenever its parent module is off, regardless of its own toggle.
+          Changes propagate to all users within a second; no refresh needed.
         </p>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-4">
         {loading ? (
           <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading flags…
           </div>
         ) : (
-          ORDER.map((key) => {
-            const f = flags[key];
-            if (!f) return null;
-            const isBusy = busy === key;
-            return (
-              <div
-                key={key}
-                className="flex items-start justify-between gap-3 rounded-md border bg-card px-3 py-2.5"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium flex items-center gap-2">
-                    {f.label}
-                    {!f.enabled && (
-                      <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">
-                        Off
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                    {f.description}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={f.enabled}
-                  disabled={isBusy}
-                  onClick={() => toggle(key, !f.enabled)}
-                  className={`shrink-0 mt-0.5 relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 ${
-                    f.enabled ? "bg-primary" : "bg-muted"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                      f.enabled ? "translate-x-4" : "translate-x-0.5"
-                    }`}
-                  />
-                </button>
+          <>
+            {/* Floating pages — sit inside Admissions (which itself
+                isn't a toggleable module). Grouped here so they're not
+                lost between the modules. */}
+            <div className="space-y-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold pl-1">
+                Admissions pages
               </div>
-            );
-          })
+              {FLOATING_PAGES.map((k) => renderToggleRow(k))}
+            </div>
+
+            {/* Each module gets its own group: the module row first,
+                then its sub-pages indented underneath. */}
+            {MODULE_ORDER.map((m) => {
+              const pages = pagesByParent[m];
+              return (
+                <div key={m} className="space-y-1.5">
+                  {renderToggleRow(m)}
+                  {pages.length > 0 && (
+                    <div className="space-y-1.5 pt-0.5">
+                      {pages.map((k) => renderToggleRow(k, true))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
         )}
       </CardContent>
     </Card>

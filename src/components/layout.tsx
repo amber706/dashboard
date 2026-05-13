@@ -164,8 +164,33 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // RequireFeature guards in App.tsx — if a route is gated, its sidebar
   // link should be too, so a disabled module doesn't leave dead links
   // in the nav.
+  // Map sidebar item URL → its most-specific feature key. Page-level
+  // flags take priority over module-level flags; the cascade rule in
+  // FeatureFlagsProvider then implicitly hides a sub-page whenever its
+  // parent module is off, so this only has to return the closest key.
   function featureFor(href: string): import("@/lib/feature-flags-context").FeatureKey | null {
-    if (href === "/kb" || href === "/knowledge-review" || href === "/ops/kb-drafts") return "module_kb";
+    // Sub-page flags (most specific first).
+    if (href === "/ops/supervisor-review") return "page_supervisor_review";
+    if (href === "/ops/suggestions") return "page_suggestions";
+    if (href === "/ops/dispositions") return "page_dispositions";
+    if (href === "/ops/ai-bot-feedback") return "page_ai_bot_feedback";
+    if (href === "/ops/staffing") return "page_staffing_schedule";
+    if (href === "/ops/workload") return "page_rep_workload";
+    if (href === "/ops/funnel") return "page_funnel";
+    if (href === "/ops/outcomes") return "page_outcomes";
+    if (href === "/ops/attribution") return "page_attribution";
+    if (href === "/ops/objections") return "page_objection_mining";
+    if (href === "/ops/training-paths") return "page_training_paths";
+    if (href === "/ops/training-analytics") return "page_training_analytics";
+    if (href === "/ops/kb-drafts") return "page_kb_drafts";
+    if (href === "/knowledge-review") return "page_knowledge_review";
+    if (href === "/bd/referrals") return "page_bd_referrals";
+    if (href === "/bd/stuck-accounts") return "page_bd_stuck_accounts";
+    if (href === "/bd/top-accounts") return "page_bd_top_accounts";
+    if (href === "/bd/account") return "page_bd_account_intel";
+    if (href === "/bd/meetings") return "page_bd_meetings";
+    // Module-level fallthrough.
+    if (href === "/kb") return "module_kb";
     if (href === "/training" || href.startsWith("/ops/training") || href === "/ops/scenario-review") return "module_training";
     if (href === "/ops/qa-review" || href === "/ops/coaching") return "module_qa";
     if (href.startsWith("/bd")) return "module_bd";

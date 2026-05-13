@@ -150,17 +150,17 @@ function AppRoutes() {
         <Route path="/suggestion/:id" component={Mgr(SuggestionDetail)} />
         <Route path="/ctm-agents" component={MgrMod("module_ctm", CTMAgents)} />
         <Route path="/ctm-attribution" component={MgrMod("module_ctm", CTMAttribution)} />
-        <Route path="/knowledge-review" component={MgrMod("module_kb", KnowledgeReview)} />
+        <Route path="/knowledge-review" component={MgrMod("page_knowledge_review", KnowledgeReview)} />
         <Route path="/ops/overview" component={Mgr(OpsOverview)} />
-        <Route path="/ops/suggestions" component={Mgr(OpsSuggestions)} />
-        <Route path="/ops/workload" component={Mgr(OpsWorkload)} />
-        <Route path="/ops/attribution" component={Mgr(OpsAttribution)} />
-        <Route path="/ops/supervisor-review" component={Mgr(OpsSupervisorReview)} />
+        <Route path="/ops/suggestions" component={MgrMod("page_suggestions", OpsSuggestions)} />
+        <Route path="/ops/workload" component={MgrMod("page_rep_workload", OpsWorkload)} />
+        <Route path="/ops/attribution" component={MgrMod("page_attribution", OpsAttribution)} />
+        <Route path="/ops/supervisor-review" component={MgrMod("page_supervisor_review", OpsSupervisorReview)} />
         <Route path="/ops/knowledge" component={Mgr(OpsKnowledge)} />
         <Route path="/ops/alerts" component={Mgr(OpsAlerts)} />
-        <Route path="/ops/kb-drafts" component={MgrMod("module_kb", OpsKBDrafts)} />
+        <Route path="/ops/kb-drafts" component={MgrMod("page_kb_drafts", OpsKBDrafts)} />
         <Route path="/ops/scenario-review" component={MgrMod("module_training", OpsScenarioReview)} />
-        <Route path="/ops/training-analytics" component={MgrMod("module_training", OpsTrainingAnalytics)} />
+        <Route path="/ops/training-analytics" component={MgrMod("page_training_analytics", OpsTrainingAnalytics)} />
         <Route path="/ops/training-assignments" component={MgrMod("module_training", OpsTrainingAssignments)} />
         <Route path="/ops/qa-review" component={MgrMod("module_qa", OpsQAReview)} />
         <Route path="/ops/coaching" component={MgrMod("module_qa", OpsCoaching)} />
@@ -168,18 +168,18 @@ function AppRoutes() {
         <Route path="/ops/stuck-leads" component={Mgr(OpsStuckLeads)} />
         <Route path="/ops/vob" component={Mgr(OpsVOB)} />
         <Route path="/ops/intakes" component={Mgr(OpsIntakes)} />
-        <Route path="/ops/training-paths" component={MgrMod("module_training", OpsTrainingPaths)} />
-        <Route path="/ops/funnel" component={Mgr(OpsFunnel)} />
-        <Route path="/ops/objections" component={Mgr(OpsObjections)} />
-        <Route path="/ops/dispositions" component={Mgr(OpsDispositions)} />
+        <Route path="/ops/training-paths" component={MgrMod("page_training_paths", OpsTrainingPaths)} />
+        <Route path="/ops/funnel" component={MgrMod("page_funnel", OpsFunnel)} />
+        <Route path="/ops/objections" component={MgrMod("page_objection_mining", OpsObjections)} />
+        <Route path="/ops/dispositions" component={MgrMod("page_dispositions", OpsDispositions)} />
         <Route path="/ops/specialist/:id" component={Mgr(SpecialistDeepDive)} />
         <Route path="/ops/rep-leads/:id" component={Mgr(RepLeadsDrilldown)} />
         <Route path="/ops/abandoned-calls" component={Mgr(OpsAbandonedCalls)} />
-        <Route path="/ops/ai-bot-feedback" component={Mgr(OpsAIBotFeedback)} />
-        <Route path="/ops/outcomes" component={Mgr(OpsOutcomes)} />
+        <Route path="/ops/ai-bot-feedback" component={MgrMod("page_ai_bot_feedback", OpsAIBotFeedback)} />
+        <Route path="/ops/outcomes" component={MgrMod("page_outcomes", OpsOutcomes)} />
         <Route path="/ops/callbacks" component={Mgr(OpsCallbacks)} />
         <Route path="/ops/team" component={Mgr(OpsTeam)} />
-        <Route path="/ops/staffing" component={Mgr(OpsStaffing)} />
+        <Route path="/ops/staffing" component={MgrMod("page_staffing_schedule", OpsStaffing)} />
         <Route path="/admin/leads" component={Mgr(AdminLeads)} />
 
         {/* Admin only. Health check, audit log, notification + global
@@ -193,11 +193,11 @@ function AppRoutes() {
 
         {/* Business Development workspace — manager + admin. */}
         <Route path="/bd" component={MgrMod("module_bd", BdDashboard)} />
-        <Route path="/bd/referrals" component={MgrMod("module_bd", BdReferrals)} />
-        <Route path="/bd/stuck-accounts" component={MgrMod("module_bd", BdStuckAccounts)} />
-        <Route path="/bd/account" component={MgrMod("module_bd", BdAccountIntelligence)} />
-        <Route path="/bd/top-accounts" component={MgrMod("module_bd", BdTopAccounts)} />
-        <Route path="/bd/meetings" component={MgrMod("module_bd", BdMeetings)} />
+        <Route path="/bd/referrals" component={MgrMod("page_bd_referrals", BdReferrals)} />
+        <Route path="/bd/stuck-accounts" component={MgrMod("page_bd_stuck_accounts", BdStuckAccounts)} />
+        <Route path="/bd/account" component={MgrMod("page_bd_account_intel", BdAccountIntelligence)} />
+        <Route path="/bd/top-accounts" component={MgrMod("page_bd_top_accounts", BdTopAccounts)} />
+        <Route path="/bd/meetings" component={MgrMod("page_bd_meetings", BdMeetings)} />
 
         {/* Master-tab placeholder routes — modules not yet built.
             Each one lands on the same Coming Soon page which
