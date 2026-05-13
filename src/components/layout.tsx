@@ -9,6 +9,7 @@ import {
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
 import { useAuth } from "@/lib/auth-context";
+import { useFeatureFlags } from "@/lib/feature-flags-context";
 import { MASTER_TABS, getActiveMasterTab } from "@/lib/master-tabs";
 import { StatusIndicator, type SystemState } from "@/components/status-indicator";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { mode } = useWorkflow();
   const { role, userName, isAdmin } = useRole();
   const { logout } = useAuth();
+  const { isEnabled: isFeatureEnabled } = useFeatureFlags();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -152,12 +154,37 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const activeMasterTab = getActiveMasterTab(location);
   const tabSections = activeMasterTab.sections;
 
+  // Feature-flag-aware master tabs. Tabs whose `feature` flag is OFF
+  // are hidden from the workspace switcher entirely. Tabs without a
+  // feature are always visible (Admissions, Intake, etc.).
+  const visibleMasterTabs = MASTER_TABS.filter((t) => !t.feature || isFeatureEnabled(t.feature));
+
+  // Map a sidebar item's URL to its feature flag (if any). Items without
+  // a feature flag are always visible. This mirrors the route-level
+  // RequireFeature guards in App.tsx — if a route is gated, its sidebar
+  // link should be too, so a disabled module doesn't leave dead links
+  // in the nav.
+  function featureFor(href: string): import("@/lib/feature-flags-context").FeatureKey | null {
+    if (href === "/kb" || href === "/knowledge-review" || href === "/ops/kb-drafts") return "module_kb";
+    if (href === "/training" || href.startsWith("/ops/training") || href === "/ops/scenario-review") return "module_training";
+    if (href === "/ops/qa-review" || href === "/ops/coaching") return "module_qa";
+    if (href.startsWith("/bd")) return "module_bd";
+    if (href.startsWith("/ctm-")) return "module_ctm";
+    if (href === "/executive" || href === "/analytics") return "module_executive";
+    return null;
+  }
+
   const filteredItems = navItems
     .filter((item) => (item.roles as readonly string[]).includes(role))
     // Show only items in the active tab's sections. Empty `sections` =
     // no sidebar items (placeholder tabs render only the ComingSoon
     // landing).
     .filter((item) => tabSections.includes(item.section))
+    // Hide items whose owning module is toggled off.
+    .filter((item) => {
+      const f = featureFor(item.href);
+      return !f || isFeatureEnabled(f);
+    })
     // Admissions hides the Practice link (it lives in the Training tab
     // now); Training hides the Admissions-only Workflow links and
     // shows just the Training section.
@@ -221,7 +248,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           and its pages visually obvious. */}
       <nav className="flex-1 px-3 pb-2 space-y-0.5 overflow-y-auto" aria-label="Primary">
         <div className="eyebrow text-[#6E7E9E] mb-1 px-3">Workspace</div>
-        {MASTER_TABS.map((t) => {
+        {visibleMasterTabs.map((t) => {
           const isActive = t.key === activeMasterTab.key;
           const Icon = t.icon;
           return (

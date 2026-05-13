@@ -8,6 +8,7 @@ import {
   Phone, TrendingUp, ClipboardCheck, Award, BarChart3,
   LayoutDashboard, GraduationCap, BookOpen,
 } from "lucide-react";
+import type { FeatureKey } from "@/lib/feature-flags-context";
 
 export type MasterTabKey =
   | "admissions"
@@ -31,6 +32,9 @@ export interface MasterTab {
   sections: string[];
   /** Whether the tab is just a placeholder landing for now. */
   empty: boolean;
+  /** If set, the tab is gated behind this admin-controlled feature flag.
+   *  Tabs without a feature key are always visible. */
+  feature?: FeatureKey;
 }
 
 // Order matters — this is the left-to-right order in the tab bar.
@@ -63,6 +67,7 @@ export const MASTER_TABS: MasterTab[] = [
     prefixes: ["/bd"],
     sections: ["BD"],
     empty: false,
+    feature: "module_bd",
   },
   {
     key: "intake",
@@ -118,6 +123,7 @@ export const MASTER_TABS: MasterTab[] = [
     ],
     sections: ["Quality", "Staffing", "Insights", "Admin"],
     empty: false,
+    feature: "module_executive",
   },
   {
     key: "training",
@@ -127,6 +133,7 @@ export const MASTER_TABS: MasterTab[] = [
     prefixes: ["/training", "/ops/training-", "/ops/scenario-review"],
     sections: ["Training"],
     empty: false,
+    feature: "module_training",
   },
   {
     key: "knowledge_base",
@@ -140,6 +147,7 @@ export const MASTER_TABS: MasterTab[] = [
     // up in both places automatically (no sync layer needed).
     sections: [],
     empty: false,
+    feature: "module_kb",
   },
 ];
 

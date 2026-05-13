@@ -7,9 +7,11 @@ import { Layout } from "@/components/layout";
 import { WorkflowProvider } from "@/lib/workflow-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { RoleProvider } from "@/lib/role-context";
+import { FeatureFlagsProvider, type FeatureKey } from "@/lib/feature-flags-context";
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { RequireRole } from "@/components/require-role";
+import { RequireFeature } from "@/components/require-feature";
 
 import Home from "@/pages/home-v2";
 import LegacyHome from "@/pages/home";
@@ -101,6 +103,22 @@ const AdminOnly = (Component: React.ComponentType) => () => (
     <Component />
   </RequireRole>
 );
+// Module-gated routes — wraps a component in BOTH a feature-flag gate
+// (so admins can turn the whole module off via /admin/settings) AND
+// the role check. Use Mod() for staff-visible modules and MgrMod()
+// for manager-and-up modules.
+const Mod = (feature: FeatureKey, Component: React.ComponentType) => () => (
+  <RequireFeature feature={feature}>
+    <Component />
+  </RequireFeature>
+);
+const MgrMod = (feature: FeatureKey, Component: React.ComponentType) => () => (
+  <RequireFeature feature={feature}>
+    <RequireRole roles={["manager", "admin"]}>
+      <Component />
+    </RequireRole>
+  </RequireFeature>
+);
 
 function AppRoutes() {
   return (
@@ -111,11 +129,11 @@ function AppRoutes() {
         <Route path="/" component={Home} />
         <Route path="/me" component={MyCoaching} />
         <Route path="/onboarding" component={Onboarding} />
-        <Route path="/ctm-calls" component={CTMCalls} />
+        <Route path="/ctm-calls" component={Mod("module_ctm", CTMCalls)} />
         <Route path="/queue" component={QueuePage} />
-        <Route path="/kb" component={KnowledgeBase} />
-        <Route path="/training" component={TrainingScenarios} />
-        <Route path="/training/:id" component={TrainingSession} />
+        <Route path="/kb" component={Mod("module_kb", KnowledgeBase)} />
+        <Route path="/training" component={Mod("module_training", TrainingScenarios)} />
+        <Route path="/training/:id" component={Mod("module_training", TrainingSession)} />
         <Route path="/pre-call/:id" component={PreCall} />
         <Route path="/live/:id" component={LiveCall} />
         <Route path="/wrap-up/:id" component={WrapUp} />
@@ -127,12 +145,12 @@ function AppRoutes() {
             executive boards, BD reporting, ops command center). */}
         <Route path="/legacy-home" component={Mgr(LegacyHome)} />
         <Route path="/admin" component={Mgr(Admin)} />
-        <Route path="/executive" component={Mgr(ExecutiveOverview)} />
-        <Route path="/analytics" component={Mgr(Analytics)} />
+        <Route path="/executive" component={MgrMod("module_executive", ExecutiveOverview)} />
+        <Route path="/analytics" component={MgrMod("module_executive", Analytics)} />
         <Route path="/suggestion/:id" component={Mgr(SuggestionDetail)} />
-        <Route path="/ctm-agents" component={Mgr(CTMAgents)} />
-        <Route path="/ctm-attribution" component={Mgr(CTMAttribution)} />
-        <Route path="/knowledge-review" component={Mgr(KnowledgeReview)} />
+        <Route path="/ctm-agents" component={MgrMod("module_ctm", CTMAgents)} />
+        <Route path="/ctm-attribution" component={MgrMod("module_ctm", CTMAttribution)} />
+        <Route path="/knowledge-review" component={MgrMod("module_kb", KnowledgeReview)} />
         <Route path="/ops/overview" component={Mgr(OpsOverview)} />
         <Route path="/ops/suggestions" component={Mgr(OpsSuggestions)} />
         <Route path="/ops/workload" component={Mgr(OpsWorkload)} />
@@ -140,17 +158,17 @@ function AppRoutes() {
         <Route path="/ops/supervisor-review" component={Mgr(OpsSupervisorReview)} />
         <Route path="/ops/knowledge" component={Mgr(OpsKnowledge)} />
         <Route path="/ops/alerts" component={Mgr(OpsAlerts)} />
-        <Route path="/ops/kb-drafts" component={Mgr(OpsKBDrafts)} />
-        <Route path="/ops/scenario-review" component={Mgr(OpsScenarioReview)} />
-        <Route path="/ops/training-analytics" component={Mgr(OpsTrainingAnalytics)} />
-        <Route path="/ops/training-assignments" component={Mgr(OpsTrainingAssignments)} />
-        <Route path="/ops/qa-review" component={Mgr(OpsQAReview)} />
-        <Route path="/ops/coaching" component={Mgr(OpsCoaching)} />
+        <Route path="/ops/kb-drafts" component={MgrMod("module_kb", OpsKBDrafts)} />
+        <Route path="/ops/scenario-review" component={MgrMod("module_training", OpsScenarioReview)} />
+        <Route path="/ops/training-analytics" component={MgrMod("module_training", OpsTrainingAnalytics)} />
+        <Route path="/ops/training-assignments" component={MgrMod("module_training", OpsTrainingAssignments)} />
+        <Route path="/ops/qa-review" component={MgrMod("module_qa", OpsQAReview)} />
+        <Route path="/ops/coaching" component={MgrMod("module_qa", OpsCoaching)} />
         <Route path="/ops/outreach" component={Mgr(OpsOutreach)} />
         <Route path="/ops/stuck-leads" component={Mgr(OpsStuckLeads)} />
         <Route path="/ops/vob" component={Mgr(OpsVOB)} />
         <Route path="/ops/intakes" component={Mgr(OpsIntakes)} />
-        <Route path="/ops/training-paths" component={Mgr(OpsTrainingPaths)} />
+        <Route path="/ops/training-paths" component={MgrMod("module_training", OpsTrainingPaths)} />
         <Route path="/ops/funnel" component={Mgr(OpsFunnel)} />
         <Route path="/ops/objections" component={Mgr(OpsObjections)} />
         <Route path="/ops/dispositions" component={Mgr(OpsDispositions)} />
@@ -174,12 +192,12 @@ function AppRoutes() {
         <Route path="/settings" component={AdminOnly(SettingsPage)} />
 
         {/* Business Development workspace — manager + admin. */}
-        <Route path="/bd" component={Mgr(BdDashboard)} />
-        <Route path="/bd/referrals" component={Mgr(BdReferrals)} />
-        <Route path="/bd/stuck-accounts" component={Mgr(BdStuckAccounts)} />
-        <Route path="/bd/account" component={Mgr(BdAccountIntelligence)} />
-        <Route path="/bd/top-accounts" component={Mgr(BdTopAccounts)} />
-        <Route path="/bd/meetings" component={Mgr(BdMeetings)} />
+        <Route path="/bd" component={MgrMod("module_bd", BdDashboard)} />
+        <Route path="/bd/referrals" component={MgrMod("module_bd", BdReferrals)} />
+        <Route path="/bd/stuck-accounts" component={MgrMod("module_bd", BdStuckAccounts)} />
+        <Route path="/bd/account" component={MgrMod("module_bd", BdAccountIntelligence)} />
+        <Route path="/bd/top-accounts" component={MgrMod("module_bd", BdTopAccounts)} />
+        <Route path="/bd/meetings" component={MgrMod("module_bd", BdMeetings)} />
 
         {/* Master-tab placeholder routes — modules not yet built.
             Each one lands on the same Coming Soon page which
@@ -225,13 +243,15 @@ function AuthGate() {
 
   return (
     <RoleProvider>
-      <WorkflowProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AppRoutes />
-          <ShortcutsOverlay />
-        </WouterRouter>
-        <Toaster />
-      </WorkflowProvider>
+      <FeatureFlagsProvider>
+        <WorkflowProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <AppRoutes />
+            <ShortcutsOverlay />
+          </WouterRouter>
+          <Toaster />
+        </WorkflowProvider>
+      </FeatureFlagsProvider>
     </RoleProvider>
   );
 }

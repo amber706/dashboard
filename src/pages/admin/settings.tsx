@@ -1,12 +1,14 @@
 import { useState, useCallback } from "react";
 import {
   Settings as SettingsIcon, Mail, Loader2, CheckCircle2, AlertCircle,
-  Send, Calendar, Database, Activity, ExternalLink, Sparkles,
+  Send, Calendar, Database, Activity, ExternalLink, Sparkles, ToggleRight,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useFeatureFlags, type FeatureKey } from "@/lib/feature-flags-context";
+import { useToast } from "@/hooks/use-toast";
 
 type TestState = "idle" | "running" | "ok" | "skipped" | "error";
 
@@ -22,6 +24,7 @@ export default function AdminSettings() {
         </p>
       </div>
 
+      <FeatureTogglesCard />
       <NotificationsCard />
       <DailyDigestCard />
       <AutoSummarizeCard />
@@ -38,6 +41,105 @@ export default function AdminSettings() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// Feature toggles — admin can flip individual modules on/off org-wide.
+// Each flag controls a route gate (RequireFeature) AND a sidebar item.
+// Realtime: flipping a flag here propagates to every open browser
+// without a refresh (subscribed in FeatureFlagsProvider).
+function FeatureTogglesCard() {
+  const { flags, loading, refresh } = useFeatureFlags();
+  const { toast } = useToast();
+  const [busy, setBusy] = useState<FeatureKey | null>(null);
+
+  const toggle = useCallback(async (key: FeatureKey, next: boolean) => {
+    setBusy(key);
+    try {
+      const { error } = await supabase
+        .from("feature_flags")
+        .update({ enabled: next, updated_at: new Date().toISOString() })
+        .eq("key", key);
+      if (error) {
+        toast({ title: "Couldn't update", description: error.message, variant: "destructive" });
+        return;
+      }
+      await refresh();
+      toast({ title: next ? "Module enabled" : "Module disabled", description: flags[key]?.label ?? key });
+    } finally {
+      setBusy(null);
+    }
+  }, [flags, refresh, toast]);
+
+  // Stable display order — same order the toggles will appear in the
+  // sidebar, so the UI matches the user's mental model.
+  const ORDER: FeatureKey[] = [
+    "module_bd", "module_executive", "module_training", "module_kb", "module_qa", "module_ctm",
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <ToggleRight className="w-4 h-4 text-primary" />
+          Module toggles
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Turn individual workspaces on or off for everyone. Disabled modules disappear from
+          the sidebar and their routes show a "module off" screen. Changes propagate to all
+          users instantly — no refresh needed.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {loading ? (
+          <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading flags…
+          </div>
+        ) : (
+          ORDER.map((key) => {
+            const f = flags[key];
+            if (!f) return null;
+            const isBusy = busy === key;
+            return (
+              <div
+                key={key}
+                className="flex items-start justify-between gap-3 rounded-md border bg-card px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium flex items-center gap-2">
+                    {f.label}
+                    {!f.enabled && (
+                      <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">
+                        Off
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                    {f.description}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={f.enabled}
+                  disabled={isBusy}
+                  onClick={() => toggle(key, !f.enabled)}
+                  className={`shrink-0 mt-0.5 relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 ${
+                    f.enabled ? "bg-primary" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                      f.enabled ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+            );
+          })
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
