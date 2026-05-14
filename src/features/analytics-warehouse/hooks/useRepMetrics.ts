@@ -2,9 +2,19 @@ import { useQuery } from "@tanstack/react-query";
 import { fact, dim } from "../api/client";
 import type { DateRange } from "../api/types";
 
-type PayerBucket = "AHCCCS" | "Commercial" | "Self-Pay";
+type PayerBucket = "AHCCCS" | "Commercial" | "Self-Pay" | "DUI" | "DV";
 
-const bucketPayer = (raw: string | null | undefined): PayerBucket => {
+const PAYER_BUCKETS: PayerBucket[] = ["AHCCCS", "Commercial", "Self-Pay", "DUI", "DV"];
+
+const bucketPayer = (group: string | null | undefined, raw: string | null | undefined): PayerBucket => {
+  // Prefer the warehouse-canonical payer_type_group (set by the ETL using
+  // DUI_or_Treatment + Insurance_Type). Fall back to raw insurance string.
+  if (group === "DUI") return "DUI";
+  if (group === "DV")  return "DV";
+  if (group === "AHCCCS") return "AHCCCS";
+  if (group === "Commercial") return "Commercial";
+  if (group === "Cash") return "Self-Pay";
+
   if (!raw) return "Self-Pay";
   const v = raw.toLowerCase();
   if (v.includes("ahcccs") || v.includes("medicaid")) return "AHCCCS";
@@ -37,6 +47,8 @@ const newRow = (rep_key: string, display_name: string, role: string | null): Rep
     AHCCCS:     { leads: 0, vobs: 0, admits: 0 },
     Commercial: { leads: 0, vobs: 0, admits: 0 },
     "Self-Pay": { leads: 0, vobs: 0, admits: 0 },
+    DUI:        { leads: 0, vobs: 0, admits: 0 },
+    DV:         { leads: 0, vobs: 0, admits: 0 },
   },
 });
 
@@ -62,10 +74,12 @@ async function fetchRepMetrics(range: DateRange): Promise<RepMetricsPayload> {
     AHCCCS:     { payer: "AHCCCS",     leads: 0, vobs: 0, admits: 0 },
     Commercial: { payer: "Commercial", leads: 0, vobs: 0, admits: 0 },
     "Self-Pay": { payer: "Self-Pay",   leads: 0, vobs: 0, admits: 0 },
+    DUI:        { payer: "DUI",        leads: 0, vobs: 0, admits: 0 },
+    DV:         { payer: "DV",         leads: 0, vobs: 0, admits: 0 },
   };
 
   const credit = (metric: "leads" | "vobs" | "admits", rec: Record<string, unknown>) => {
-    const p = bucketPayer((rec.payer_type_group as string | null) ?? (rec.insurance_type_raw as string | null));
+    const p = bucketPayer(rec.payer_type_group as string | null, rec.insurance_type_raw as string | null);
     funnel[p][metric] += 1;
     const ak = rec.rep_key as string | null;
     if (ak && board[ak]) {
@@ -95,7 +109,7 @@ async function fetchRepMetrics(range: DateRange): Promise<RepMetricsPayload> {
   return {
     totals: { leads: totalLeads, admits: totalAdmits, rate: overallRate },
     admitReps, bdReps,
-    funnel: Object.values(funnel),
+    funnel: PAYER_BUCKETS.map((k) => funnel[k]),
   };
 }
 

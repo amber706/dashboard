@@ -91,9 +91,11 @@ function RepBoardCard({ title, rows, loading }: { title: string; rows: RepRow[];
                 <th className="pr-3 text-right">Leads</th>
                 <th className="pr-3 text-right">VOBs</th>
                 <th className="pr-3 text-right">Admits</th>
-                <th className="pr-3 text-right">Commercial</th>
-                <th className="pr-3 text-right">AHCCCS</th>
-                <th className="pr-3 text-right">Self-pay</th>
+                <th className="pr-3 text-right">Commercial admits</th>
+                <th className="pr-3 text-right">AHCCCS admits</th>
+                <th className="pr-3 text-right">Self-pay admits</th>
+                <th className="pr-3 text-right">DUI admits</th>
+                <th className="pr-3 text-right">DV admits</th>
                 <th className="text-right">Conv %</th>
               </tr>
             </thead>
@@ -107,6 +109,8 @@ function RepBoardCard({ title, rows, loading }: { title: string; rows: RepRow[];
                   <td className="pr-3 text-right tabular-nums">{fmtNumber(r.byPayer.Commercial.admits)}</td>
                   <td className="pr-3 text-right tabular-nums">{fmtNumber(r.byPayer.AHCCCS.admits)}</td>
                   <td className="pr-3 text-right tabular-nums">{fmtNumber(r.byPayer["Self-Pay"].admits)}</td>
+                  <td className="pr-3 text-right tabular-nums">{fmtNumber(r.byPayer.DUI.admits)}</td>
+                  <td className="pr-3 text-right tabular-nums">{fmtNumber(r.byPayer.DV.admits)}</td>
                   <td className="text-right tabular-nums">{fmtPct(r.leads > 0 ? r.admits / r.leads : null)}</td>
                 </tr>
               ))}
