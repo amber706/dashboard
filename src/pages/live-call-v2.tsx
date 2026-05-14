@@ -808,23 +808,33 @@ function CallSnapshot({ extractions, score, alerts, call }: {
 }
 
 // === Lead score picker ===
-// Replaces the legacy disposition buttons. Specialist sets the Zoho
-// Lead_Score_Rating (Hot / Warm / Cold) + a free-text
-// Lead_Score_Explanation after wrap-up. These two fields push to the
-// matching Zoho Deal record via the zoho-writeback edge function so
-// the score is the source of truth for both the dashboard's
-// "unscored leads" count AND the rep's pipeline view in Zoho.
-const RATING_OPTIONS: Array<{ value: string; label: string; tone: "hot" | "warm" | "cold" }> = [
-  { value: "Hot",  label: "Hot",  tone: "hot"  },
-  { value: "Warm", label: "Warm", tone: "warm" },
-  { value: "Cold", label: "Cold", tone: "cold" },
+// Specialist sets a 1–5 star Lead_Score_Rating + free-text
+// Lead_Score_Explanation after wrap-up. Each star maps to a specific
+// Zoho picklist value (the full ⭐⭐⭐⭐⭐-prefixed string is what gets
+// pushed). Cornerstone's picklist semantics:
+//
+//   ⭐⭐⭐⭐⭐  Ideal candidate — substance abuse + actively seeking help
+//   ⭐⭐⭐⭐   Substance + intention but clear objections
+//   ⭐⭐⭐    Substance mentioned but can't pay / not in proximity
+//   ⭐⭐     Substance abuse but little intention of treatment
+//   ⭐      No substance issue at all
+//
+// Values verified against production Zoho on 2026-05-13. If
+// Cornerstone reorders or renames any value in Zoho, update STAR_RATINGS
+// below — the strings must match EXACTLY or Zoho silently drops the
+// PUT (including the curly apostrophe in the 3-star value).
+const STAR_RATINGS: Array<{ stars: 1 | 2 | 3 | 4 | 5; zoho_value: string; short: string; tone: string }> = [
+  { stars: 5, zoho_value: "⭐⭐⭐⭐⭐ Ideal Candidate - Has substance abuse and is seeking help", short: "Ideal candidate — actively seeking help",        tone: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10" },
+  { stars: 4, zoho_value: "⭐⭐⭐⭐ Has substance and intention to seek help but there are clear objections", short: "Has intent but clear objections",                tone: "border-teal-500/40 text-teal-700 dark:text-teal-400 bg-teal-500/10" },
+  { stars: 3, zoho_value: "⭐⭐⭐ Mentions substance abuse but unable to pay or isn’t within proximity", short: "Mentions abuse — can't pay / not in proximity",  tone: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10" },
+  { stars: 2, zoho_value: "⭐⭐ Has substance abuse but little intention of entering treatment", short: "Substance abuse but little intention",          tone: "border-orange-500/40 text-orange-700 dark:text-orange-400 bg-orange-500/10" },
+  { stars: 1, zoho_value: "⭐ Has no substance issue at all", short: "No substance issue at all",                  tone: "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10" },
 ];
 
-const RATING_TONE_CLASS: Record<string, string> = {
-  hot:  "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10",
-  warm: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
-  cold: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
-};
+function ratingMetaForZoho(v: string | null) {
+  if (!v) return null;
+  return STAR_RATINGS.find((r) => r.zoho_value === v) ?? null;
+}
 
 function DispositionPicker({ call, onSaved }: { call: Call; onSaved: (c: Call) => void }) {
   const [rating, setRating] = useState<string | null>(call.lead_score_rating);
@@ -880,36 +890,65 @@ function DispositionPicker({ call, onSaved }: { call: Call; onSaved: (c: Call) =
     setSaving(false);
   }
 
-  const currentTone = RATING_OPTIONS.find((o) => o.value === call.lead_score_rating)?.tone;
+  // The picker tracks the SELECTED star count (1-5) for UI purposes,
+  // but persists the full Zoho-picklist string. `rating` here is the
+  // raw Zoho value (with stars + descriptive text).
+  const selectedStars = ratingMetaForZoho(rating)?.stars ?? null;
+  const selectedMeta = ratingMetaForZoho(rating);
+  const savedMeta = ratingMetaForZoho(call.lead_score_rating);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center justify-between">
           <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Lead score</span>
-          {call.lead_score_rating && currentTone && (
-            <Badge variant="outline" className={`text-[10px] ${RATING_TONE_CLASS[currentTone]}`}>{call.lead_score_rating}</Badge>
+          {savedMeta && (
+            <Badge variant="outline" className={`text-[10px] ${savedMeta.tone}`}>
+              {"⭐".repeat(savedMeta.stars)} <span className="ml-1 normal-case">{savedMeta.short}</span>
+            </Badge>
           )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div>
           <div className="text-[11px] text-muted-foreground mb-1.5">Lead Score Rating</div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {RATING_OPTIONS.map((opt) => (
+          {/* 5-star row — click any star to set that rating. Hovering
+              previews the descriptive text below so a rep doesn't have
+              to guess what "2 stars" means without the legend open. */}
+          <div className="flex items-center gap-1 mb-1.5">
+            {[1, 2, 3, 4, 5].map((n) => {
+              const meta = STAR_RATINGS.find((r) => r.stars === n)!;
+              const active = selectedStars !== null && n <= selectedStars;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setRating(rating === meta.zoho_value ? null : meta.zoho_value)}
+                  className={`text-3xl leading-none transition-all ${
+                    active ? "scale-110" : "opacity-30 hover:opacity-60"
+                  }`}
+                  title={`${n} star${n === 1 ? "" : "s"} — ${meta.short}`}
+                  aria-label={`Set ${n} star${n === 1 ? "" : "s"}: ${meta.short}`}
+                >
+                  ⭐
+                </button>
+              );
+            })}
+            {selectedMeta && (
               <button
-                key={opt.value}
-                onClick={() => setRating(rating === opt.value ? null : opt.value)}
-                className={`text-sm font-medium px-2.5 py-2 rounded-md border transition-colors ${
-                  rating === opt.value
-                    ? RATING_TONE_CLASS[opt.tone]
-                    : "border-border hover:bg-accent/50"
-                }`}
+                type="button"
+                onClick={() => setRating(null)}
+                className="ml-2 text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
               >
-                {opt.label}
+                clear
               </button>
-            ))}
+            )}
           </div>
+          {selectedMeta && (
+            <div className={`text-[11px] px-2.5 py-1.5 rounded-md border ${selectedMeta.tone}`}>
+              {selectedMeta.short}
+            </div>
+          )}
         </div>
         <div>
           <div className="text-[11px] text-muted-foreground mb-1.5">Lead Score Explanation</div>
