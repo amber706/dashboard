@@ -299,10 +299,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <div key={t.key}>
               <Link
                 href={t.defaultPath}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] transition-colors ${
+                aria-current={isActive ? "page" : undefined}
+                className={`relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-all duration-150 ${
                   isActive
-                    ? "bg-[#5BA3D4]/15 text-[#F4EFE6] border-l-2 border-[#5BA3D4]"
-                    : "text-[#A6B5D0] hover:bg-[#0F2549]/60 hover:text-[#F4EFE6] border-l-2 border-transparent"
+                    ? "nav-active bg-[#0F2549] text-[#F4EFE6] font-medium"
+                    : "text-[#A6B5D0] hover:bg-[#0F2549]/60 hover:text-[#F4EFE6]"
                 }`}
               >
                 <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-[#5BA3D4]" : "text-[#6E7E9E]"}`} />
