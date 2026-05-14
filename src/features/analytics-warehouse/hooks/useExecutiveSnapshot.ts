@@ -34,9 +34,16 @@ async function fetchExecutiveSnapshot(range: DateRange): Promise<ExecutiveSnapsh
     vobApprovedRes, vobCompletedRes,
     trendRes, stageRes, payerTrendRes,
   ] = await Promise.all([
+    // New Leads = rows from Zoho's Leads module ONLY. Deals (which all
+    // start as Leads then convert) would double-count if we just counted
+    // every fact_pipeline row — stage_key='lead_created' is the canonical
+    // marker that a row originated from the Leads module per the
+    // warehouse loader's mapping.
     fact().from("fact_pipeline").select("*", { count: "exact", head: true })
+      .eq("stage_key", "lead_created")
       .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`),
     fact().from("fact_pipeline").select("*", { count: "exact", head: true })
+      .eq("stage_key", "lead_created")
       .gte("lead_created_time", priorFrom).lte("lead_created_time", `${priorTo}T23:59:59`),
     fact().from("fact_admit").select("*", { count: "exact", head: true })
       .gte("admit_date", range.from).lte("admit_date", range.to),
