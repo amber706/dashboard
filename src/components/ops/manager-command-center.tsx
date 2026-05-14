@@ -312,9 +312,12 @@ export function TodayKpis() {
       const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
       const startISO = startOfDay.toISOString();
       const [inboundRes, answeredRes, scoresRes, callbackRes] = await Promise.all([
-        supabase.from("call_sessions").select("id", { count: "exact", head: true }).gte("started_at", startISO),
         supabase.from("call_sessions").select("id", { count: "exact", head: true })
           .gte("started_at", startISO)
+          .eq("direction", "inbound"),
+        supabase.from("call_sessions").select("id", { count: "exact", head: true })
+          .gte("started_at", startISO)
+          .eq("direction", "inbound")
           .in("status", ["completed", "in_progress", "transferred"]),
         supabase.from("call_scores").select("composite_score").gte("created_at", startISO),
         // Scope callbacks-pending to the last 24h. Older pending callbacks
