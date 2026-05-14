@@ -47,6 +47,8 @@ import { useOutcomes } from "@/features/executive-analytics/hooks/useOutcomes";
 import { useRepPerformance } from "@/features/executive-analytics/hooks/useRepPerformance";
 import { useAnalyticsInsights } from "@/features/executive-analytics/hooks/useAnalyticsInsights";
 import { InsightsPanel } from "@/features/executive-analytics/components/InsightsPanel";
+import { useRepFollowups } from "@/features/executive-analytics/hooks/useRepFollowups";
+import { RepFollowupsPanel } from "@/features/executive-analytics/components/RepFollowupsPanel";
 import {
   ROLE_KEYS, ROLE_LABELS, visibleTabsForRole, defaultRoleFor,
   type RoleKey,
@@ -992,14 +994,44 @@ function ClosedLost({ role, range, openDrill }: { role: RoleKey; range: ReturnTy
 
 function RepPerformance({ role, range, openDrill }: { role: RoleKey; range: ReturnType<typeof useDashboardRange>; openDrill: OpenDrillFn }) {
   const { data, isLoading, error, refetch } = useRepPerformance(role, range);
+  // Pull pipeline + outcomes alongside the rep table so the AI
+  // follow-up panel has stuck/stale/loss-reason context. The other
+  // tabs cache these via TanStack Query — calls are deduped.
+  const pipelineQ = usePipelineSnapshot(role);
+  const outcomesQ = useOutcomes(role, range);
+  const followupsMut = useRepFollowups();
+
   if (isLoading) return <SkeletonGrid />;
   if (error || !data) return <ErrorCard error={error instanceof Error ? error.message : String(error)} onRetry={() => refetch()} />;
   if (data.note === "not_applicable") {
     return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">Rep performance isn't applicable to Digital Marketing view.</CardContent></Card>;
   }
+
+  const generateFollowups = () => {
+    followupsMut.mutate({
+      role,
+      range: { start: range.start, end: range.end, label: range.label },
+      pipeline: pipelineQ.data ?? null,
+      outcomes: outcomesQ.data ?? null,
+      rep: data,
+    });
+  };
+  const repOrder = (data.rows ?? []).map((r: any) => r.rep);
+
   return (
     <>
       <MissingFieldsBanner fields={data.missing_fields} />
+      {/* AI follow-up suggestions per rep — Claude analyzes each rep's
+          stuck list / stale deals / loss reasons / top accounts and
+          returns 3-5 specific next actions per rep. */}
+      <RepFollowupsPanel
+        byRep={followupsMut.data?.byRep ?? null}
+        generatedAt={followupsMut.data?.generatedAt ?? null}
+        loading={followupsMut.isPending}
+        error={followupsMut.error instanceof Error ? followupsMut.error.message : null}
+        onGenerate={generateFollowups}
+        repOrder={repOrder}
+      />
       <Card>
         <CardContent className="pt-4 pb-2">
           <PanelHeader title="Per-rep performance" metric="repTable" />

@@ -70,3 +70,29 @@ export interface AnalyticsInsightsResponse {
 export function fetchAnalyticsInsights(args: InsightsRequest): Promise<AnalyticsInsightsResponse | { ok: false; error: string }> {
   return invoke("executive-analytics-insights", args);
 }
+
+export interface RepFollowup {
+  priority: "high" | "medium" | "low";
+  action: string;
+  why: string;
+  ref?: string;
+}
+
+export interface RepFollowupsRequest {
+  role: string;
+  range: { start: string; end: string; label?: string };
+  pipeline?: unknown;
+  outcomes?: unknown;
+  rep: unknown;
+}
+
+export interface RepFollowupsResponse {
+  ok: true;
+  byRep: Record<string, { followups: RepFollowup[] }>;
+  generatedAt: string;
+  model: string;
+}
+
+export function fetchAnalyticsRepFollowups(args: RepFollowupsRequest): Promise<RepFollowupsResponse | { ok: false; error: string }> {
+  return invoke("executive-analytics-rep-followups", args);
+}
