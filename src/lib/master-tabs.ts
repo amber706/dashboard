@@ -70,6 +70,24 @@ export const MASTER_TABS: MasterTab[] = [
     feature: "module_bd",
   },
   {
+    // Knowledge Base sits high in the tab order (under Business Dev)
+    // because reps reach for it constantly mid-call. Keeping it third
+    // gets it within easy click reach without scanning past placeholder
+    // modules.
+    key: "knowledge_base",
+    label: "Knowledge Base",
+    icon: BookOpen,
+    defaultPath: "/kb",
+    prefixes: ["/kb"],
+    // No sub-sections — the /kb page IS the workspace. Same data
+    // source as the Knowledge Base link inside Admissions; both
+    // surfaces read from kb_documents, so any edit/approval shows
+    // up in both places automatically (no sync layer needed).
+    sections: [],
+    empty: false,
+    feature: "module_kb",
+  },
+  {
     key: "intake",
     label: "Intake",
     icon: ClipboardCheck,
@@ -134,20 +152,6 @@ export const MASTER_TABS: MasterTab[] = [
     sections: ["Training"],
     empty: false,
     feature: "module_training",
-  },
-  {
-    key: "knowledge_base",
-    label: "Knowledge Base",
-    icon: BookOpen,
-    defaultPath: "/kb",
-    prefixes: ["/kb"],
-    // No sub-sections — the /kb page IS the workspace. Same data
-    // source as the Knowledge Base link inside Admissions; both
-    // surfaces read from kb_documents, so any edit/approval shows
-    // up in both places automatically (no sync layer needed).
-    sections: [],
-    empty: false,
-    feature: "module_kb",
   },
 ];
 

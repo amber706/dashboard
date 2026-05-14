@@ -354,16 +354,23 @@ export default function CTMCalls() {
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchMissedSubtypes(); }, [fetchMissedSubtypes]);
 
-  // Load active specialists once for the rep filter dropdown. Includes
-  // managers because they sometimes pick up calls during coverage.
+  // Load anyone who could plausibly own a call into the rep filter
+  // dropdown. We pull every active profile and let the call_sessions
+  // table itself constrain what gets shown — filtering by specialist_id
+  // is fine even for managers/admins who occasionally pick up coverage
+  // calls. Sort nulls-last so unnamed rows don't crash the alphabetical
+  // sort.
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("profiles")
-        .select("id, full_name, email")
+        .select("id, full_name, email, role")
         .eq("is_active", true)
-        .in("role", ["specialist", "manager"])
-        .order("full_name", { ascending: true });
+        .order("full_name", { ascending: true, nullsFirst: false });
+      if (error) {
+        console.warn("[ctm-calls] failed to load rep list:", error.message);
+        return;
+      }
       setSpecialists((data ?? []) as any);
     })();
   }, []);
