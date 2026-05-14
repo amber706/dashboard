@@ -38,61 +38,87 @@ export interface FunnelAnalysis {
   counts: { missingInsurance: number; stuckTotal: number };
 }
 
+// Lightweight HEAD counter — used in parallel for each stage instead of
+// pulling every fact_pipeline row in the window (a 20k-row select would
+// drop columns into our 8s statement_timeout window when YTD is selected).
+function countInRange(range: DateRange, stageKey: string) {
+  return fact().from("fact_pipeline").select("*", { count: "exact", head: true })
+    .eq("stage_key", stageKey)
+    .gte("lead_created_time", range.from)
+    .lte("lead_created_time", `${range.to}T23:59:59`);
+}
+
 async function fetchFunnel(range: DateRange): Promise<FunnelAnalysis> {
   const cohortMonth = range.from.slice(0, 7);
 
-  const [pipelineRes, cohortLeadsRes, cohortAdmitsRes, admittedRes, stuckRes, agingRes] =
-    await Promise.all([
-      fact().from("fact_pipeline").select(
-        "stage_key, is_stuck, is_closed, close_reason, insurance_type_raw, days_in_current_stage",
-      )
-        .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`),
-      fact().from("fact_pipeline").select("*", { count: "exact", head: true })
-        .eq("cohort_month", cohortMonth),
-      fact().from("fact_pipeline").select("*", { count: "exact", head: true })
-        .eq("cohort_month", cohortMonth).eq("is_won", true),
-      fact().from("fact_pipeline").select("lead_created_time, admit_date")
-        .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
-        .eq("is_won", true),
-      fact().from("fact_pipeline").select(
-        "pipeline_id, first_name, last_initial, stage_key, days_in_current_stage, rep_key, open_age_days",
-      )
-        .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
-        .eq("is_stuck", true)
-        .order("days_in_current_stage", { ascending: false, nullsFirst: false })
-        .limit(10),
-      fact().from("fact_pipeline").select(
-        "pipeline_id, first_name, last_initial, stage_key, open_age_days, days_in_current_stage, payer_type_group, channel_group, level_of_care, rep_key",
-      )
-        .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
-        .eq("is_closed", false)
-        .order("days_in_current_stage", { ascending: false, nullsFirst: false })
-        .limit(50),
-    ]);
+  const [
+    stageCountResults,
+    stuckTotalRes,
+    missingInsuranceRes,
+    closedLostRes,
+    cohortLeadsRes,
+    cohortAdmitsRes,
+    admittedRes,
+    stuckRes,
+    agingRes,
+  ] = await Promise.all([
+    Promise.all(STAGES.map((s) => countInRange(range, s.key))),
+    fact().from("fact_pipeline").select("*", { count: "exact", head: true })
+      .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
+      .eq("is_stuck", true),
+    fact().from("fact_pipeline").select("*", { count: "exact", head: true })
+      .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
+      .is("insurance_type_raw", null)
+      .eq("is_closed", false),
+    fact().from("fact_pipeline").select("close_reason")
+      .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
+      .eq("stage_key", "closed_lost")
+      .not("close_reason", "is", null)
+      .limit(1000),
+    fact().from("fact_pipeline").select("*", { count: "exact", head: true })
+      .eq("cohort_month", cohortMonth),
+    fact().from("fact_pipeline").select("*", { count: "exact", head: true })
+      .eq("cohort_month", cohortMonth).eq("is_won", true),
+    fact().from("fact_admit").select("admit_date, lead_created_time")
+      .gte("admit_date", range.from).lte("admit_date", range.to)
+      .not("lead_created_time", "is", null)
+      .limit(2000),
+    fact().from("fact_pipeline").select(
+      "pipeline_id, first_name, last_initial, stage_key, days_in_current_stage, rep_key, open_age_days",
+    )
+      .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
+      .eq("is_stuck", true)
+      .order("days_in_current_stage", { ascending: false, nullsFirst: false })
+      .limit(10),
+    fact().from("fact_pipeline").select(
+      "pipeline_id, first_name, last_initial, stage_key, open_age_days, days_in_current_stage, payer_type_group, channel_group, level_of_care, rep_key",
+    )
+      .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
+      .eq("is_closed", false)
+      .order("days_in_current_stage", { ascending: false, nullsFirst: false })
+      .limit(50),
+  ]);
 
-  const pipeline = pipelineRes.data ?? [];
-  const counts = new Map<string, number>();
-  let stuckTotal = 0;
-  let missingInsurance = 0;
-  const closeReasons = new Map<string, number>();
-  for (const r of pipeline) {
-    if (r.stage_key) counts.set(r.stage_key, (counts.get(r.stage_key) ?? 0) + 1);
-    if (r.is_stuck) stuckTotal += 1;
-    if (r.stage_key !== "closed_admitted" && r.stage_key !== "closed_lost" && !r.insurance_type_raw) {
-      missingInsurance += 1;
-    }
-    if (r.stage_key === "closed_lost" && r.close_reason) {
-      closeReasons.set(r.close_reason, (closeReasons.get(r.close_reason) ?? 0) + 1);
-    }
-  }
+  // Surface the first error from any of the queries so the page can show
+  // something actionable instead of an indefinite loading state.
+  const allResults = [
+    ...stageCountResults, stuckTotalRes, missingInsuranceRes, closedLostRes,
+    cohortLeadsRes, cohortAdmitsRes, admittedRes, stuckRes, agingRes,
+  ];
+  const firstError = allResults.find((r) => r.error);
+  if (firstError?.error) throw new Error(firstError.error.message);
 
-  const stages = STAGES.map((s) => ({ stageKey: s.key, label: s.label, count: counts.get(s.key) ?? 0 }));
-  stages.push({ stageKey: "stuck", label: "Stuck", count: stuckTotal, isStuck: true } as never);
+  const stages = STAGES.map((s, i) => ({
+    stageKey: s.key,
+    label: s.label,
+    count: stageCountResults[i].count ?? 0,
+  }));
+  stages.push({ stageKey: "stuck", label: "Stuck", count: stuckTotalRes.count ?? 0, isStuck: true });
 
   const conversions: { from: string; to: string; pct: number | null }[] = [];
   for (let i = 0; i < STAGES.length - 1; i++) {
-    const a = counts.get(STAGES[i].key) ?? 0;
-    const b = counts.get(STAGES[i + 1].key) ?? 0;
+    const a = stageCountResults[i].count ?? 0;
+    const b = stageCountResults[i + 1].count ?? 0;
     conversions.push({ from: STAGES[i].key, to: STAGES[i + 1].key, pct: a > 0 ? b / a : null });
   }
 
@@ -100,7 +126,7 @@ async function fetchFunnel(range: DateRange): Promise<FunnelAnalysis> {
   for (const r of admittedRes.data ?? []) {
     if (!r.lead_created_time || !r.admit_date) continue;
     const d = (new Date(r.admit_date).getTime() - new Date(r.lead_created_time).getTime()) / 86_400_000;
-    if (Number.isFinite(d)) days.push(Math.floor(d));
+    if (Number.isFinite(d) && d >= 0) days.push(Math.floor(d));
   }
   days.sort((a, b) => a - b);
   const medianDays = days.length > 0 ? days[Math.floor(days.length / 2)] : null;
@@ -109,6 +135,11 @@ async function fetchFunnel(range: DateRange): Promise<FunnelAnalysis> {
   const cohortAdmits = cohortAdmitsRes.count ?? 0;
   const leadToAdmit  = cohortLeads > 0 ? cohortAdmits / cohortLeads : null;
 
+  const closeReasons = new Map<string, number>();
+  for (const r of closedLostRes.data ?? []) {
+    const reason = (r.close_reason as string | null) ?? "Unknown";
+    closeReasons.set(reason, (closeReasons.get(reason) ?? 0) + 1);
+  }
   const lost = [...closeReasons.entries()]
     .sort(([, a], [, b]) => b - a)
     .map(([reason, count]) => ({ reason, count }));
@@ -120,7 +151,10 @@ async function fetchFunnel(range: DateRange): Promise<FunnelAnalysis> {
     stuck: (stuckRes.data ?? []) as StuckRow[],
     aging: (agingRes.data ?? []) as AgingRow[],
     lost,
-    counts: { missingInsurance, stuckTotal },
+    counts: {
+      missingInsurance: missingInsuranceRes.count ?? 0,
+      stuckTotal: stuckTotalRes.count ?? 0,
+    },
   };
 }
 
@@ -129,5 +163,6 @@ export function useFunnelAnalysis(range: DateRange) {
     queryKey: ["analytics-warehouse", "funnel", range.from, range.to],
     queryFn: () => fetchFunnel(range),
     staleTime: 5 * 60_000,
+    retry: 1,
   });
 }

@@ -100,7 +100,7 @@ export default function WarehouseFunnel() {
       <Card>
         <CardHeader>
           <CardTitle>Stage-to-stage conversion</CardTitle>
-          <p className="text-sm text-muted-foreground">Cohort {data?.cohort.cohortMonth ?? "—"} · Lead→Admit {fmtPct(data?.cohort.leadToAdmit)} · Median speed-to-admit {fmtDays(data?.cohort.medianDays)}</p>
+          <p className="text-sm text-muted-foreground">Cohort {data?.cohort.cohortMonth ?? "—"} · Lead→Admit {fmtPct(data?.cohort.leadToAdmit)} · Median speed-to-admit (window) {fmtDays(data?.cohort.medianDays)}</p>
         </CardHeader>
         <CardContent>
           {isLoading || !data ? <Skeleton className="h-12 w-full" /> : (
