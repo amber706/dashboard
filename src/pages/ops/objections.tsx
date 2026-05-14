@@ -21,13 +21,43 @@ import { useEffect, useState, useCallback } from "react";
 import { Link } from "wouter";
 import {
   MessageSquare, Loader2, ChevronDown, ChevronRight, Sparkles, Zap,
-  CheckCircle2, ExternalLink, RefreshCw, AlertTriangle,
+  CheckCircle2, ExternalLink, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { PageShell } from "@/components/dashboard/PageShell";
+
+type WindowKey = "all" | "90d" | "30d" | "7d";
+const WINDOW_LABEL: Record<WindowKey, string> = {
+  all: "All time",
+  "90d": "Last 90 days",
+  "30d": "Last 30 days",
+  "7d":  "Last 7 days",
+};
+const WINDOW_DAYS: Record<Exclude<WindowKey, "all">, number> = {
+  "90d": 90,
+  "30d": 30,
+  "7d":  7,
+};
+
+function windowStartISO(w: WindowKey): string | null {
+  if (w === "all") return null;
+  return new Date(Date.now() - WINDOW_DAYS[w] * 86_400_000).toISOString();
+}
+function priorWindowRangeISO(w: WindowKey): { from: string; to: string } | null {
+  if (w === "all") return null;
+  const days = WINDOW_DAYS[w];
+  const now = Date.now();
+  return {
+    from: new Date(now - 2 * days * 86_400_000).toISOString(),
+    to:   new Date(now - days * 86_400_000).toISOString(),
+  };
+}
 
 const CATEGORY_LABEL: Record<string, string> = {
   cost: "Cost / Affordability",
@@ -60,12 +90,18 @@ interface CategoryGroup {
   category: string;
   examples: ObjectionExample[];
   total: number;
+  prior_total: number;
+  share: number;             // 0..1 of all objections in window
+  trend_pct: number | null;  // null when prior period has 0
   turn_around_count: number;
   used_in_kb_count: number;
 }
 
 export default function OpsObjections() {
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
+  const [grandTotal, setGrandTotal] = useState(0);
+  const [priorGrandTotal, setPriorGrandTotal] = useState(0);
+  const [windowKey, setWindowKey] = useState<WindowKey>("30d");
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [generating, setGenerating] = useState<string | null>(null);
@@ -74,17 +110,39 @@ export default function OpsObjections() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const since = windowStartISO(windowKey);
+    const prior = priorWindowRangeISO(windowKey);
+
+    // Current window — fetch examples to render cards + counts.
+    let currentQuery = supabase
       .from("objection_examples")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(500);
-    if (error) {
-      setStatusMsg(error.message);
+      .limit(1000);
+    if (since) currentQuery = currentQuery.gte("created_at", since);
+    const currentRes = await currentQuery;
+
+    // Prior equal-length window — just need counts by category for the trend chip.
+    const priorRes = prior
+      ? await supabase
+          .from("objection_examples")
+          .select("category", { count: "exact" })
+          .gte("created_at", prior.from)
+          .lt("created_at",  prior.to)
+      : { data: [] as { category: string }[], error: null };
+
+    if (currentRes.error) {
+      setStatusMsg(currentRes.error.message);
       setLoading(false);
       return;
     }
-    const examples = (data ?? []) as ObjectionExample[];
+
+    const examples = (currentRes.data ?? []) as ObjectionExample[];
+    const priorByCat = new Map<string, number>();
+    for (const r of priorRes.data ?? []) {
+      priorByCat.set(r.category, (priorByCat.get(r.category) ?? 0) + 1);
+    }
+
     // Group by category
     const map = new Map<string, ObjectionExample[]>();
     for (const e of examples) {
@@ -92,20 +150,29 @@ export default function OpsObjections() {
       arr.push(e);
       map.set(e.category, arr);
     }
+    const total = examples.length;
+    const priorTotal = [...priorByCat.values()].reduce((s, n) => s + n, 0);
+
     const out: CategoryGroup[] = [];
     for (const [cat, list] of map.entries()) {
+      const prior = priorByCat.get(cat) ?? 0;
       out.push({
         category: cat,
         examples: list,
         total: list.length,
+        prior_total: prior,
+        share: total > 0 ? list.length / total : 0,
+        trend_pct: prior > 0 ? (list.length - prior) / prior : null,
         turn_around_count: list.filter((e) => e.turned_around).length,
         used_in_kb_count: list.filter((e) => e.used_in_kb_draft_id).length,
       });
     }
     out.sort((a, b) => b.total - a.total);
     setGroups(out);
+    setGrandTotal(total);
+    setPriorGrandTotal(priorTotal);
     setLoading(false);
-  }, []);
+  }, [windowKey]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -179,7 +246,15 @@ export default function OpsObjections() {
       subtitle="Real objections lifted from call transcripts, grouped by type. Turn-around examples (calls that ended in admit/booked-intake) are surfaced first because they show the responses that actually worked. Click 'Generate KB entry' to synthesize a manager-approved playbook entry."
       maxWidth={1400}
       actions={
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <Select value={windowKey} onValueChange={(v) => setWindowKey(v as WindowKey)}>
+            <SelectTrigger className="w-[160px] h-9 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {(["7d","30d","90d","all"] as WindowKey[]).map((k) => (
+                <SelectItem key={k} value={k}>{WINDOW_LABEL[k]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 h-9">
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Refresh
@@ -199,6 +274,14 @@ export default function OpsObjections() {
           </CardContent>
         </Card>
       )}
+
+      <FrequencySummary
+        windowKey={windowKey}
+        total={grandTotal}
+        priorTotal={priorGrandTotal}
+        topCategory={groups[0] ?? null}
+      />
+
 
       {loading && groups.length === 0 ? (
         <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground flex items-center gap-2">
@@ -224,7 +307,15 @@ export default function OpsObjections() {
                       <span className="truncate">{CATEGORY_LABEL[g.category] ?? g.category}</span>
                     </span>
                     <div className="flex items-center gap-2 flex-wrap shrink-0 text-xs font-normal">
-                      <Badge variant="outline" className="text-[10px]">{g.total} examples</Badge>
+                      <Badge variant="outline" className="text-[10px] font-semibold tabular-nums">
+                        {g.total} {g.total === 1 ? "occurrence" : "occurrences"}
+                      </Badge>
+                      {grandTotal > 0 && (
+                        <Badge variant="outline" className="text-[10px] tabular-nums">
+                          {Math.round(g.share * 100)}% of total
+                        </Badge>
+                      )}
+                      <TrendChip pct={g.trend_pct} priorTotal={g.prior_total} windowKey={windowKey} />
                       {g.turn_around_count > 0 && (
                         <Badge variant="outline" className="text-[10px] gap-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-400">
                           <CheckCircle2 className="w-3 h-3" /> {g.turn_around_count} turned around
@@ -270,6 +361,93 @@ export default function OpsObjections() {
         </div>
       )}
     </PageShell>
+  );
+}
+
+function FrequencySummary({
+  windowKey, total, priorTotal, topCategory,
+}: {
+  windowKey: WindowKey;
+  total: number;
+  priorTotal: number;
+  topCategory: CategoryGroup | null;
+}) {
+  if (total === 0) return null;
+  const deltaPct = priorTotal > 0 ? (total - priorTotal) / priorTotal : null;
+  const topShare = topCategory && total > 0 ? Math.round(topCategory.total / total * 100) : 0;
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-4 flex items-center gap-6 flex-wrap text-sm">
+        <div>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">Window</div>
+          <div className="font-semibold">{WINDOW_LABEL[windowKey]}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">Total objections</div>
+          <div className="text-2xl font-bold tabular-nums leading-tight">{total.toLocaleString()}</div>
+        </div>
+        {deltaPct !== null && (
+          <div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">vs prior period</div>
+            <div className="flex items-center gap-1 font-semibold">
+              <TrendIcon pct={deltaPct} />
+              <span className={deltaPct > 0 ? "text-rose-600 dark:text-rose-400" : deltaPct < 0 ? "text-emerald-600 dark:text-emerald-400" : ""}>
+                {deltaPct > 0 ? "+" : ""}{(deltaPct * 100).toFixed(0)}%
+              </span>
+              <span className="text-xs text-muted-foreground font-normal tabular-nums">
+                ({priorTotal.toLocaleString()} prior)
+              </span>
+            </div>
+          </div>
+        )}
+        {topCategory && (
+          <div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">Most frequent</div>
+            <div className="font-semibold">
+              {CATEGORY_LABEL[topCategory.category] ?? topCategory.category}
+              <span className="ml-2 text-xs text-muted-foreground font-normal tabular-nums">
+                {topShare}% of total
+              </span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrendIcon({ pct }: { pct: number }) {
+  if (pct > 0.05)  return <TrendingUp   className="w-4 h-4 text-rose-500" />;
+  if (pct < -0.05) return <TrendingDown className="w-4 h-4 text-emerald-500" />;
+  return <Minus className="w-4 h-4 text-muted-foreground" />;
+}
+
+function TrendChip({
+  pct, priorTotal, windowKey,
+}: {
+  pct: number | null;
+  priorTotal: number;
+  windowKey: WindowKey;
+}) {
+  if (windowKey === "all") return null;
+  if (pct === null) {
+    if (priorTotal === 0) {
+      return <Badge variant="outline" className="text-[10px] gap-1">New this period</Badge>;
+    }
+    return null;
+  }
+  const isUp   = pct > 0.05;
+  const isDown = pct < -0.05;
+  const cls = isUp
+    ? "border-rose-500/40 text-rose-700 dark:text-rose-400"
+    : isDown
+      ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+      : "";
+  return (
+    <Badge variant="outline" className={`text-[10px] gap-1 tabular-nums ${cls}`} title={`${priorTotal} in prior ${WINDOW_LABEL[windowKey].toLowerCase()}`}>
+      {isUp ? <TrendingUp className="w-3 h-3" /> : isDown ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+      {pct > 0 ? "+" : ""}{(pct * 100).toFixed(0)}% vs prior
+    </Badge>
   );
 }
 
