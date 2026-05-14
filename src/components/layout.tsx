@@ -117,6 +117,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // workspace alongside Executive Overview).
     { href: "/executive/analytics", label: "Analytics Dashboard", icon: <LayoutDashboard className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
 
+    // ANALYTICS WAREHOUSE — eight dashboards ported from
+    // cornerstone-dashboard, backed by fact_*/dim_* tables populated by
+    // the ETL in etl/. Each entry is independently flag-gated via
+    // page_warehouse_*; the parent module_analytics_warehouse cascades
+    // visibility.
+    { href: "/analytics/executive",   label: "Executive Snapshot",  icon: <BarChart3 className="w-4 h-4" />,   section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/funnel",      label: "Funnel Analysis",     icon: <TrendingDown className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/rep-metrics", label: "Rep Metrics",         icon: <Trophy className="w-4 h-4" />,       section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/channel",     label: "Channel & Source",    icon: <Activity className="w-4 h-4" />,     section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/payer",       label: "Payer Mix",           icon: <Gauge className="w-4 h-4" />,        section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/team",        label: "Team Performance",    icon: <Users className="w-4 h-4" />,        section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/census",      label: "Census & Capacity",   icon: <Hourglass className="w-4 h-4" />,    section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/bd-activity", label: "BD Activity",         icon: <Calendar className="w-4 h-4" />,     section: "Analytics", roles: ["manager", "admin"] as const },
+    // HOLD — surfaced for visibility but routed to a coming-soon page.
+    { href: "/analytics/cpa-cpl",       label: "Cost per Admit / CPL (HOLD)", icon: <Hourglass className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/revenue-proxy", label: "Revenue Proxy (HOLD)",         icon: <Hourglass className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
+
     { href: "/ops/qa-review", label: "QA Review", icon: <ShieldAlert className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
     { href: "/ops/dispositions", label: "Dispositions", icon: <ClipboardCheck className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
     { href: "/ops/ai-bot-feedback", label: "AI Bot Feedback", icon: <Bot className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
@@ -215,6 +232,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href.startsWith("/ctm-")) return "module_ctm";
     if (href === "/executive/analytics") return "page_analytics_dashboard";
     if (href === "/executive" || href === "/analytics") return "module_executive";
+    // Warehouse-backed analytics — page flags cascade off
+    // module_analytics_warehouse.
+    if (href === "/analytics/executive")     return "page_warehouse_executive";
+    if (href === "/analytics/funnel")        return "page_warehouse_funnel";
+    if (href === "/analytics/rep-metrics")   return "page_warehouse_rep_metrics";
+    if (href === "/analytics/channel")       return "page_warehouse_channel";
+    if (href === "/analytics/payer")         return "page_warehouse_payer";
+    if (href === "/analytics/team")          return "page_warehouse_team";
+    if (href === "/analytics/census")        return "page_warehouse_census";
+    if (href === "/analytics/bd-activity")   return "page_warehouse_bd_activity";
+    if (href === "/analytics/cpa-cpl")       return "page_warehouse_cpa_cpl";
+    if (href === "/analytics/revenue-proxy") return "page_warehouse_revenue_proxy";
     return null;
   }
 
