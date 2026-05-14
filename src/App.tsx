@@ -127,10 +127,10 @@ function AppRoutes() {
       <Switch>
         {/* Open to every authenticated role (staff + manager + admin). */}
         <Route path="/" component={Home} />
-        <Route path="/me" component={MyCoaching} />
+        <Route path="/me" component={Mod("page_my_coaching", MyCoaching)} />
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/ctm-calls" component={Mod("module_ctm", CTMCalls)} />
-        <Route path="/queue" component={QueuePage} />
+        <Route path="/queue" component={Mod("page_queue", QueuePage)} />
         <Route path="/kb" component={Mod("module_kb", KnowledgeBase)} />
         <Route path="/training" component={Mod("module_training", TrainingScenarios)} />
         <Route path="/training/:id" component={Mod("module_training", TrainingSession)} />
@@ -151,13 +151,13 @@ function AppRoutes() {
         <Route path="/ctm-agents" component={MgrMod("module_ctm", CTMAgents)} />
         <Route path="/ctm-attribution" component={MgrMod("module_ctm", CTMAttribution)} />
         <Route path="/knowledge-review" component={MgrMod("page_knowledge_review", KnowledgeReview)} />
-        <Route path="/ops/overview" component={Mgr(OpsOverview)} />
+        <Route path="/ops/overview" component={MgrMod("page_ops_overview", OpsOverview)} />
         <Route path="/ops/suggestions" component={MgrMod("page_suggestions", OpsSuggestions)} />
         <Route path="/ops/workload" component={MgrMod("page_rep_workload", OpsWorkload)} />
         <Route path="/ops/attribution" component={MgrMod("page_attribution", OpsAttribution)} />
         <Route path="/ops/supervisor-review" component={MgrMod("page_supervisor_review", OpsSupervisorReview)} />
         <Route path="/ops/knowledge" component={Mgr(OpsKnowledge)} />
-        <Route path="/ops/alerts" component={Mgr(OpsAlerts)} />
+        <Route path="/ops/alerts" component={MgrMod("page_high_priority_alerts", OpsAlerts)} />
         <Route path="/ops/kb-drafts" component={MgrMod("page_kb_drafts", OpsKBDrafts)} />
         <Route path="/ops/scenario-review" component={MgrMod("module_training", OpsScenarioReview)} />
         <Route path="/ops/training-analytics" component={MgrMod("page_training_analytics", OpsTrainingAnalytics)} />

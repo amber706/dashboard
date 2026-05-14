@@ -170,6 +170,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // parent module is off, so this only has to return the closest key.
   function featureFor(href: string): import("@/lib/feature-flags-context").FeatureKey | null {
     // Sub-page flags (most specific first).
+    if (href === "/me") return "page_my_coaching";
+    if (href === "/queue") return "page_queue";
+    if (href === "/ops/alerts") return "page_high_priority_alerts";
+    if (href === "/ops/overview") return "page_ops_overview";
     if (href === "/ops/supervisor-review") return "page_supervisor_review";
     if (href === "/ops/suggestions") return "page_suggestions";
     if (href === "/ops/dispositions") return "page_dispositions";

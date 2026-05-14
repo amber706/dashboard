@@ -26,8 +26,14 @@ export type ModuleKey =
 // features inside Admissions). Cascade rule: if a page's parent module
 // is off, the page is off regardless of its own enabled value.
 export type PageKey =
+  // Admissions floating pages (parent = null)
   | "page_supervisor_review"
   | "page_suggestions"
+  | "page_my_coaching"
+  | "page_queue"
+  | "page_high_priority_alerts"
+  | "page_ops_overview"
+  // Executive sub-pages
   | "page_dispositions"
   | "page_ai_bot_feedback"
   | "page_staffing_schedule"
@@ -36,10 +42,13 @@ export type PageKey =
   | "page_outcomes"
   | "page_attribution"
   | "page_objection_mining"
+  // Training sub-pages
   | "page_training_paths"
   | "page_training_analytics"
+  // KB sub-pages
   | "page_kb_drafts"
   | "page_knowledge_review"
+  // BD sub-pages
   | "page_bd_referrals"
   | "page_bd_stuck_accounts"
   | "page_bd_top_accounts"
