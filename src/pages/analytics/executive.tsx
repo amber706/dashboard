@@ -136,6 +136,8 @@ export default function WarehouseExecutive() {
                 <Bar dataKey="commercial" stackId="a" fill="hsl(210, 80%, 55%)" name="Commercial" />
                 <Bar dataKey="ahcccs"     stackId="a" fill="hsl(160, 70%, 45%)" name="AHCCCS" />
                 <Bar dataKey="cash"       stackId="a" fill="hsl(45, 85%, 55%)"  name="Cash" />
+                <Bar dataKey="dui"        stackId="a" fill="hsl(280, 55%, 55%)" name="DUI" />
+                <Bar dataKey="dv"         stackId="a" fill="hsl(340, 65%, 55%)" name="DV" />
                 <Bar dataKey="unknown"    stackId="a" fill="hsl(220, 10%, 55%)" name="Unknown" />
               </BarChart>
             </ResponsiveContainer>

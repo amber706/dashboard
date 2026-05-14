@@ -41,6 +41,8 @@ export interface PayerRow {
   commercial: number;
   ahcccs: number;
   cash: number;
+  dui?: number;
+  dv?: number;
   unknown?: number;
 }
 

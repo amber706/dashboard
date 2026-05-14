@@ -109,23 +109,27 @@ async function fetchExecutiveSnapshot(range: DateRange): Promise<ExecutiveSnapsh
   }));
   funnel.push({ stageKey: "stuck", label: "Stuck", count: stuckTotal, isStuck: true });
 
-  // Payer trend (6mo).
+  // Payer trend (6mo). DUI and DV are court-mandated programs tracked
+  // as distinct lines of business — they live in their own buckets, not
+  // bundled into Cash or Unknown.
   const payerBucket: Record<string, PayerRow> = {};
   for (let i = 0; i < 6; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
     payerBucket[d.toISOString().slice(0, 7)] = {
       month: d.toLocaleDateString("en-US", { month: "short" }),
-      commercial: 0, ahcccs: 0, cash: 0, unknown: 0,
+      commercial: 0, ahcccs: 0, cash: 0, dui: 0, dv: 0, unknown: 0,
     };
   }
   for (const r of payerTrendRes.data ?? []) {
     const mk = String(r.admit_date).slice(0, 7);
     if (!payerBucket[mk]) continue;
-    const p = r.payer_type_group as "Commercial" | "AHCCCS" | "Cash" | "Unknown" | null;
-    if (p === "Commercial") payerBucket[mk].commercial += 1;
-    else if (p === "AHCCCS") payerBucket[mk].ahcccs += 1;
-    else if (p === "Cash")   payerBucket[mk].cash += 1;
-    else payerBucket[mk].unknown = (payerBucket[mk].unknown ?? 0) + 1;
+    const p = r.payer_type_group as "Commercial" | "AHCCCS" | "Cash" | "DUI" | "DV" | "Unknown" | null;
+    if      (p === "Commercial") payerBucket[mk].commercial += 1;
+    else if (p === "AHCCCS")     payerBucket[mk].ahcccs += 1;
+    else if (p === "Cash")       payerBucket[mk].cash += 1;
+    else if (p === "DUI")        payerBucket[mk].dui = (payerBucket[mk].dui ?? 0) + 1;
+    else if (p === "DV")         payerBucket[mk].dv  = (payerBucket[mk].dv  ?? 0) + 1;
+    else                         payerBucket[mk].unknown = (payerBucket[mk].unknown ?? 0) + 1;
   }
   const payerTrend = Object.values(payerBucket);
 
