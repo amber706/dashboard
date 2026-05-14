@@ -21,7 +21,7 @@ export default function WarehouseRepMetrics() {
           title="Rep Metrics"
           subtitle="Per-rep volume, conversion, payer mix. Dual-credit: admissions counselor + BD overlay."
         />
-        <RangePicker preset={preset} onChange={setPreset} />
+        <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
 
       {error && (

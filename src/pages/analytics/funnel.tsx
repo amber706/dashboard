@@ -29,7 +29,7 @@ export default function WarehouseFunnel() {
           title="Funnel & Conversion"
           subtitle="Stage-by-stage conversion rates, drop-off, and stuck leads."
         />
-        <RangePicker preset={preset} onChange={setPreset} />
+        <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
 
       {error && (

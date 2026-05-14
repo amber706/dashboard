@@ -22,7 +22,7 @@ export default function WarehouseBdActivity() {
           title="BD Activity Scorecard"
           subtitle="Calls, meetings, tasks per BD rep. Sourced directly from Zoho CRM (Calls / Events / Tasks)."
         />
-        <RangePicker preset={preset} onChange={setPreset} />
+        <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
 
       {error && (

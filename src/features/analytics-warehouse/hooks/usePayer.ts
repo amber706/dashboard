@@ -2,11 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { fact } from "../api/client";
 import type { DateRange, PayerRow } from "../api/types";
 
+// Cornerstone tracks 6 payer-type buckets: Commercial, AHCCCS, Cash,
+// DUI, DV, Unknown. DUI + DV are court-mandated programs distinct from
+// the regular Treatment line of business — they have their own admits,
+// their own conversion characteristics, and need to be visible separately
+// on every payer chart.
 export interface PayerPayload {
   summary: {
     commercial: number;
     ahcccs: number;
     cash: number;
+    dui: number;
+    dv: number;
     commercialDeltaPts: number;
     ahcccsDeltaPts: number;
     totalAdmits: number;
@@ -15,7 +22,7 @@ export interface PayerPayload {
     perPayer: { payer: string; submitted: number; approved: number; rate: number | null }[];
   };
   trend: PayerRow[];
-  channelHeatmap: Record<string, { Commercial: number; AHCCCS: number; Cash: number; Unknown: number }>;
+  channelHeatmap: Record<string, { Commercial: number; AHCCCS: number; Cash: number; DUI: number; DV: number; Unknown: number }>;
 }
 
 function shiftYear(iso: string, years: number): string {
@@ -39,13 +46,13 @@ async function fetchPayer(range: DateRange): Promise<PayerPayload> {
       .gte("vob_submitted_date", range.from).lte("vob_submitted_date", `${range.to}T23:59:59`),
   ]);
 
-  const mix = { Commercial: 0, AHCCCS: 0, Cash: 0, Unknown: 0 };
+  const mix = { Commercial: 0, AHCCCS: 0, Cash: 0, DUI: 0, DV: 0, Unknown: 0 };
   for (const r of filteredRes.data ?? []) {
     const p = (r.payer_type_group as keyof typeof mix) ?? "Unknown";
     if (mix[p] !== undefined) mix[p] += 1;
     else mix.Unknown += 1;
   }
-  const total = mix.Commercial + mix.AHCCCS + mix.Cash + mix.Unknown;
+  const total = mix.Commercial + mix.AHCCCS + mix.Cash + mix.DUI + mix.DV + mix.Unknown;
 
   const mixPrior = { Commercial: 0, AHCCCS: 0, Cash: 0 };
   for (const r of priorRes.data ?? []) {
@@ -59,17 +66,19 @@ async function fetchPayer(range: DateRange): Promise<PayerPayload> {
     const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
     bucket[d.toISOString().slice(0, 7)] = {
       month: d.toLocaleDateString("en-US", { month: "short" }),
-      commercial: 0, ahcccs: 0, cash: 0, unknown: 0,
+      commercial: 0, ahcccs: 0, cash: 0, dui: 0, dv: 0, unknown: 0,
     };
   }
   for (const r of trendRes.data ?? []) {
     const mk = String(r.admit_date).slice(0, 7);
     if (!bucket[mk]) continue;
-    const p = r.payer_type_group as "Commercial" | "AHCCCS" | "Cash" | "Unknown" | null;
-    if (p === "Commercial") bucket[mk].commercial += 1;
-    else if (p === "AHCCCS") bucket[mk].ahcccs += 1;
-    else if (p === "Cash")   bucket[mk].cash += 1;
-    else bucket[mk].unknown = (bucket[mk].unknown ?? 0) + 1;
+    const p = r.payer_type_group as "Commercial" | "AHCCCS" | "Cash" | "DUI" | "DV" | "Unknown" | null;
+    if      (p === "Commercial") bucket[mk].commercial += 1;
+    else if (p === "AHCCCS")     bucket[mk].ahcccs += 1;
+    else if (p === "Cash")       bucket[mk].cash += 1;
+    else if (p === "DUI")        bucket[mk].dui = (bucket[mk].dui ?? 0) + 1;
+    else if (p === "DV")         bucket[mk].dv  = (bucket[mk].dv  ?? 0) + 1;
+    else                         bucket[mk].unknown = (bucket[mk].unknown ?? 0) + 1;
   }
   const trend = Object.values(bucket);
 
@@ -81,11 +90,11 @@ async function fetchPayer(range: DateRange): Promise<PayerPayload> {
     if (r.vob_approved_date) rec.approved += 1;
   }
 
-  const channelHeatmap: Record<string, { Commercial: number; AHCCCS: number; Cash: number; Unknown: number }> = {};
+  const channelHeatmap: Record<string, { Commercial: number; AHCCCS: number; Cash: number; DUI: number; DV: number; Unknown: number }> = {};
   for (const r of filteredRes.data ?? []) {
     const g = (r.channel_group as string) ?? "Unattributed";
-    const p = (r.payer_type_group as "Commercial" | "AHCCCS" | "Cash" | "Unknown") ?? "Unknown";
-    const rec = channelHeatmap[g] ??= { Commercial: 0, AHCCCS: 0, Cash: 0, Unknown: 0 };
+    const p = (r.payer_type_group as "Commercial" | "AHCCCS" | "Cash" | "DUI" | "DV" | "Unknown") ?? "Unknown";
+    const rec = channelHeatmap[g] ??= { Commercial: 0, AHCCCS: 0, Cash: 0, DUI: 0, DV: 0, Unknown: 0 };
     rec[p] = (rec[p] ?? 0) + 1;
   }
 
@@ -96,6 +105,8 @@ async function fetchPayer(range: DateRange): Promise<PayerPayload> {
       commercial: pct(mix.Commercial, total),
       ahcccs: pct(mix.AHCCCS, total),
       cash: pct(mix.Cash, total),
+      dui: pct(mix.DUI, total),
+      dv: pct(mix.DV, total),
       commercialDeltaPts: totalPrior > 0 ? pct(mix.Commercial, total) - pct(mixPrior.Commercial, totalPrior) : 0,
       ahcccsDeltaPts: totalPrior > 0 ? pct(mix.AHCCCS, total) - pct(mixPrior.AHCCCS, totalPrior) : 0,
       totalAdmits: total,

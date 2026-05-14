@@ -23,7 +23,7 @@ export default function WarehousePayer() {
           title="Payer Mix"
           subtitle="Admissions composition by payer group, with channel cross-cut and VOB approval rates."
         />
-        <RangePicker preset={preset} onChange={setPreset} />
+        <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
 
       {error && (
@@ -41,7 +41,7 @@ export default function WarehousePayer() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <MetricCard
           label="Commercial"
           value={isLoading || !data ? "…" : fmtPct(data.summary.commercial)}
@@ -55,6 +55,8 @@ export default function WarehousePayer() {
           changeType={data && data.summary.ahcccsDeltaPts >= 0 ? "positive" : "negative"}
         />
         <MetricCard label="Cash / Self-Pay" value={isLoading || !data ? "…" : fmtPct(data.summary.cash)} />
+        <MetricCard label="DUI Program" value={isLoading || !data ? "…" : fmtPct(data.summary.dui)} />
+        <MetricCard label="DV Program"  value={isLoading || !data ? "…" : fmtPct(data.summary.dv)} />
         <MetricCard label="Total admits" value={isLoading || !data ? "…" : fmtNumber(data.summary.totalAdmits)} icon={<ShieldCheck className="w-4 h-4" />} />
       </div>
 
@@ -75,6 +77,8 @@ export default function WarehousePayer() {
                 <Bar dataKey="commercial" stackId="a" fill="hsl(210, 80%, 55%)" name="Commercial" />
                 <Bar dataKey="ahcccs"     stackId="a" fill="hsl(160, 70%, 45%)" name="AHCCCS" />
                 <Bar dataKey="cash"       stackId="a" fill="hsl(45, 85%, 55%)"  name="Cash" />
+                <Bar dataKey="dui"        stackId="a" fill="hsl(280, 55%, 55%)" name="DUI" />
+                <Bar dataKey="dv"         stackId="a" fill="hsl(340, 65%, 55%)" name="DV" />
                 <Bar dataKey="unknown"    stackId="a" fill="hsl(220, 10%, 55%)" name="Unknown" />
               </BarChart>
             </ResponsiveContainer>
@@ -127,6 +131,8 @@ export default function WarehousePayer() {
                     <th className="pr-3 text-right">Commercial</th>
                     <th className="pr-3 text-right">AHCCCS</th>
                     <th className="pr-3 text-right">Cash</th>
+                    <th className="pr-3 text-right">DUI</th>
+                    <th className="pr-3 text-right">DV</th>
                     <th className="text-right">Unknown</th>
                   </tr>
                 </thead>
@@ -137,6 +143,8 @@ export default function WarehousePayer() {
                       <td className="pr-3 text-right tabular-nums">{fmtNumber(row.Commercial)}</td>
                       <td className="pr-3 text-right tabular-nums">{fmtNumber(row.AHCCCS)}</td>
                       <td className="pr-3 text-right tabular-nums">{fmtNumber(row.Cash)}</td>
+                      <td className="pr-3 text-right tabular-nums">{fmtNumber(row.DUI)}</td>
+                      <td className="pr-3 text-right tabular-nums">{fmtNumber(row.DV)}</td>
                       <td className="text-right tabular-nums">{fmtNumber(row.Unknown)}</td>
                     </tr>
                   ))}
