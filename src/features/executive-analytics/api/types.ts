@@ -168,7 +168,19 @@ export interface ClosedAdmitted {
     n: number;
   }>;
   forecastNext7Days: number;
+  /** Per-deal rows used by drill-down sheets. */
+  details?: AdmittedDealDetail[];
   missing_fields?: string[];
+}
+
+export interface AdmittedDealDetail {
+  id: string;
+  dealName: string;
+  owner: string;
+  source: string | null;
+  program: string | null;
+  admitDate: string | null;
+  createdTime: string | null;
 }
 
 // ── Closed-Lost ───────────────────────────────────────────────────
@@ -187,7 +199,19 @@ export interface ClosedLost {
     stages: string[];
     counts: number[][];
   };
+  /** Per-deal rows used by drill-down sheets. */
+  details?: LostDealDetail[];
   missing_fields?: string[];
+}
+
+export interface LostDealDetail {
+  id: string;
+  dealName: string;
+  stage: string;
+  owner: string;
+  source: string | null;
+  reason: string | null;
+  closingDate: string | null;
 }
 
 // ── Rep Performance ───────────────────────────────────────────────
@@ -199,6 +223,10 @@ export interface RepPerformanceRow {
   lost: number;
   active: number;
   conversionPct: number;
+  /** Average days from Created_Time to Admit_Date for admits in window. */
+  avgDaysToAdmit: number;
+  /** Sample size used to compute avgDaysToAdmit. */
+  admitSpeedN: number;
   avgDaysPerStage: number;
   followupCompliancePct: number;
 }
