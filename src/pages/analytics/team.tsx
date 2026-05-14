@@ -22,7 +22,7 @@ export default function WarehouseTeam() {
           title="Team Performance"
           subtitle="Per-rep leaderboard with conversion, speed-to-close, stuck-lead ownership, and meeting activity."
         />
-        <RangePicker preset={preset} onChange={setPreset} />
+        <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
 
       {error && (

@@ -3,23 +3,46 @@ import type { DateRange, DatePreset } from "../api/types";
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
+// Week starts Monday — matches the existing copilot reporting cadence
+// (week-over-week comparisons in /me etc. use Monday as week start).
+function startOfWeek(d: Date): Date {
+  const day = d.getDay(); // 0 Sun..6 Sat
+  const diff = day === 0 ? -6 : 1 - day; // shift back to Monday
+  const out = new Date(d);
+  out.setDate(d.getDate() + diff);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
 export function resolveDateRange(preset: DatePreset, custom?: DateRange, today = new Date()): DateRange {
-  const startOfMonth   = new Date(today.getFullYear(), today.getMonth(), 1);
-  const startOfQuarter = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
-  const startOfYear    = new Date(today.getFullYear(), 0, 1);
+  const startOfMonth      = new Date(today.getFullYear(), today.getMonth(), 1);
+  const startOfLastMonth  = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const endOfLastMonth    = new Date(today.getFullYear(), today.getMonth(), 0);
+  const startOfQuarter    = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
+  const startOfYear       = new Date(today.getFullYear(), 0, 1);
   const daysAgo = (n: number) => {
     const d = new Date(today);
     d.setDate(d.getDate() - n);
     return d;
   };
+  const yesterday = daysAgo(1);
+  const thisWeekStart = startOfWeek(today);
+  const lastWeekStart = startOfWeek(daysAgo(7));
+  const lastWeekEnd   = new Date(thisWeekStart);
+  lastWeekEnd.setDate(thisWeekStart.getDate() - 1);
 
   switch (preset) {
-    case "MTD":    return { from: isoDate(startOfMonth),   to: isoDate(today) };
-    case "QTD":    return { from: isoDate(startOfQuarter), to: isoDate(today) };
-    case "YTD":    return { from: isoDate(startOfYear),    to: isoDate(today) };
-    case "L30D":   return { from: isoDate(daysAgo(30)),    to: isoDate(today) };
-    case "L90D":   return { from: isoDate(daysAgo(90)),    to: isoDate(today) };
-    case "CUSTOM": return custom ?? { from: isoDate(startOfMonth), to: isoDate(today) };
+    case "TODAY":      return { from: isoDate(today),            to: isoDate(today) };
+    case "YESTERDAY":  return { from: isoDate(yesterday),        to: isoDate(yesterday) };
+    case "THIS_WEEK":  return { from: isoDate(thisWeekStart),    to: isoDate(today) };
+    case "LAST_WEEK":  return { from: isoDate(lastWeekStart),    to: isoDate(lastWeekEnd) };
+    case "MTD":        return { from: isoDate(startOfMonth),     to: isoDate(today) };
+    case "LAST_MONTH": return { from: isoDate(startOfLastMonth), to: isoDate(endOfLastMonth) };
+    case "QTD":        return { from: isoDate(startOfQuarter),   to: isoDate(today) };
+    case "YTD":        return { from: isoDate(startOfYear),      to: isoDate(today) };
+    case "L30D":       return { from: isoDate(daysAgo(30)),      to: isoDate(today) };
+    case "L90D":       return { from: isoDate(daysAgo(90)),      to: isoDate(today) };
+    case "CUSTOM":     return custom ?? { from: isoDate(startOfMonth), to: isoDate(today) };
   }
 }
 

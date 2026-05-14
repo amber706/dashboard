@@ -23,7 +23,7 @@ export default function WarehousePayer() {
           title="Payer Mix"
           subtitle="Admissions composition by payer group, with channel cross-cut and VOB approval rates."
         />
-        <RangePicker preset={preset} onChange={setPreset} />
+        <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
 
       {error && (

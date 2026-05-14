@@ -21,7 +21,7 @@ export default function WarehouseChannel() {
           title="Channel & Source"
           subtitle="Pipeline and admits by channel; landing-page conversion; lead-quality × channel heatmap."
         />
-        <RangePicker preset={preset} onChange={setPreset} />
+        <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
 
       {error && (

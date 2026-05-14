@@ -9,7 +9,18 @@ export interface DateRange {
   to: string;
 }
 
-export type DatePreset = "MTD" | "QTD" | "YTD" | "L30D" | "L90D" | "CUSTOM";
+export type DatePreset =
+  | "TODAY"
+  | "YESTERDAY"
+  | "THIS_WEEK"
+  | "LAST_WEEK"
+  | "MTD"
+  | "LAST_MONTH"
+  | "QTD"
+  | "YTD"
+  | "L30D"
+  | "L90D"
+  | "CUSTOM";
 
 export interface MonthlySeries {
   month: string;

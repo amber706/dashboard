@@ -1,8 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { PageHeader } from "@/components/section-header";
 import { MetricCard } from "@/components/score-card";
 import { Users, Trophy, Hourglass, ShieldCheck } from "lucide-react";
@@ -12,7 +9,7 @@ import {
 } from "recharts";
 import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 import { useExecutiveSnapshot } from "@/features/analytics-warehouse/hooks/useExecutiveSnapshot";
-import type { DatePreset } from "@/features/analytics-warehouse/api/types";
+import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 
 // Format helpers — keep numbers display-friendly without pulling in
 // another dependency.
@@ -25,14 +22,6 @@ const fmtDelta = (d: number | null) =>
 const deltaTone = (d: number | null) =>
   d == null ? "neutral" : d >= 0 ? "positive" : "negative";
 
-const PRESETS: { value: DatePreset; label: string }[] = [
-  { value: "MTD",    label: "Month to date" },
-  { value: "QTD",    label: "Quarter to date" },
-  { value: "YTD",    label: "Year to date" },
-  { value: "L30D",   label: "Last 30 days" },
-  { value: "L90D",   label: "Last 90 days" },
-];
-
 export default function WarehouseExecutive() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
   const { data, isLoading, error } = useExecutiveSnapshot(range);
@@ -44,14 +33,7 @@ export default function WarehouseExecutive() {
           title="Executive Snapshot"
           subtitle="Warehouse-backed analytics. Pulls from fact_pipeline, fact_admit, fact_vob, fact_census."
         />
-        <Select value={preset} onValueChange={(v) => setPreset(v as DatePreset)}>
-          <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {PRESETS.map((p) => (
-              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
 
       {error ? (
