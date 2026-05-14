@@ -31,6 +31,14 @@ interface Call {
   disposition_set_at: string | null;
   disposition_set_by: string | null;
   disposition_notes: string | null;
+  // New wrap-up fields (May 2026) — replace the legacy disposition
+  // picker with Zoho's Lead_Score_Rating + Lead_Score_Explanation
+  // semantics. Values push to the matched Zoho Deal via zoho-writeback.
+  lead_score_rating: string | null;
+  lead_score_explanation: string | null;
+  lead_score_set_at: string | null;
+  lead_score_set_by: string | null;
+  lead_score_zoho_pushed_at: string | null;
   ai_summary: string | null;
   ai_summary_generated_at: string | null;
   ai_summary_model: string | null;
@@ -799,45 +807,45 @@ function CallSnapshot({ extractions, score, alerts, call }: {
   );
 }
 
-// === Specialist disposition picker ===
-// Specialist marks the business outcome of the call after wrap-up. Distinct
-// from CTM technical status (answered/missed/voicemail).
-const DISPOSITION_OPTIONS: Array<{ value: string; label: string; tone: "positive" | "neutral" | "negative" | "warning" }> = [
-  { value: "interested_followup", label: "Interested — follow up", tone: "positive" },
-  { value: "booked_intake", label: "Booked intake", tone: "positive" },
-  { value: "transferred", label: "Transferred to clinical", tone: "positive" },
-  { value: "qualified_pending_vob", label: "Qualified — pending VOB", tone: "neutral" },
-  { value: "needs_callback", label: "Needs callback", tone: "warning" },
-  { value: "voicemail_left", label: "Voicemail left", tone: "neutral" },
-  { value: "no_answer", label: "No answer", tone: "neutral" },
-  { value: "not_qualified", label: "Not qualified", tone: "negative" },
-  { value: "wrong_number", label: "Wrong number", tone: "negative" },
-  { value: "do_not_call", label: "Do not call", tone: "negative" },
-  { value: "other", label: "Other", tone: "neutral" },
+// === Lead score picker ===
+// Replaces the legacy disposition buttons. Specialist sets the Zoho
+// Lead_Score_Rating (Hot / Warm / Cold) + a free-text
+// Lead_Score_Explanation after wrap-up. These two fields push to the
+// matching Zoho Deal record via the zoho-writeback edge function so
+// the score is the source of truth for both the dashboard's
+// "unscored leads" count AND the rep's pipeline view in Zoho.
+const RATING_OPTIONS: Array<{ value: string; label: string; tone: "hot" | "warm" | "cold" }> = [
+  { value: "Hot",  label: "Hot",  tone: "hot"  },
+  { value: "Warm", label: "Warm", tone: "warm" },
+  { value: "Cold", label: "Cold", tone: "cold" },
 ];
 
-const DISPOSITION_TONE_CLASS: Record<string, string> = {
-  positive: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10",
-  neutral: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
-  warning: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
-  negative: "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10",
+const RATING_TONE_CLASS: Record<string, string> = {
+  hot:  "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10",
+  warm: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
+  cold: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
 };
 
 function DispositionPicker({ call, onSaved }: { call: Call; onSaved: (c: Call) => void }) {
-  const [selected, setSelected] = useState<string | null>(call.specialist_disposition);
-  const [notes, setNotes] = useState(call.disposition_notes ?? "");
+  const [rating, setRating] = useState<string | null>(call.lead_score_rating);
+  const [explanation, setExplanation] = useState(call.lead_score_explanation ?? "");
   const [saving, setSaving] = useState(false);
-  const dirty = selected !== call.specialist_disposition || notes.trim() !== (call.disposition_notes ?? "").trim();
+  const [pushError, setPushError] = useState<string | null>(null);
+
+  const dirty =
+    rating !== call.lead_score_rating ||
+    explanation.trim() !== (call.lead_score_explanation ?? "").trim();
 
   async function save() {
-    if (!selected) return;
+    if (!rating) return;
     setSaving(true);
+    setPushError(null);
     const { data: { user } } = await supabase.auth.getUser();
     const patch: Record<string, unknown> = {
-      specialist_disposition: selected,
-      disposition_set_at: new Date().toISOString(),
-      disposition_set_by: user?.id ?? null,
-      disposition_notes: notes.trim() || null,
+      lead_score_rating: rating,
+      lead_score_explanation: explanation.trim() || null,
+      lead_score_set_at: new Date().toISOString(),
+      lead_score_set_by: user?.id ?? null,
     };
     const { data, error } = await supabase
       .from("call_sessions")
@@ -845,65 +853,96 @@ function DispositionPicker({ call, onSaved }: { call: Call; onSaved: (c: Call) =
       .eq("id", call.id)
       .select("*")
       .single();
+    if (error || !data) {
+      setSaving(false);
+      setPushError(error?.message ?? "save failed");
+      return;
+    }
+    onSaved(data as Call);
+
+    // Zoho push — fires the dedicated push-lead-score edge function
+    // which finds the matched Lead/Deal and patches both fields.
+    // Non-blocking so the UI feels snappy; the local row is saved
+    // regardless of whether the push succeeds.
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-lead-score`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ call_session_id: call.id }),
+      });
+      const json = await res.json();
+      if (!json.ok) setPushError(`Saved locally; Zoho push failed: ${json.error ?? "unknown"}`);
+    } catch (e) {
+      setPushError(`Saved locally; Zoho push failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
     setSaving(false);
-    if (!error && data) onSaved(data as Call);
   }
 
-  const currentTone = DISPOSITION_OPTIONS.find((o) => o.value === call.specialist_disposition)?.tone;
-  const currentLabel = DISPOSITION_OPTIONS.find((o) => o.value === call.specialist_disposition)?.label;
+  const currentTone = RATING_OPTIONS.find((o) => o.value === call.lead_score_rating)?.tone;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center justify-between">
-          <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Wrap-up disposition</span>
-          {call.specialist_disposition && currentTone && (
-            <Badge variant="outline" className={`text-[10px] ${DISPOSITION_TONE_CLASS[currentTone]}`}>{currentLabel}</Badge>
+          <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Lead score</span>
+          {call.lead_score_rating && currentTone && (
+            <Badge variant="outline" className={`text-[10px] ${RATING_TONE_CLASS[currentTone]}`}>{call.lead_score_rating}</Badge>
           )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
-          {DISPOSITION_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setSelected(selected === opt.value ? null : opt.value)}
-              className={`text-xs text-left px-2.5 py-2 rounded-md border transition-colors ${
-                selected === opt.value
-                  ? DISPOSITION_TONE_CLASS[opt.tone] + " font-medium"
-                  : "border-border hover:bg-accent/50"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div>
+          <div className="text-[11px] text-muted-foreground mb-1.5">Lead Score Rating</div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {RATING_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setRating(rating === opt.value ? null : opt.value)}
+                className={`text-sm font-medium px-2.5 py-2 rounded-md border transition-colors ${
+                  rating === opt.value
+                    ? RATING_TONE_CLASS[opt.tone]
+                    : "border-border hover:bg-accent/50"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
-        {selected && (
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Notes (optional)</div>
-            <Input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Anything specific the manager should know?"
-              className="text-sm"
-            />
+        <div>
+          <div className="text-[11px] text-muted-foreground mb-1.5">Lead Score Explanation</div>
+          <Input
+            value={explanation}
+            onChange={(e) => setExplanation(e.target.value)}
+            placeholder="Why this rating? e.g. 'Self-pay, ready to admit Friday, IOP fit.'"
+            className="text-sm"
+          />
+        </div>
+        {pushError && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-[11px] text-amber-700 dark:text-amber-400">
+            {pushError}
           </div>
         )}
         {dirty && (
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => { setSelected(call.specialist_disposition); setNotes(call.disposition_notes ?? ""); }}>
+            <Button size="sm" variant="ghost" onClick={() => { setRating(call.lead_score_rating); setExplanation(call.lead_score_explanation ?? ""); setPushError(null); }}>
               Cancel
             </Button>
-            <Button size="sm" disabled={saving || !selected} onClick={save} className="gap-1">
+            <Button size="sm" disabled={saving || !rating} onClick={save} className="gap-1">
               {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
-              {call.specialist_disposition ? "Update" : "Save disposition"}
+              {call.lead_score_rating ? "Update" : "Save & push to Zoho"}
             </Button>
           </div>
         )}
-        {call.specialist_disposition && call.disposition_set_at && !dirty && (
+        {call.lead_score_rating && call.lead_score_set_at && !dirty && (
           <div className="text-[10px] text-muted-foreground">
-            Set {new Date(call.disposition_set_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-            {call.disposition_notes && <> · "{call.disposition_notes}"</>}
+            Set {new Date(call.lead_score_set_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            {call.lead_score_zoho_pushed_at
+              ? <> · <span className="text-emerald-600 dark:text-emerald-400">synced to Zoho</span></>
+              : <> · <span className="text-amber-600 dark:text-amber-400">local only — Zoho push pending</span></>}
+            {call.lead_score_explanation && <> · "{call.lead_score_explanation}"</>}
           </div>
         )}
       </CardContent>

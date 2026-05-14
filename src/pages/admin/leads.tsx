@@ -1,390 +1,317 @@
-import { useEffect, useState, useCallback } from "react";
-import { Link } from "wouter";
-import { Loader2, Users, Phone, Mail, Calendar, AlertTriangle, ChevronDown, ChevronRight, Headphones, MessageSquare, Sparkles, Search, Send, CheckCircle2, Download } from "lucide-react";
-import { downloadCsv } from "@/lib/csv-export";
-import { logAudit } from "@/lib/audit";
+// /admin/leads — 1:1 mirror of the Zoho Leads module. Reads live via
+// /functions/v1/zoho-leads-list on every page load. No local sync
+// layer; what you see is what's in Zoho right now.
+//
+// Filters: free-text search across name / email / phone, Lead Status,
+// Lead Source, Owner. Pagination via offset cursor.
+//
+// Note: this replaces the older local-mirror version that read from
+// public.leads. The route is still /admin/leads for backward-compat
+// with deep links, but it lives under Admissions → Workflow in the
+// sidebar now and is open to all roles.
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, RefreshCw, Search, ExternalLink, User, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-interface Lead {
+interface LeadRow {
   id: string;
-  zoho_lead_id: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  primary_phone_normalized: string | null;
-  primary_phone: string | null;
-  email: string | null;
-  program_interest: string[] | null;
-  insurance_provider: string | null;
-  urgency: string | null;
-  relationship_to_patient: string | null;
-  callback_preference: string | null;
-  notes: string | null;
-  is_active: boolean;
-  outcome_category: "won" | "lost" | "in_progress" | null;
-  outcome_set_at: string | null;
-  created_at: string;
-  updated_at: string;
+  First_Name: string | null;
+  Last_Name: string | null;
+  Email: string | null;
+  Phone: string | null;
+  Mobile: string | null;
+  Lead_Status: string | null;
+  Lead_Source: string | null;
+  Company: string | null;
+  Created_Time: string | null;
+  Modified_Time: string | null;
+  "Owner.id": string | null;
 }
 
-interface CallSummary {
-  id: string;
-  ctm_call_id: string;
-  status: string;
-  started_at: string | null;
-  talk_seconds: number | null;
-  ctm_raw_payload: any;
-  score: { composite_score: number | null; needs_supervisor_review: boolean | null } | null;
+interface LeadsListResponse {
+  ok: boolean;
+  rows: LeadRow[];
+  users: Record<string, { full_name: string | null; email: string | null }>;
+  total_returned: number;
+  more_records: boolean;
+  offset: number;
+  limit: number;
+  error?: string;
 }
 
-interface FieldExtraction {
-  field_name: string;
-  extracted_value: string | null;
-  confidence: number;
-  source_signal: string | null;
-  status: string;
-  created_at: string;
+const PAGE_SIZE = 50;
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString();
 }
 
-const urgencyClass: Record<string, string> = {
-  high: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
-  medium: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  low: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-};
-
-function fmtTime(s: string | null): string {
-  if (!s) return "—";
-  return new Date(s).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-function fmtDur(s: number | null): string {
-  if (!s || s <= 0) return "—";
-  const m = Math.floor(s / 60), r = s % 60;
-  return m === 0 ? `${r}s` : `${m}m ${r}s`;
-}
-function scoreColor(n: number | null): string {
-  if (n == null) return "text-muted-foreground";
-  if (n >= 80) return "text-emerald-700 dark:text-emerald-400";
-  if (n >= 60) return "text-amber-700 dark:text-amber-400";
-  return "text-rose-700 dark:text-rose-400";
-}
-function zoho_id_display(id: string | null): string | null { return id; }
-
-type OutcomeFilter = "all" | "won" | "lost" | "in_progress";
-
-export default function LeadsView() {
-  const [leads, setLeads] = useState<Lead[]>([]);
+export default function AdminLeads() {
+  const [rows, setRows] = useState<LeadRow[]>([]);
+  const [users, setUsers] = useState<Record<string, { full_name: string | null; email: string | null }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("all");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [moreRecords, setMoreRecords] = useState(false);
+
+  const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [ownerFilter, setOwnerFilter] = useState<string>("all");
+  const [offset, setOffset] = useState(0);
+
+  // Debounce the free-text input so we don't fire a COQL on every
+  // keystroke. 300ms feels responsive without thrashing Zoho.
+  useEffect(() => {
+    const t = setTimeout(() => setQDebounced(q), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Reset to first page whenever a filter changes.
+  useEffect(() => {
+    setOffset(0);
+  }, [qDebounced, statusFilter, sourceFilter, ownerFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    let q = supabase
-      .from("leads")
-      .select("id, zoho_lead_id, first_name, last_name, primary_phone_normalized, primary_phone, email, program_interest, insurance_provider, urgency, relationship_to_patient, callback_preference, notes, is_active, outcome_category, outcome_set_at, created_at, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(200);
-    if (search.trim()) {
-      const s = `%${search.trim()}%`;
-      q = q.or(`first_name.ilike.${s},last_name.ilike.${s},primary_phone_normalized.ilike.${s},email.ilike.${s},insurance_provider.ilike.${s}`);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/zoho-leads-list`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          q: qDebounced || undefined,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          source: sourceFilter === "all" ? undefined : sourceFilter,
+          owner_id: ownerFilter === "all" ? undefined : ownerFilter,
+          limit: PAGE_SIZE,
+          offset,
+        }),
+      });
+      const json = (await res.json()) as LeadsListResponse;
+      if (!json.ok) throw new Error(json.error ?? "load failed");
+      setRows(json.rows);
+      setUsers(json.users ?? {});
+      setMoreRecords(json.more_records);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
-    if (outcomeFilter !== "all") q = q.eq("outcome_category", outcomeFilter);
-    const { data, error } = await q;
-    if (error) setError(error.message);
-    else setLeads((data ?? []) as Lead[]);
-    setLoading(false);
-  }, [search, outcomeFilter]);
+  }, [qDebounced, statusFilter, sourceFilter, ownerFilter, offset]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Log a list-view event keyed to the active filter so the audit
-  // trail captures which slices got browsed.
+  // Build filter option lists from what we see in the current page —
+  // union across renders so they keep growing as the user paginates.
+  const [knownStatuses, setKnownStatuses] = useState<Set<string>>(new Set());
+  const [knownSources, setKnownSources] = useState<Set<string>>(new Set());
   useEffect(() => {
-    logAudit("view", "leads", null, { search: search || null, outcome_filter: outcomeFilter, surface: "admin_leads" });
-  }, [search, outcomeFilter]);
+    setKnownStatuses((prev) => {
+      const next = new Set(prev);
+      for (const r of rows) if (r.Lead_Status) next.add(r.Lead_Status);
+      return next;
+    });
+    setKnownSources((prev) => {
+      const next = new Set(prev);
+      for (const r of rows) if (r.Lead_Source) next.add(r.Lead_Source);
+      return next;
+    });
+  }, [rows]);
 
-  return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Users className="w-6 h-6" /> Leads
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Callers identified by the AI extractor. Auto-populated from real CTM call transcripts.
-        </p>
-      </div>
+  const ownerOptions = useMemo(() => {
+    return Object.entries(users)
+      .map(([id, u]) => ({ id, name: u.full_name ?? u.email ?? id }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
 
-      <div className="flex gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[240px]">
-          <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, phone, email, insurance…"
-            className="pl-9"
-          />
-        </div>
-        <div className="flex gap-1">
-          {(["all", "in_progress", "won", "lost"] as const).map((f) => (
-            <Button
-              key={f}
-              size="sm"
-              variant={outcomeFilter === f ? "default" : "outline"}
-              onClick={() => setOutcomeFilter(f)}
-            >
-              {f === "all" ? "All" : f === "won" ? "Admitted" : f === "lost" ? "Churned" : "In progress"}
-            </Button>
-          ))}
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => { logAudit("export", "leads", null, { format: "csv", count: leads.length, search, outcome_filter: outcomeFilter }); downloadCsv(`leads-${new Date().toISOString().slice(0, 10)}.csv`, leads, [
-            { key: "first_name", label: "First name" },
-            { key: "last_name", label: "Last name" },
-            { key: "primary_phone_normalized", label: "Phone" },
-            { key: "email", label: "Email" },
-            { key: "outcome_category", label: "Outcome" },
-            { key: "urgency", label: "Urgency" },
-            { key: "insurance_provider", label: "Insurance" },
-            { key: "relationship_to_patient", label: "Relationship" },
-            { key: "callback_preference", label: "Callback pref" },
-            { key: "program_interest", label: "Program interest" },
-            { key: "is_active", label: "Active" },
-            { key: "created_at", label: "Created", format: (v) => v ? new Date(v).toISOString() : "" },
-            { key: "updated_at", label: "Updated", format: (v) => v ? new Date(v).toISOString() : "" },
-            { key: "zoho_lead_id", label: "Zoho lead ID" },
-          ]); }}
-          disabled={leads.length === 0}
-          className="gap-1.5"
-        >
-          <Download className="w-3.5 h-3.5" /> Export CSV
-        </Button>
-      </div>
-
-      {loading && (
-        <Card><CardContent className="pt-6 text-sm text-muted-foreground flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading leads…
-        </CardContent></Card>
-      )}
-      {error && (<Card className="border-destructive"><CardContent className="pt-6 text-sm text-destructive">{error}</CardContent></Card>)}
-      {!loading && !error && leads.length === 0 && (
-        <Card><CardContent className="pt-8 text-center text-sm text-muted-foreground">No leads yet. They populate as call transcripts get extracted.</CardContent></Card>
-      )}
-
-      <div className="space-y-2">
-        {leads.map((lead) => (
-          <LeadRow
-            key={lead.id}
-            lead={lead}
-            expanded={expandedId === lead.id}
-            onToggle={() => setExpandedId(expandedId === lead.id ? null : lead.id)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function LeadRow({ lead, expanded, onToggle }: { lead: Lead; expanded: boolean; onToggle: () => void }) {
-  const [calls, setCalls] = useState<CallSummary[] | null>(null);
-  const [extractions, setExtractions] = useState<FieldExtraction[] | null>(null);
-  const [pushing, setPushing] = useState(false);
-  const [pushResult, setPushResult] = useState<{ ok: boolean; message: string; zohoId?: string } | null>(null);
-  const [zohoId, setZohoId] = useState<string | null>(lead.zoho_lead_id);
-
-  async function pushToZoho() {
-    setPushing(true);
-    setPushResult(null);
-    try {
-      const { data, error } = await supabase.functions.invoke("zoho-writeback", {
-        body: { lead_id: lead.id },
-      });
-      if (error) throw new Error(error.message);
-      if (!data?.ok) throw new Error(data?.error ?? "zoho-writeback failed");
-      setPushResult({ ok: true, message: `${data.action ?? "synced"} as Zoho ID ${data.zoho_lead_id}`, zohoId: data.zoho_lead_id });
-      if (data.zoho_lead_id) setZohoId(data.zoho_lead_id);
-    } catch (e) {
-      setPushResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setPushing(false);
-    }
+  function ownerName(id: string | null): string {
+    if (!id) return "—";
+    return users[id]?.full_name ?? users[id]?.email ?? `(zoho ${id.slice(-6)})`;
   }
 
-  useEffect(() => {
-    if (!expanded || calls) return;
-    (async () => {
-      const [callsRes, extRes] = await Promise.all([
-        supabase
-          .from("call_sessions")
-          .select(`id, ctm_call_id, status, started_at, talk_seconds, ctm_raw_payload,
-            score:call_scores(composite_score, needs_supervisor_review)`)
-          .eq("lead_id", lead.id)
-          .order("started_at", { ascending: false, nullsFirst: false })
-          .limit(20),
-        supabase
-          .from("field_extractions")
-          .select("field_name, extracted_value, confidence, source_signal, status, created_at")
-          .eq("lead_id", lead.id)
-          .order("confidence", { ascending: false })
-          .limit(50),
-      ]);
-      setCalls((callsRes.data ?? []) as unknown as CallSummary[]);
-      setExtractions((extRes.data ?? []) as FieldExtraction[]);
-    })();
-  }, [expanded, lead.id, calls]);
-
-  const displayName = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || "(no name)";
+  function displayName(r: LeadRow): string {
+    const n = [r.First_Name, r.Last_Name].filter(Boolean).join(" ").trim();
+    return n || r.Email || r.Phone || r.Mobile || "(no name)";
+  }
 
   return (
-    <Card>
-      <CardHeader className="cursor-pointer" onClick={onToggle}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1.5 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              <Link
-                href={`/leads/${lead.id}`}
-                onClick={(e) => e.stopPropagation()}
-                className="font-semibold text-base hover:underline"
-              >
-                {displayName}
-              </Link>
-              {lead.outcome_category && lead.outcome_category !== "in_progress" && (
-                <Badge
-                  className={lead.outcome_category === "won"
-                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
-                    : "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30"}
-                  variant="outline"
-                >
-                  {lead.outcome_category === "won" ? "admitted" : "churned"}
-                </Badge>
-              )}
-              {lead.urgency && (
-                <Badge className={urgencyClass[lead.urgency] ?? ""} variant="secondary">{lead.urgency} urgency</Badge>
-              )}
-              {lead.relationship_to_patient && lead.relationship_to_patient !== "self" && (
-                <Badge variant="outline" className="text-xs">calling for {lead.relationship_to_patient}</Badge>
-              )}
-              {!lead.is_active && <Badge variant="outline" className="text-xs">inactive</Badge>}
-            </div>
-            <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
-              {(lead.primary_phone_normalized || lead.primary_phone) && (
-                <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {lead.primary_phone_normalized ?? lead.primary_phone}</span>
-              )}
-              {lead.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {lead.email}</span>}
-              {lead.insurance_provider && <span>Insurance: <span className="font-medium text-foreground">{lead.insurance_provider}</span></span>}
-              {lead.program_interest && lead.program_interest.length > 0 && (
-                <span>Programs: <span className="font-medium text-foreground">{lead.program_interest.join(", ")}</span></span>
-              )}
-              <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> Updated {fmtTime(lead.updated_at)}</span>
-            </div>
-          </div>
+    <div className="max-w-7xl mx-auto p-6 space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
+            <User className="w-6 h-6" /> Leads
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            Live mirror of Zoho's Leads module. Edits made in Zoho appear here on refresh.
+          </p>
         </div>
-      </CardHeader>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="h-9 gap-1.5">
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Refresh
+          </Button>
+        </div>
+      </div>
 
-      {expanded && (
-        <CardContent className="border-t pt-4 space-y-5">
-          {!calls || !extractions ? (
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading lead details…
+      {/* Filter bar */}
+      <Card>
+        <CardContent className="pt-4 pb-4 flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search name, email, or phone…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="h-9 pl-8 text-sm"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-9 w-[160px] text-xs">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All statuses</SelectItem>
+              {Array.from(knownStatuses).sort().map((s) => (
+                <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="h-9 w-[160px] text-xs">
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All sources</SelectItem>
+              {Array.from(knownSources).sort().map((s) => (
+                <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+            <SelectTrigger className="h-9 w-[180px] text-xs">
+              <SelectValue placeholder="Owner" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All owners</SelectItem>
+              {ownerOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id} className="text-xs">{o.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <Card className="border-rose-500/30 bg-rose-500/5">
+          <CardContent className="pt-4 pb-4 text-sm text-rose-600 dark:text-rose-400">{error}</CardContent>
+        </Card>
+      )}
+
+      {/* Results table */}
+      <Card>
+        <CardContent className="pt-0 pb-0">
+          {loading && rows.length === 0 ? (
+            <div className="py-12 flex items-center justify-center text-sm text-muted-foreground gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading leads…
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              No leads match these filters.
             </div>
           ) : (
-            <>
-              {extractions.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-1.5">
-                    <Sparkles className="w-3 h-3" /> Extracted fields ({extractions.length})
-                  </h4>
-                  <div className="grid md:grid-cols-2 gap-2">
-                    {extractions.map((e, i) => (
-                      <div key={i} className="border rounded-md p-2.5 text-sm">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium">{e.field_name}</span>
-                          <span className="text-xs text-muted-foreground tabular-nums">
-                            {(e.confidence * 100).toFixed(0)}% · {e.status}
-                          </span>
-                        </div>
-                        <div className="text-foreground mt-0.5">{e.extracted_value}</div>
-                        {e.source_signal && (
-                          <div className="text-xs text-muted-foreground mt-1">"{e.source_signal.slice(0, 200)}{e.source_signal.length > 200 ? "…" : ""}"</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                  <tr>
+                    <th className="text-left py-2 px-3">Name</th>
+                    <th className="text-left py-2 px-3">Contact</th>
+                    <th className="text-left py-2 px-3">Status</th>
+                    <th className="text-left py-2 px-3">Source</th>
+                    <th className="text-left py-2 px-3">Owner</th>
+                    <th className="text-left py-2 px-3">Modified</th>
+                    <th className="w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id} className="border-t hover:bg-accent/30 transition-colors">
+                      <td className="py-2 px-3">
+                        <div className="font-medium text-sm">{displayName(r)}</div>
+                        {r.Company && (
+                          <div className="text-[11px] text-muted-foreground">{r.Company}</div>
                         )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-1.5">
-                  <MessageSquare className="w-3 h-3" /> Calls ({calls.length})
-                </h4>
-                {calls.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No calls yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {calls.map((c) => {
-                      const score = Array.isArray(c.score) ? c.score[0] : c.score;
-                      const audio = c.ctm_raw_payload?.audio;
-                      return (
-                        <div key={c.id} className="border rounded-md p-2.5 text-sm">
-                          <div className="flex items-center justify-between gap-3 flex-wrap">
-                            <div className="flex items-center gap-3">
-                              <span className="font-mono text-xs text-muted-foreground">{c.ctm_call_id}</span>
-                              <Badge variant="outline" className="text-xs">{c.status}</Badge>
-                              <span className="text-xs text-muted-foreground">{fmtTime(c.started_at)}</span>
-                              <span className="text-xs text-muted-foreground">{fmtDur(c.talk_seconds)}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              {score?.composite_score != null && (
-                                <span className="text-xs">
-                                  QA: <span className={`font-semibold ${scoreColor(score.composite_score)}`}>{score.composite_score}</span>
-                                  {score.needs_supervisor_review && <Badge variant="outline" className="ml-1 text-[10px]">flagged</Badge>}
-                                </span>
-                              )}
-                              {audio && (
-                                <a href={String(audio)} target="_blank" rel="noopener noreferrer"
-                                  className="flex items-center gap-1 text-xs hover:underline">
-                                  <Headphones className="w-3 h-3" /> Recording
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t pt-3 flex items-center justify-between gap-3 flex-wrap">
-                <div className="text-xs text-muted-foreground">
-                  Lead created {fmtTime(lead.created_at)}
-                  {zoho_id_display(zohoId) && ` · Zoho ID ${zoho_id_display(zohoId)}`}
-                </div>
-                <div className="flex items-center gap-2">
-                  {pushResult && (
-                    <span className={`text-xs ${pushResult.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}>
-                      {pushResult.ok && <CheckCircle2 className="w-3 h-3 inline mr-1" />}
-                      {pushResult.message.slice(0, 120)}
-                    </span>
-                  )}
-                  <Button size="sm" variant="outline" onClick={pushToZoho} disabled={pushing}>
-                    {pushing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Send className="w-3 h-3 mr-1.5" />}
-                    {zohoId ? "Sync to Zoho" : "Push to Zoho"}
-                  </Button>
-                </div>
-              </div>
-            </>
+                      </td>
+                      <td className="py-2 px-3 text-xs">
+                        {r.Email && <div className="text-muted-foreground">{r.Email}</div>}
+                        {(r.Phone || r.Mobile) && (
+                          <div className="text-muted-foreground tabular-nums">{r.Phone ?? r.Mobile}</div>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-xs">
+                        {r.Lead_Status ? (
+                          <Badge variant="outline" className="text-[10px]">{r.Lead_Status}</Badge>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="py-2 px-3 text-xs text-muted-foreground">{r.Lead_Source ?? "—"}</td>
+                      <td className="py-2 px-3 text-xs">{ownerName(r["Owner.id"])}</td>
+                      <td className="py-2 px-3 text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.Modified_Time)}</td>
+                      <td className="py-2 px-3 text-right">
+                        <a
+                          href={`https://crm.zoho.com/crm/tab/Leads/${r.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline text-xs inline-flex items-center gap-0.5"
+                          title="Open in Zoho"
+                        >
+                          Zoho <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
-      )}
-    </Card>
+      </Card>
+
+      {/* Pagination footer */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <div>
+          Showing {offset + 1}–{offset + rows.length}
+          {moreRecords ? "" : ` of ${offset + rows.length}`}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={offset === 0 || loading}
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            className="h-7 px-2 gap-1 text-[11px]"
+          >
+            <ChevronLeft className="w-3 h-3" /> Prev
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!moreRecords || loading}
+            onClick={() => setOffset(offset + PAGE_SIZE)}
+            className="h-7 px-2 gap-1 text-[11px]"
+          >
+            Next <ChevronRight className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
