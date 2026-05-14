@@ -96,6 +96,43 @@ const PRESETS: Array<{ key: WindowPreset; label: string }> = [
   { key: "ytd", label: "YTD" },
 ];
 
+// Smaller, meetings-specific preset list. Mixes past + future windows
+// because BD managers want to glance at upcoming meetings as easily as
+// already-completed ones.
+export type MeetingsPreset =
+  | "today" | "tomorrow" | "next_3" | "this_week" | "last_7" | "last_30";
+const MEETINGS_PRESETS: Array<{ key: MeetingsPreset; label: string }> = [
+  { key: "today", label: "Today" },
+  { key: "tomorrow", label: "Tomorrow" },
+  { key: "next_3", label: "Next 3 days" },
+  { key: "this_week", label: "This week" },
+  { key: "last_7", label: "Last 7 days" },
+  { key: "last_30", label: "Last 30 days" },
+];
+function computeMeetingsWindow(preset: MeetingsPreset): { startIso: string; endIso: string; label: string } {
+  const now = new Date();
+  const iso = (d: Date) => d.toISOString().slice(0, 19) + "+00:00";
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400_000);
+  switch (preset) {
+    case "today":     return { startIso: iso(startOfToday), endIso: iso(endOfToday), label: "Today" };
+    case "tomorrow":  return { startIso: iso(addDays(startOfToday, 1)), endIso: iso(addDays(endOfToday, 1)), label: "Tomorrow" };
+    case "next_3":    return { startIso: iso(startOfToday), endIso: iso(addDays(endOfToday, 3)), label: "Next 3 days" };
+    case "this_week": {
+      // Monday-start week, runs through end of next Sunday.
+      const dow = startOfToday.getDay();
+      const offsetToMon = dow === 0 ? -6 : 1 - dow;
+      const monday = addDays(startOfToday, offsetToMon);
+      const sunday = addDays(monday, 6);
+      sunday.setHours(23, 59, 59);
+      return { startIso: iso(monday), endIso: iso(sunday), label: "This week" };
+    }
+    case "last_7":    return { startIso: iso(addDays(startOfToday, -7)), endIso: iso(endOfToday), label: "Last 7 days" };
+    case "last_30":   return { startIso: iso(addDays(startOfToday, -30)), endIso: iso(endOfToday), label: "Last 30 days" };
+  }
+}
+
 // ── Types ────────────────────────────────────────────────────────────
 interface BdSummary {
   ok: boolean;
@@ -111,6 +148,9 @@ interface BdSummary {
     net_balance: number; conversion_rate: number | null;
     last_referral_at: string | null; last_meeting_at: string | null;
     bd_owner_count: number;
+    /** Per-BD-rep slice (added by bd-summary v9+). Optional so the UI
+     *  degrades gracefully against older payloads. */
+    by_bd_rep?: Record<string, { referrals_in: number; admits: number; referrals_out: number }>;
   }>;
   reps: Array<{
     bd_rep: string; zoho_user_id: string | null; owner_ids: string[];
@@ -143,6 +183,15 @@ export default function BdDashboard() {
   // still toggle them on (or hit "All") any time.
   const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set(["Commercial", "AHCCCS"]));
   const [selectedReps, setSelectedReps] = useState<Set<string>>(new Set());
+  // Filter for the Top referring accounts table — independent of the
+  // Per-BD-rep filter above so a manager can ask "which accounts are
+  // sending Casey work?" without resetting other table state.
+  // null = no filter (show aggregate counts across all reps).
+  const [topAccountsRep, setTopAccountsRep] = useState<string | null>(null);
+  // Independent timeframe for the Today's-meetings strip. Defaults to
+  // "today" but a manager can pivot to next-3-days / this-week / etc.
+  // without disturbing the page-level window picker.
+  const [meetingsPreset, setMeetingsPreset] = useState<MeetingsPreset>("today");
   const [expandedReps, setExpandedReps] = useState<Set<string>>(new Set());
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
 
@@ -278,7 +327,7 @@ export default function BdDashboard() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       const headers = { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) };
-      const todayWin = computeWindow("today");
+      const meetingsWin = computeMeetingsWindow(meetingsPreset);
       const [sumRes, mtgRes] = await Promise.all([
         fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-summary`, {
           method: "POST", headers,
@@ -286,7 +335,7 @@ export default function BdDashboard() {
         }).then((r) => r.json()),
         fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-meetings`, {
           method: "POST", headers,
-          body: JSON.stringify({ start_iso: todayWin.startIso, end_iso: todayWin.endIso }),
+          body: JSON.stringify({ start_iso: meetingsWin.startIso, end_iso: meetingsWin.endIso }),
         }).then((r) => r.json()),
       ]);
       if (!sumRes.ok) throw new Error(sumRes.error ?? "summary load failed");
@@ -300,7 +349,7 @@ export default function BdDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [win.startIso, win.endIso, pipelinesParam]);
+  }, [win.startIso, win.endIso, pipelinesParam, meetingsPreset]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -316,6 +365,7 @@ export default function BdDashboard() {
 
   function resolveRep(bdRep: string): { name: string; profileId: string | null } {
     const trimmed = bdRep.trim();
+    if (trimmed === "(all)") return { name: "All BD reps", profileId: null };
     if (!trimmed || trimmed === "(unassigned)" || trimmed === "None") return { name: trimmed || "(unassigned)", profileId: null };
     const target = trimmed.toLowerCase();
     const exact = profiles.find((p) => (p.full_name ?? "").trim().toLowerCase() === target);
@@ -502,34 +552,53 @@ export default function BdDashboard() {
               the queue is empty (no rendering at all). */}
           <NeedsAttentionBanner counts={stuckSummary} />
 
-          {/* KPIs */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <Kpi label="Referrals in"  value={data?.kpis.referrals_in ?? null} loading={loading} icon={<TrendingUp className="w-4 h-4 text-blue-500" />} sub="Deals w/ Referring Co."
-              info="Count of Zoho deals created in this window that have a Referring Company set on the deal. Deduped by deal id (a deal is never double-counted even if it appears on a related list under both an account and a contact). Outbound (referred-out) deals are excluded — those are counted under Referrals out." />
-            <Kpi label="VOBs"           value={data?.kpis.vobs ?? null}         loading={loading} icon={<ClipboardCheck className="w-4 h-4 text-cyan-500" />} sub="VOB_Submitted_Date"
-              info="Count of deals whose VOB Submitted Date falls inside the window. This is the 'we ran insurance' moment — happens after a referral comes in and before an admit. Filtered by the same Pipeline selection as everything else (DUI/DV are separate service lines, not treatment)." />
-            <Kpi label="Admits"         value={data?.kpis.admits ?? null}       loading={loading} icon={<Target className="w-4 h-4 text-emerald-500" />}    sub="From referred-in deals"
-              info="Deals that hit an Admitted stage in this window. Counts only deals that originated from a referral in (Referring Company set) — walk-ins and self-referrals are excluded. Use the Conversion KPI to see admit rate against the matching Referrals in cohort." />
-            <Kpi label="Referrals out"  value={data?.kpis.referrals_out ?? null} loading={loading} icon={<ArrowRight className="w-4 h-4 text-orange-500" />} sub="Stage + Referred_Out"
-              info="Patients we sent elsewhere in this window. Unioned across two Zoho signals and deduped by deal id: (1) Stage = 'Referred Out - Coming Back' or 'Closed - Referred Out Unattached', (2) the Referred_Out lookup field is set with a Refer Out Date in window. Account on each row is where we sent them, NOT the original referrer." />
-            <Kpi label="Net balance"    value={data?.kpis.net_referral_balance ?? null} loading={loading} icon={<ArrowLeftRight className="w-4 h-4 text-slate-500" />} sub="In − Out"
-              info="Referrals in minus Referrals out. Positive means we netted patients from the referral network this window; negative means we sent more out than we took in. Useful for spotting reciprocity gaps with specific accounts on the Top Referring Accounts page." />
-            <Kpi label="Conversion"     value={data?.kpis.conversion_rate != null ? `${data.kpis.conversion_rate}%` : "—"} loading={loading} icon={<Target className="w-4 h-4 text-amber-500" />} sub="Referral → Admit"
-              info="Admits ÷ Referrals in for this window, expressed as a percentage. Cohort is the deals counted in the Referrals in tile — same window, same Pipeline filter. Note: an admit can come in a later window than the referral, so very short windows can skew low." />
-            <Kpi label="Meetings"       value={data?.kpis.meetings_completed ?? null} loading={loading} icon={<Calendar className="w-4 h-4 text-violet-500" />} sub="Events tied to records"
-              info="Completed Zoho Events in the window where the BD rep is the host. Includes outreach meetings, partner check-ins, and lunches. Cancelled / no-show events are excluded. Each event is linked to a Company (What_Id) or Contact (Who_Id) — drill into a rep on Today's Meetings to see the company-by-company breakdown." />
-            <Kpi label="Calls"          value={data?.kpis.calls ?? null}        loading={loading} icon={<Phone className="w-4 h-4 text-sky-500" />}        sub="BD reps only"
-              info="Logged calls from the Zoho Calls module in this window, owned by a BD rep. The intake / admissions team shares the Calls module with BD, so the unfiltered count is massively inflated — this number filters to Owner.id ∈ {BD reps observed on deals in this window}. Inbound + outbound, completed only. Voicemails count; missed calls without a logged record don't." />
-            <Kpi label="Tasks"          value={data?.kpis.tasks ?? null}        loading={loading} icon={<ListTodo className="w-4 h-4 text-rose-500" />}     sub="BD reps only"
-              info="Zoho Tasks created in this window, owned by a BD rep. Same Owner.id filter as the Calls KPI — the Tasks module is also shared with the admissions team, so the BD-only filter excludes intake task volume from this number. Counts creation, not completion." />
-          </div>
+          {/* KPIs — each card is clickable and opens a team-wide
+              drill-down via the same RepDrilldown sheet the per-rep
+              table uses. owner_ids gathers every BD rep's Zoho user
+              id so activity drill-downs (meetings/calls/tasks) cover
+              the whole team. */}
+          {(() => {
+            const allOwnerIds = Array.from(new Set((data?.reps ?? []).flatMap((r) => r.owner_ids).filter((s): s is string => !!s)));
+            const teamDrill = (category: DrilldownCategory) => () => setDrilldown({ bd_rep: "(all)", category, zoho_user_id: null, owner_ids: allOwnerIds });
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <Kpi label="Referrals in"  value={data?.kpis.referrals_in ?? null} loading={loading} icon={<TrendingUp className="w-4 h-4 text-blue-500" />} sub="Deals w/ Referring Co."
+                  onClick={data ? teamDrill("in") : undefined}
+                  info="Count of Zoho deals created in this window that have a Referring Company set on the deal. Deduped by deal id (a deal is never double-counted even if it appears on a related list under both an account and a contact). Outbound (referred-out) deals are excluded — those are counted under Referrals out." />
+                <Kpi label="VOBs"           value={data?.kpis.vobs ?? null}         loading={loading} icon={<ClipboardCheck className="w-4 h-4 text-cyan-500" />} sub="VOB_Submitted_Date"
+                  onClick={data ? teamDrill("vobs") : undefined}
+                  info="Count of deals whose VOB Submitted Date falls inside the window. This is the 'we ran insurance' moment — happens after a referral comes in and before an admit. Filtered by the same Pipeline selection as everything else (DUI/DV are separate service lines, not treatment)." />
+                <Kpi label="Admits"         value={data?.kpis.admits ?? null}       loading={loading} icon={<Target className="w-4 h-4 text-emerald-500" />}    sub="From referred-in deals"
+                  onClick={data ? teamDrill("admits") : undefined}
+                  info="Deals that hit an Admitted stage in this window. Counts only deals that originated from a referral in (Referring Company set) — walk-ins and self-referrals are excluded. Use the Conversion KPI to see admit rate against the matching Referrals in cohort." />
+                <Kpi label="Referrals out"  value={data?.kpis.referrals_out ?? null} loading={loading} icon={<ArrowRight className="w-4 h-4 text-orange-500" />} sub="Stage + Referred_Out"
+                  onClick={data ? teamDrill("out") : undefined}
+                  info="Patients we sent elsewhere in this window. Unioned across two Zoho signals and deduped by deal id: (1) Stage = 'Referred Out - Coming Back' or 'Closed - Referred Out Unattached', (2) the Referred_Out lookup field is set with a Refer Out Date in window. Account on each row is where we sent them, NOT the original referrer." />
+                <Kpi label="Net balance"    value={data?.kpis.net_referral_balance ?? null} loading={loading} icon={<ArrowLeftRight className="w-4 h-4 text-slate-500" />} sub="In − Out"
+                  onClick={data ? teamDrill("in") : undefined}
+                  info="Referrals in minus Referrals out. Positive means we netted patients from the referral network this window; negative means we sent more out than we took in. Useful for spotting reciprocity gaps with specific accounts on the Top Referring Accounts page. Drill-down opens the Referrals in cohort." />
+                <Kpi label="Conversion"     value={data?.kpis.conversion_rate != null ? `${data.kpis.conversion_rate}%` : "—"} loading={loading} icon={<Target className="w-4 h-4 text-amber-500" />} sub="Referral → Admit"
+                  onClick={data ? teamDrill("admits") : undefined}
+                  info="Admits ÷ Referrals in for this window, expressed as a percentage. Cohort is the deals counted in the Referrals in tile — same window, same Pipeline filter. Note: an admit can come in a later window than the referral, so very short windows can skew low. Drill-down opens the admit cohort." />
+                <Kpi label="Meetings"       value={data?.kpis.meetings_completed ?? null} loading={loading} icon={<Calendar className="w-4 h-4 text-violet-500" />} sub="Events tied to records"
+                  onClick={data ? teamDrill("meetings") : undefined}
+                  info="Completed Zoho Events in the window where the BD rep is the host. Includes outreach meetings, partner check-ins, and lunches. Cancelled / no-show events are excluded. Each event is linked to a Company (What_Id) or Contact (Who_Id) — drill into a rep on Today's Meetings to see the company-by-company breakdown." />
+                <Kpi label="Calls"          value={data?.kpis.calls ?? null}        loading={loading} icon={<Phone className="w-4 h-4 text-sky-500" />}        sub="BD reps only"
+                  onClick={data ? teamDrill("calls") : undefined}
+                  info="Logged calls from the Zoho Calls module in this window, owned by a BD rep. The intake / admissions team shares the Calls module with BD, so the unfiltered count is massively inflated — this number filters to Owner.id ∈ {BD reps observed on deals in this window}. Inbound + outbound, completed only. Voicemails count; missed calls without a logged record don't." />
+                <Kpi label="Tasks"          value={data?.kpis.tasks ?? null}        loading={loading} icon={<ListTodo className="w-4 h-4 text-rose-500" />}     sub="BD reps only"
+                  onClick={data ? teamDrill("tasks") : undefined}
+                  info="Zoho Tasks created in this window, owned by a BD rep. Same Owner.id filter as the Calls KPI — the Tasks module is also shared with the admissions team, so the BD-only filter excludes intake task volume from this number. Counts creation, not completion." />
+              </div>
+            );
+          })()}
 
           {/* Top referring accounts */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between gap-2">
+              <CardTitle className="text-base flex items-center justify-between gap-2 flex-wrap">
                 <span>Top referring accounts</span>
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-normal text-muted-foreground">grouped by Deal.Referring_Company</span>
                   <Button size="sm" variant="outline" disabled={!data || data.top_accounts.length === 0} onClick={() => {
                     if (!data) return;
@@ -548,44 +617,95 @@ export default function BdDashboard() {
                   }} className="h-7 text-[11px] px-2">CSV</Button>
                 </span>
               </CardTitle>
+              {/* BD rep filter — only renders once bd-summary v9+ has
+                  shipped by_bd_rep on each top_account. */}
+              {data && data.top_accounts.some((a) => a.by_bd_rep) && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Filter by rep:</span>
+                  <button
+                    type="button"
+                    onClick={() => setTopAccountsRep(null)}
+                    className={`text-[11px] px-2 py-0.5 rounded border ${topAccountsRep == null ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent/40"}`}
+                  >
+                    All ({data.top_accounts.length})
+                  </button>
+                  {Array.from(new Set(data.top_accounts.flatMap((a) => Object.keys(a.by_bd_rep ?? {}))))
+                    .filter((rep) => rep !== "(unassigned)")
+                    .sort()
+                    .map((rep) => {
+                      const count = data.top_accounts.filter((a) => (a.by_bd_rep?.[rep]?.referrals_in ?? 0) > 0 || (a.by_bd_rep?.[rep]?.admits ?? 0) > 0 || (a.by_bd_rep?.[rep]?.referrals_out ?? 0) > 0).length;
+                      const active = topAccountsRep === rep;
+                      return (
+                        <button
+                          key={rep}
+                          type="button"
+                          onClick={() => setTopAccountsRep(active ? null : rep)}
+                          className={`text-[11px] px-2 py-0.5 rounded border ${active ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent/40"}`}
+                        >
+                          {resolveRep(rep).name} ({count})
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
             </CardHeader>
             <CardContent>
-              {data && data.top_accounts.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="text-xs text-muted-foreground uppercase tracking-wide">
-                      <tr>
-                        <th className="text-left py-2 pr-3">#</th>
-                        <th className="text-left py-2 pr-3">Account</th>
-                        <th className="text-right py-2 pr-3">In</th>
-                        <th className="text-right py-2 pr-3">Out</th>
-                        <th className="text-right py-2 pr-3">Net</th>
-                        <th className="text-right py-2 pr-3">Admits</th>
-                        <th className="text-right py-2 pr-3">Conv</th>
-                        <th className="text-right py-2 pr-3">Last referral</th>
-                        <th className="text-right py-2 pr-3">Last meeting</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.top_accounts.map((a, i) => (
-                        <tr key={a.account_id} className="border-t">
-                          <td className="py-2 pr-3 text-muted-foreground tabular-nums">{i + 1}</td>
-                          <td className="py-2 pr-3 font-medium">{a.account_name}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{a.referrals_in}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums text-orange-600 dark:text-orange-400">{a.referrals_out}</td>
-                          <td className={`py-2 pr-3 text-right tabular-nums ${a.net_balance < 0 ? "text-red-600 dark:text-red-400" : ""}`}>{a.net_balance > 0 ? `+${a.net_balance}` : a.net_balance}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{a.admits}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{a.conversion_rate != null ? `${a.conversion_rate}%` : "—"}</td>
-                          <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{a.last_referral_at ? new Date(a.last_referral_at).toLocaleDateString() : "—"}</td>
-                          <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{a.last_meeting_at ? new Date(a.last_meeting_at).toLocaleDateString() : "—"}</td>
-                          <td className="py-2 pr-3 text-right"><Link href={`/bd/account?id=${a.account_id}`} className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">Open <ArrowRight className="w-3 h-3" /></Link></td>
+              {(() => {
+                if (!data || data.top_accounts.length === 0) {
+                  return <p className="text-sm text-muted-foreground">No referrals in this window.</p>;
+                }
+                // Project rows through the rep filter so In/Out/Admits
+                // reflect just that rep's contribution. Rows with zero
+                // contribution after filtering are dropped.
+                const projected = data.top_accounts.map((a) => {
+                  if (!topAccountsRep) return { a, _in: a.referrals_in, _out: a.referrals_out, _admits: a.admits };
+                  const slice = a.by_bd_rep?.[topAccountsRep] ?? { referrals_in: 0, admits: 0, referrals_out: 0 };
+                  return { a, _in: slice.referrals_in, _out: slice.referrals_out, _admits: slice.admits };
+                }).filter((r) => topAccountsRep ? (r._in + r._out + r._admits) > 0 : true);
+                if (projected.length === 0) {
+                  return <p className="text-sm text-muted-foreground">No accounts attributed to {resolveRep(topAccountsRep ?? "").name} in this window.</p>;
+                }
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-xs text-muted-foreground uppercase tracking-wide">
+                        <tr>
+                          <th className="text-left py-2 pr-3">#</th>
+                          <th className="text-left py-2 pr-3">Account</th>
+                          <th className="text-right py-2 pr-3">In</th>
+                          <th className="text-right py-2 pr-3">Out</th>
+                          <th className="text-right py-2 pr-3">Net</th>
+                          <th className="text-right py-2 pr-3">Admits</th>
+                          <th className="text-right py-2 pr-3">Conv</th>
+                          <th className="text-right py-2 pr-3">Last referral</th>
+                          <th className="text-right py-2 pr-3">Last meeting</th>
+                          <th></th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : <p className="text-sm text-muted-foreground">No referrals in this window.</p>}
+                      </thead>
+                      <tbody>
+                        {projected.map(({ a, _in, _out, _admits }, i) => {
+                          const net = _in - _out;
+                          const conv = _in > 0 ? Math.round((_admits / _in) * 100) : null;
+                          return (
+                            <tr key={a.account_id} className="border-t">
+                              <td className="py-2 pr-3 text-muted-foreground tabular-nums">{i + 1}</td>
+                              <td className="py-2 pr-3 font-medium">{a.account_name}</td>
+                              <td className="py-2 pr-3 text-right tabular-nums">{_in}</td>
+                              <td className="py-2 pr-3 text-right tabular-nums text-orange-600 dark:text-orange-400">{_out}</td>
+                              <td className={`py-2 pr-3 text-right tabular-nums ${net < 0 ? "text-red-600 dark:text-red-400" : ""}`}>{net > 0 ? `+${net}` : net}</td>
+                              <td className="py-2 pr-3 text-right tabular-nums">{_admits}</td>
+                              <td className="py-2 pr-3 text-right tabular-nums">{conv != null ? `${conv}%` : "—"}</td>
+                              <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{a.last_referral_at ? new Date(a.last_referral_at).toLocaleDateString() : "—"}</td>
+                              <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{a.last_meeting_at ? new Date(a.last_meeting_at).toLocaleDateString() : "—"}</td>
+                              <td className="py-2 pr-3 text-right"><Link href={`/bd/account?id=${a.account_id}`} className="text-xs text-primary hover:underline inline-flex items-center gap-0.5">Open <ArrowRight className="w-3 h-3" /></Link></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -746,7 +866,7 @@ export default function BdDashboard() {
 
           {/* Today's meetings — at the bottom of the page so it doesn't
               dominate the metrics view. Grouped by BD rep, collapsible. */}
-          <TodaysMeetingsStrip rows={todaysMeetings} users={todaysUsers} loading={loading} resolveRep={resolveRep} />
+          <TodaysMeetingsStrip rows={todaysMeetings} users={todaysUsers} loading={loading} resolveRep={resolveRep} preset={meetingsPreset} onPresetChange={setMeetingsPreset} />
 
           {/* Drilldown sheet */}
           <Sheet open={drilldown != null} onOpenChange={(o) => { if (!o) setDrilldown(null); }}>
@@ -774,39 +894,84 @@ export default function BdDashboard() {
 // Psychiatry"), so the title fallback is usually the most useful
 // identifier we have for those rows.
 function TodaysMeetingsStrip({
-  rows, users, loading, resolveRep,
+  rows, users, loading, resolveRep, preset, onPresetChange,
 }: {
   rows: any[];
   users: Record<string, { full_name: string | null; email: string | null }>;
   loading: boolean;
   resolveRep: (s: string) => { name: string; profileId: string | null };
+  preset: MeetingsPreset;
+  onPresetChange: (p: MeetingsPreset) => void;
 }) {
   const [openReps, setOpenReps] = useState<Set<string>>(new Set());
   const [allOpen, setAllOpen] = useState(false);
+  const presetLabel = MEETINGS_PRESETS.find((p) => p.key === preset)?.label ?? "Today";
+
+  const presetPicker = (
+    <div className="inline-flex flex-wrap gap-1 ml-2">
+      {MEETINGS_PRESETS.map((p) => (
+        <button
+          key={p.key}
+          type="button"
+          onClick={() => onPresetChange(p.key)}
+          className={`text-[11px] px-2 py-0.5 rounded border ${preset === p.key ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent/40"}`}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
 
   if (loading && rows.length === 0) {
     return (
       <Card className="border-blue-500/30 bg-blue-500/5">
-        <CardContent className="pt-3 pb-3 text-sm text-muted-foreground flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading today's meetings…
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+            <Calendar className="w-4 h-4 text-blue-500" />
+            <span>Meetings</span>
+            {presetPicker}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 pb-3 text-sm text-muted-foreground flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading meetings…
         </CardContent>
       </Card>
     );
   }
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    return (
+      <Card className="border-blue-500/30 bg-blue-500/5">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+            <Calendar className="w-4 h-4 text-blue-500" />
+            <span>Meetings</span>
+            {presetPicker}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 pb-3 text-xs text-muted-foreground italic">
+          No meetings in this window.
+        </CardContent>
+      </Card>
+    );
+  }
 
   // Enrich every meeting with the best available company-ish label.
+  // bd-meetings v9 flattens Zoho's What_Id/Who_Id objects server-side
+  // into companyName/contactName/linked fields. We still fall back to
+  // the legacy object-access path in case an old payload sneaks in.
   const enriched = rows.map((m: any) => {
     const what = m.What_Id;
     const who = m.Who_Id;
-    const companyName = typeof what === "string" ? what : (what?.name ?? null);
-    const contactName = typeof who === "string" ? who : (who?.name ?? null);
+    const companyName: string | null = m.companyName
+      ?? (typeof what === "string" ? what : (what?.name ?? null));
+    const contactName: string | null = m.contactName
+      ?? (typeof who === "string" ? who : (who?.name ?? null));
     const ownerId = m["Owner.id"] as string | null;
     const ownerRaw = ownerId ? (users[ownerId]?.full_name ?? users[ownerId]?.email ?? null) : null;
     const ownerKey = ownerRaw ?? "(unassigned)";
     const ownerName = ownerRaw ? resolveRep(ownerRaw).name : "(unassigned)";
     const subject = companyName ?? contactName ?? m.Event_Title ?? "(untitled)";
-    const linked = !!(companyName || contactName);
+    const linked = typeof m.linked === "boolean" ? m.linked : !!(companyName || contactName);
     return {
       m, ownerKey, ownerName,
       subject, companyName, contactName, linked,
@@ -835,10 +1000,11 @@ function TodaysMeetingsStrip({
   return (
     <Card className="border-blue-500/30 bg-blue-500/5">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
+        <CardTitle className="text-base flex items-center gap-2 flex-wrap">
           <Calendar className="w-4 h-4 text-blue-500" />
-          <span>Today's meetings</span>
+          <span>Meetings — {presetLabel}</span>
           <Badge variant="outline" className="text-[10px]">{rows.length}</Badge>
+          {presetPicker}
           <Button
             size="sm" variant="outline"
             onClick={() => { setAllOpen(!allOpen); setOpenReps(new Set()); }}
@@ -906,7 +1072,7 @@ function TodaysMeetingsStrip({
 }
 
 // ── KPI ──────────────────────────────────────────────────────────────
-function Kpi({ label, value, loading, icon, sub, info }: {
+function Kpi({ label, value, loading, icon, sub, info, onClick }: {
   label: string;
   value: number | string | null;
   loading: boolean;
@@ -916,9 +1082,21 @@ function Kpi({ label, value, loading, icon, sub, info }: {
    *  Should describe what's counted, the source field, and any
    *  edge cases (dedupe, window basis, exclusions). */
   info?: string;
+  /** When set, the whole card becomes a button that triggers a
+   *  team-wide drill-down for this metric. */
+  onClick?: () => void;
 }) {
+  const clickable = !!onClick;
   return (
-    <Card>
+    <Card
+      className={clickable ? "cursor-pointer hover:border-foreground/30 hover:shadow-sm transition-all" : ""}
+      onClick={clickable ? onClick : undefined}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable
+        ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } }
+        : undefined}
+    >
       <CardContent className="pt-4 pb-4">
         <div className="text-xs text-muted-foreground flex items-center gap-1.5">
           {icon}
@@ -929,6 +1107,7 @@ function Kpi({ label, value, loading, icon, sub, info }: {
                 <button
                   type="button"
                   aria-label={`About ${label}`}
+                  onClick={(e) => e.stopPropagation()}
                   className="inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-colors"
                 >
                   <Info className="w-3 h-3" />
@@ -939,6 +1118,7 @@ function Kpi({ label, value, loading, icon, sub, info }: {
               </TooltipContent>
             </Tooltip>
           )}
+          {clickable && <ChevronRight className="w-3 h-3 ml-auto opacity-50" />}
         </div>
         <div className="text-2xl font-semibold mt-1 tabular-nums">{loading && value == null ? <Loader2 className="w-4 h-4 animate-spin" /> : (value ?? "—")}</div>
         {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
@@ -1727,12 +1907,13 @@ function NeedsAttentionBanner({ counts }: {
 // When the prior baseline is 0 (rep wasn't active 4 weeks ago), we
 // hide the pill rather than show a misleading "infinity ahead".
 
-type PaceMetric = "referrals_in" | "meetings" | "calls" | "vobs";
+type PaceMetric = "referrals_in" | "meetings" | "calls" | "vobs" | "admits";
 const PACE_METRICS: Array<{ key: PaceMetric; label: string }> = [
   { key: "referrals_in", label: "Referrals" },
   { key: "meetings", label: "Meetings" },
   { key: "calls", label: "Calls" },
   { key: "vobs", label: "VOBs" },
+  { key: "admits", label: "Admits" },
 ];
 
 interface PaceStat { thisWeek: number; baseline: number; ratio: number | null; }
