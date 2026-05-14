@@ -29,6 +29,8 @@ export type PageKey =
   // Admissions floating pages (parent = null)
   | "page_supervisor_review"
   | "page_suggestions"
+  // Executive sub-pages — additions
+  | "page_analytics_dashboard"
   | "page_my_coaching"
   | "page_queue"
   | "page_high_priority_alerts"

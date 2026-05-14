@@ -128,6 +128,9 @@ export const MASTER_TABS: MasterTab[] = [
     // activates the Executive tab.
     prefixes: [
       "/executive",
+      // Analytics — new top-level Executive section for the
+      // analytics dashboard surface.
+      "/executive/analytics",
       // Quality
       "/ops/qa-review", "/ops/dispositions", "/ops/ai-bot-feedback",
       // Staffing
@@ -139,7 +142,7 @@ export const MASTER_TABS: MasterTab[] = [
       "/admin/leads", "/admin/health", "/admin/audit", "/admin/settings",
       "/admin", "/settings",
     ],
-    sections: ["Quality", "Staffing", "Insights", "Admin"],
+    sections: ["Analytics", "Quality", "Staffing", "Insights", "Admin"],
     empty: false,
     feature: "module_executive",
   },

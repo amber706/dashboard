@@ -1,6 +1,6 @@
-// client.ts — typed wrappers around the four executive-analytics-*
-// edge functions. Every component talks to Supabase through these
-// (never raw fetch), and TanStack Query hooks compose on top.
+// client.ts — typed wrappers around the executive-analytics-* edge
+// functions. Every component talks to Supabase through these (never
+// raw fetch); TanStack Query hooks compose on top.
 
 import { supabase } from "@/lib/supabase";
 import type {
@@ -26,8 +26,20 @@ async function invoke<TResp>(fn: string, body: unknown): Promise<TResp> {
   return (await res.json()) as TResp;
 }
 
-export function fetchAnalyticsSummary(
-  args: AnalyticsRequestBase,
-): Promise<AnalyticsSummaryResponse> {
+export function fetchAnalyticsSummary(args: AnalyticsRequestBase): Promise<AnalyticsSummaryResponse> {
   return invoke<AnalyticsSummaryResponse>("executive-analytics-summary", args);
+}
+
+// Pipeline + Stage Movement (consolidated function).
+export function fetchAnalyticsPipeline(args: { role: string }): Promise<any> {
+  return invoke<any>("executive-analytics-pipeline", args);
+}
+
+// Closed-Admitted + Closed-Lost (consolidated function).
+export function fetchAnalyticsOutcomes(args: AnalyticsRequestBase): Promise<any> {
+  return invoke<any>("executive-analytics-outcomes", args);
+}
+
+export function fetchAnalyticsRep(args: AnalyticsRequestBase): Promise<any> {
+  return invoke<any>("executive-analytics-rep", args);
 }

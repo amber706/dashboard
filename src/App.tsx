@@ -28,6 +28,7 @@ import CTMCalls from "@/pages/ctm-calls";
 import CTMAgents from "@/pages/ctm-agents";
 import CTMAttribution from "@/pages/ctm-attribution";
 import ExecutiveOverview from "@/pages/executive-overview";
+import ExecutiveAnalytics from "@/pages/executive/analytics";
 import KnowledgeReview from "@/pages/knowledge-review";
 import KnowledgeBase from "@/pages/kb";
 import TrainingScenarios from "@/pages/training";
@@ -146,6 +147,11 @@ function AppRoutes() {
         <Route path="/legacy-home" component={Mgr(LegacyHome)} />
         <Route path="/admin" component={Mgr(Admin)} />
         <Route path="/executive" component={MgrMod("module_executive", ExecutiveOverview)} />
+        {/* Executive Analytics Dashboard — manager+admin only, gated
+            behind the page_analytics_dashboard feature flag. Inside
+            the page, role lens (admissions/bd/digitalMarketing/all)
+            slices the data view. */}
+        <Route path="/executive/analytics" component={MgrMod("page_analytics_dashboard", ExecutiveAnalytics)} />
         <Route path="/analytics" component={MgrMod("module_executive", Analytics)} />
         <Route path="/suggestion/:id" component={Mgr(SuggestionDetail)} />
         <Route path="/ctm-agents" component={MgrMod("module_ctm", CTMAgents)} />

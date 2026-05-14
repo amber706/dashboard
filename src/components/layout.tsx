@@ -112,6 +112,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // QUALITY (review surfaces — Coaching Feed dropped because /ops/overview
     // Attention Strip + Watchlist already surface trending-down specialists,
     // compliance flags, and worst-call coaching opportunities)
+    // ANALYTICS (dedicated section under Executive — separate from
+    // Insights so the new dashboard lands at the top of the manager
+    // workspace alongside Executive Overview).
+    { href: "/executive/analytics", label: "Analytics Dashboard", icon: <LayoutDashboard className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
+
     { href: "/ops/qa-review", label: "QA Review", icon: <ShieldAlert className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
     { href: "/ops/dispositions", label: "Dispositions", icon: <ClipboardCheck className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
     { href: "/ops/ai-bot-feedback", label: "AI Bot Feedback", icon: <Bot className="w-4 h-4" />, section: "Quality", roles: ["manager", "admin"] as const },
@@ -208,6 +213,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href === "/ops/qa-review" || href === "/ops/coaching") return "module_qa";
     if (href.startsWith("/bd")) return "module_bd";
     if (href.startsWith("/ctm-")) return "module_ctm";
+    if (href === "/executive/analytics") return "page_analytics_dashboard";
     if (href === "/executive" || href === "/analytics") return "module_executive";
     return null;
   }
