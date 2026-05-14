@@ -77,7 +77,8 @@ function FeatureTogglesCard() {
   // Module display order — same order the tabs appear in the sidebar so
   // the UI matches the user's mental model.
   const MODULE_ORDER: ModuleKey[] = [
-    "module_bd", "module_executive", "module_training", "module_kb", "module_qa", "module_ctm",
+    "module_bd", "module_executive", "module_analytics_warehouse",
+    "module_training", "module_kb", "module_qa", "module_ctm",
   ];
 
   // "Floating" pages — those with no parent module. Rendered in a
