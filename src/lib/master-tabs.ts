@@ -131,6 +131,10 @@ export const MASTER_TABS: MasterTab[] = [
       // Analytics — new top-level Executive section for the
       // analytics dashboard surface.
       "/executive/analytics",
+      // Warehouse-backed analytics ports (8 dashboards + 2 HOLD)
+      // live under /analytics/* and must activate Executive so the
+      // Analytics section stays visible while navigating between them.
+      "/analytics",
       // Quality
       "/ops/qa-review", "/ops/dispositions", "/ops/ai-bot-feedback",
       // Staffing
