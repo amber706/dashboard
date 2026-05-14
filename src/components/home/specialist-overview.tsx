@@ -28,6 +28,7 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DrillDownSheet, type DrillTarget } from "@/components/home/drill-down-sheet";
 
 interface SpecialistDashboardResponse {
   ok: boolean;
@@ -84,6 +85,9 @@ export function SpecialistOverview() {
   const [data, setData] = useState<SpecialistDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Which KPI the user clicked — populating this opens the slide-in
+  // sheet. Cleared by the sheet's own onOpenChange.
+  const [drill, setDrill] = useState<DrillTarget | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -145,15 +149,21 @@ export function SpecialistOverview() {
         </Button>
       </div>
 
-      {/* Row 1 — call volume tiles */}
+      {/* Row 1 — call volume tiles. Each tile opens the drill-down
+          sheet on click. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <Kpi icon={<PhoneIncoming className="w-4 h-4 text-blue-500" />}    label="Inbound today"   value={cv.inbound_today} />
-        <Kpi icon={<PhoneOutgoing className="w-4 h-4 text-violet-500" />}  label="Outbound today"  value={cv.outbound_today} />
-        <Kpi icon={<PhoneOff className="w-4 h-4 text-rose-500" />}         label="Missed today"    value={cv.missed_today} tone={cv.missed_today > 0 ? "warn" : undefined} />
-        <Kpi icon={<Phone className="w-4 h-4 text-amber-500" />}           label="Callbacks waiting" value={data.callbacks.waiting} tone={data.callbacks.waiting > 0 ? "warn" : undefined} />
+        <Kpi icon={<PhoneIncoming className="w-4 h-4 text-blue-500" />}    label="Inbound today"   value={cv.inbound_today}
+          onClick={() => setDrill({ metric: "inbound_today", title: "Inbound calls today" })} />
+        <Kpi icon={<PhoneOutgoing className="w-4 h-4 text-violet-500" />}  label="Outbound today"  value={cv.outbound_today}
+          onClick={() => setDrill({ metric: "outbound_today", title: "Outbound calls today" })} />
+        <Kpi icon={<PhoneOff className="w-4 h-4 text-rose-500" />}         label="Missed today"    value={cv.missed_today} tone={cv.missed_today > 0 ? "warn" : undefined}
+          onClick={() => setDrill({ metric: "missed_today", title: "Missed calls today" })} />
+        <Kpi icon={<Phone className="w-4 h-4 text-amber-500" />}           label="Callbacks waiting" value={data.callbacks.waiting} tone={data.callbacks.waiting > 0 ? "warn" : undefined}
+          onClick={() => setDrill({ metric: "callbacks_waiting", title: "Callbacks waiting", subtitle: "Missed calls that haven't been returned yet." })} />
       </div>
 
-      {/* Row 2 — admits today + scheduled next 24h */}
+      {/* Row 2 — admits today + scheduled next 24h. Both the total and
+          each LOC chip are clickable. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <BigKpi
           icon={<CheckCircle2 className="w-5 h-5 text-emerald-500" />}
@@ -161,6 +171,8 @@ export function SpecialistOverview() {
           total={data.admits.today_total}
           byLoc={data.admits.today_by_loc}
           subtitle="Stage = Admitted · Admit Date = today (Phoenix)"
+          onTotal={() => setDrill({ metric: "admits_today", title: "Admits today" })}
+          onLoc={(loc) => setDrill({ metric: "admits_today", title: `Admits today — ${loc}`, loc })}
         />
         <BigKpi
           icon={<CalendarIcon className="w-5 h-5 text-blue-500" />}
@@ -168,10 +180,13 @@ export function SpecialistOverview() {
           total={data.admits.scheduled_next_24h_total}
           byLoc={data.admits.scheduled_next_24h_by_loc}
           subtitle="Potential Admit Date inside the next 24h"
+          onTotal={() => setDrill({ metric: "scheduled_24h", title: "Scheduled admits — next 24h" })}
+          onLoc={(loc) => setDrill({ metric: "scheduled_24h", title: `Scheduled — ${loc}`, loc })}
         />
       </div>
 
-      {/* Row 3 — MTD by LOC table (open leads / VOBs / admits) */}
+      {/* Row 3 — MTD by LOC table. Each cell drills into the matching
+          (metric, loc) tuple. */}
       <Card>
         <CardContent className="pt-4 pb-4">
           <div className="flex items-center justify-between mb-3">
@@ -186,67 +201,97 @@ export function SpecialistOverview() {
             openLeads={data.leads.open_mtd_by_loc}
             vobs={data.vobs.mtd_by_loc}
             admits={data.admits.mtd_by_loc}
+            onClick={(metric, loc) => {
+              const labels: Record<typeof metric, string> = {
+                open_leads_mtd: "Open leads MTD",
+                vobs_mtd: "VOBs MTD",
+                admits_mtd: "Admits MTD",
+              };
+              setDrill({ metric, title: `${labels[metric]} — ${loc}`, loc });
+            }}
           />
         </CardContent>
       </Card>
 
       {/* Row 4 — operational + QA tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <Kpi icon={<ListChecks className="w-4 h-4 text-violet-500" />}    label="Open tasks"          value={data.tasks.open_total} />
-        <Kpi icon={<Clock className="w-4 h-4 text-amber-500" />}          label="Avg callback time"   value={fmtDuration(data.callbacks.avg_callback_time_seconds)} />
+        <Kpi icon={<ListChecks className="w-4 h-4 text-violet-500" />}    label="Open tasks"          value={data.tasks.open_total}
+          onClick={() => setDrill({ metric: "open_tasks", title: "Open tasks", subtitle: "Zoho Tasks not in Completed / Deferred status." })} />
+        <Kpi icon={<Clock className="w-4 h-4 text-amber-500" />}          label="Avg callback time"   value={fmtDuration(data.callbacks.avg_callback_time_seconds)}
+          onClick={() => setDrill({ metric: "avg_callback_time", title: "Callback time breakdown", subtitle: "Completed callbacks in last 30 days, sorted by elapsed time (longest first)." })} />
         <Kpi
           icon={<Award className={`w-4 h-4 ${scoreTone(data.qa.avg_score_30d)}`} />}
           label="Avg QA score (30d)"
           value={data.qa.avg_score_30d != null ? data.qa.avg_score_30d.toFixed(1) : "—"}
           sub={data.qa.n_scored_30d > 0 ? `${data.qa.n_scored_30d} scored` : undefined}
+          onClick={() => setDrill({ metric: "avg_qa_score", title: "QA-scored calls (30d)" })}
         />
-        <Kpi icon={<TrendingUp className="w-4 h-4 text-blue-500" />}      label="Pipeline open"       value={data.pipeline.open_total} />
+        <Kpi icon={<TrendingUp className="w-4 h-4 text-blue-500" />}      label="Pipeline open"       value={data.pipeline.open_total}
+          onClick={() => setDrill({ metric: "pipeline_stage", title: "All open pipeline deals", subtitle: "Active in last 60 days, excluding admitted." })} />
       </div>
 
-      {/* Row 5 — pipeline by stage horizontal bar */}
+      {/* Row 5 — pipeline by stage horizontal bar. Each bar drills into
+          its specific stage. */}
       <Card>
         <CardContent className="pt-4 pb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sales pipeline · by stage</div>
             <div className="text-[10px] text-muted-foreground">{data.pipeline.open_total} open deals (active in last 60d)</div>
           </div>
-          <StageBars byStage={data.pipeline.by_stage} />
+          <StageBars
+            byStage={data.pipeline.by_stage}
+            onClick={(stage) => setDrill({ metric: "pipeline_stage", title: `Pipeline — ${stage}`, stage })}
+          />
         </CardContent>
       </Card>
+
+      <DrillDownSheet target={drill} onClose={() => setDrill(null)} />
     </div>
   );
 }
 
 // ── Sub-components ─────────────────────────────────────────────────
 
-function Kpi({ icon, label, value, sub, tone }: {
+function Kpi({ icon, label, value, sub, tone, onClick }: {
   icon: React.ReactNode;
   label: string;
   value: number | string;
   sub?: string;
   tone?: "warn";
+  onClick?: () => void;
 }) {
   const ring = tone === "warn" ? "border-amber-500/30 bg-amber-500/5" : "";
-  return (
-    <Card className={`border ${ring}`}>
-      <CardContent className="pt-3 pb-3 px-3.5">
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-0.5">
-          {icon}
-          <span className="truncate">{label}</span>
-        </div>
-        <div className="text-2xl font-semibold tabular-nums leading-tight">{value}</div>
-        {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
-      </CardContent>
-    </Card>
+  // The whole tile becomes a button when onClick is wired — full
+  // click-target so hitting the number works as well as the label.
+  const interactive = onClick ? "cursor-pointer hover:bg-accent/40 hover:border-primary/40 transition-colors text-left w-full" : "";
+  const inner = (
+    <CardContent className="pt-3 pb-3 px-3.5">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-0.5">
+        {icon}
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="text-2xl font-semibold tabular-nums leading-tight">{value}</div>
+      {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
+    </CardContent>
   );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`block ${interactive}`}>
+        <Card className={`border ${ring} ${interactive}`}>{inner}</Card>
+      </button>
+    );
+  }
+  return <Card className={`border ${ring}`}>{inner}</Card>;
 }
 
-function BigKpi({ icon, label, total, byLoc, subtitle }: {
+function BigKpi({ icon, label, total, byLoc, subtitle, onTotal, onLoc }: {
   icon: React.ReactNode;
   label: string;
   total: number;
   byLoc: Record<string, number>;
   subtitle?: string;
+  onTotal?: () => void;
+  onLoc?: (loc: string) => void;
 }) {
   const locs = Object.entries(byLoc).sort((a, b) => b[1] - a[1]);
   return (
@@ -255,19 +300,43 @@ function BigKpi({ icon, label, total, byLoc, subtitle }: {
         <div className="flex items-center gap-2 mb-1">
           {icon}
           <div className="text-sm font-semibold">{label}</div>
-          <div className="ml-auto text-2xl font-semibold tabular-nums">{total}</div>
+          {onTotal ? (
+            <button
+              type="button"
+              onClick={onTotal}
+              className="ml-auto text-2xl font-semibold tabular-nums hover:text-primary transition-colors"
+              title={`See all ${total}`}
+            >
+              {total}
+            </button>
+          ) : (
+            <div className="ml-auto text-2xl font-semibold tabular-nums">{total}</div>
+          )}
         </div>
         {subtitle && <div className="text-[10px] text-muted-foreground mb-2">{subtitle}</div>}
         {locs.length === 0 ? (
           <div className="text-[11px] text-muted-foreground italic">No records in this window.</div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {locs.map(([loc, n]) => (
-              <Badge key={loc} variant="outline" className={`text-[10px] gap-1.5 ${locTone(loc)}`}>
-                <span>{loc}</span>
-                <span className="tabular-nums font-semibold">{n}</span>
-              </Badge>
-            ))}
+            {locs.map(([loc, n]) => {
+              const chip = (
+                <Badge variant="outline" className={`text-[10px] gap-1.5 ${locTone(loc)}`}>
+                  <span>{loc}</span>
+                  <span className="tabular-nums font-semibold">{n}</span>
+                </Badge>
+              );
+              return onLoc ? (
+                <button
+                  key={loc}
+                  type="button"
+                  onClick={() => onLoc(loc)}
+                  className="hover:opacity-80 transition-opacity"
+                  title={`See the ${n} ${loc} record${n === 1 ? "" : "s"}`}
+                >
+                  {chip}
+                </button>
+              ) : <div key={loc}>{chip}</div>;
+            })}
           </div>
         )}
       </CardContent>
@@ -276,10 +345,11 @@ function BigKpi({ icon, label, total, byLoc, subtitle }: {
 }
 
 // Per-LOC roll-up table — one row per LOC, three count columns.
-function LocTriple({ openLeads, vobs, admits }: {
+function LocTriple({ openLeads, vobs, admits, onClick }: {
   openLeads: Record<string, number>;
   vobs: Record<string, number>;
   admits: Record<string, number>;
+  onClick?: (metric: "open_leads_mtd" | "vobs_mtd" | "admits_mtd", loc: string) => void;
 }) {
   // Union of all LOCs seen in any of the three sources.
   const allLocs = Array.from(new Set([
@@ -311,16 +381,33 @@ function LocTriple({ openLeads, vobs, admits }: {
           </tr>
         </thead>
         <tbody>
-          {allLocs.map((loc) => (
-            <tr key={loc} className="border-t">
-              <td className="py-1.5 pr-3">
-                <Badge variant="outline" className={`text-[10px] ${locTone(loc)}`}>{loc}</Badge>
-              </td>
-              <td className="py-1.5 px-3 text-right tabular-nums">{openLeads[loc] ?? 0}</td>
-              <td className="py-1.5 px-3 text-right tabular-nums">{vobs[loc] ?? 0}</td>
-              <td className="py-1.5 pl-3 text-right tabular-nums font-semibold">{admits[loc] ?? 0}</td>
-            </tr>
-          ))}
+          {allLocs.map((loc) => {
+            // Render each count cell as a button when onClick is wired,
+            // so a manager can drill into "PHP open leads MTD" directly.
+            const cell = (val: number, metric: "open_leads_mtd" | "vobs_mtd" | "admits_mtd", classes: string) => {
+              if (!onClick || val === 0) return <span className={classes}>{val}</span>;
+              return (
+                <button
+                  type="button"
+                  onClick={() => onClick(metric, loc)}
+                  className={`${classes} hover:text-primary hover:underline transition-colors`}
+                  title={`See the ${val} ${loc} ${metric.replace("_mtd","").replace("_", " ")}`}
+                >
+                  {val}
+                </button>
+              );
+            };
+            return (
+              <tr key={loc} className="border-t">
+                <td className="py-1.5 pr-3">
+                  <Badge variant="outline" className={`text-[10px] ${locTone(loc)}`}>{loc}</Badge>
+                </td>
+                <td className="py-1.5 px-3 text-right tabular-nums">{cell(openLeads[loc] ?? 0, "open_leads_mtd", "")}</td>
+                <td className="py-1.5 px-3 text-right tabular-nums">{cell(vobs[loc] ?? 0, "vobs_mtd", "")}</td>
+                <td className="py-1.5 pl-3 text-right tabular-nums font-semibold">{cell(admits[loc] ?? 0, "admits_mtd", "")}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -329,7 +416,7 @@ function LocTriple({ openLeads, vobs, admits }: {
 
 // Pipeline-by-stage — horizontal bars sorted by count desc. Width is
 // proportional to the largest stage so visual scanning is easy.
-function StageBars({ byStage }: { byStage: Record<string, number> }) {
+function StageBars({ byStage, onClick }: { byStage: Record<string, number>; onClick?: (stage: string) => void }) {
   const rows = Object.entries(byStage).sort((a, b) => b[1] - a[1]);
   if (rows.length === 0) {
     return <div className="text-[11px] text-muted-foreground italic">No open deals in the active window.</div>;
@@ -339,9 +426,9 @@ function StageBars({ byStage }: { byStage: Record<string, number> }) {
     <div className="space-y-1.5">
       {rows.map(([stage, n]) => {
         const pct = Math.round((n / max) * 100);
-        return (
-          <div key={stage} className="grid grid-cols-[160px_1fr_40px] gap-2 items-center">
-            <div className="text-[12px] truncate" title={stage}>{stage}</div>
+        const row = (
+          <>
+            <div className="text-[12px] truncate text-left" title={stage}>{stage}</div>
             <div className="h-5 rounded bg-muted/50 overflow-hidden">
               <div
                 className="h-full bg-primary/70"
@@ -349,6 +436,23 @@ function StageBars({ byStage }: { byStage: Record<string, number> }) {
               />
             </div>
             <div className="text-xs text-right tabular-nums">{n}</div>
+          </>
+        );
+        if (onClick) {
+          return (
+            <button
+              key={stage}
+              type="button"
+              onClick={() => onClick(stage)}
+              className="grid grid-cols-[160px_1fr_40px] gap-2 items-center w-full hover:bg-accent/30 transition-colors rounded px-1 py-0.5 -mx-1"
+            >
+              {row}
+            </button>
+          );
+        }
+        return (
+          <div key={stage} className="grid grid-cols-[160px_1fr_40px] gap-2 items-center">
+            {row}
           </div>
         );
       })}
