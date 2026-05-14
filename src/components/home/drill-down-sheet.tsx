@@ -27,7 +27,7 @@ export type DrillMetric =
   | "admits_today" | "scheduled_24h" | "admits_mtd"
   | "open_leads_mtd" | "vobs_mtd"
   | "open_tasks" | "avg_callback_time" | "avg_qa_score"
-  | "pipeline_stage";
+  | "pipeline_stage" | "unscored_leads";
 
 export interface DrillTarget {
   metric: DrillMetric;
@@ -35,6 +35,14 @@ export interface DrillTarget {
   subtitle?: string;
   loc?: string;
   stage?: string;
+  // Inherit the dashboard's current window + rep so the drill-down
+  // matches what the user clicked. Stock metrics (callbacks_waiting,
+  // open_tasks, pipeline_stage, unscored_leads, scheduled_24h) ignore
+  // these on the server side, but no harm sending them.
+  range?: string;
+  start?: string;
+  end?: string;
+  repId?: string | null;
 }
 
 interface DrillResponse {
@@ -93,6 +101,10 @@ export function DrillDownSheet({ target, onClose }: { target: DrillTarget | null
             metric: target.metric,
             loc: target.loc,
             stage: target.stage,
+            range: target.range,
+            start: target.start,
+            end: target.end,
+            rep_id: target.repId,
           }),
         });
         const json = await res.json();

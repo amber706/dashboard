@@ -22,17 +22,20 @@ import { useCallback, useEffect, useState } from "react";
 import {
   PhoneIncoming, PhoneOutgoing, PhoneOff, Phone, CheckCircle2,
   Clock, Award, ListChecks, TrendingUp, RefreshCw, Loader2,
-  Calendar as CalendarIcon, Hospital,
+  Calendar as CalendarIcon, Hospital, AlertCircle, Sparkles,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DrillDownSheet, type DrillTarget } from "@/components/home/drill-down-sheet";
+import { DashboardFilters, DEFAULT_FILTERS, type DashboardFilterState } from "@/components/home/dashboard-filters";
 
 interface SpecialistDashboardResponse {
   ok: boolean;
   generated_at: string;
+  window: { range: string; label: string; start: string; end: string };
+  filters: { rep_id: string | null };
   call_volume: { inbound_today: number; outbound_today: number; missed_today: number };
   admits: {
     today_by_loc: Record<string, number>;
@@ -48,6 +51,7 @@ interface SpecialistDashboardResponse {
   tasks: { open_total: number };
   callbacks: { waiting: number; avg_callback_time_seconds: number | null };
   qa: { avg_score_30d: number | null; n_scored_30d: number };
+  unscored_leads: { total: number; zoho_field_error: string | null };
 }
 
 function fmtDuration(s: number | null): string {
@@ -85,11 +89,13 @@ export function SpecialistOverview() {
   const [data, setData] = useState<SpecialistDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Which KPI the user clicked — populating this opens the slide-in
-  // sheet. Cleared by the sheet's own onOpenChange.
+  // Drill-down target — populating this opens the slide-in sheet.
   const [drill, setDrill] = useState<DrillTarget | null>(null);
+  // Filter state — single source of truth for both fetch params and
+  // the DrillDownSheet (the sheet inherits the same window + rep).
+  const [filters, setFilters] = useState<DashboardFilterState>(DEFAULT_FILTERS);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (f: DashboardFilterState) => {
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -97,7 +103,12 @@ export function SpecialistOverview() {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/specialist-dashboard`, {
         method: "POST",
         headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-        body: "{}",
+        body: JSON.stringify({
+          range: f.range,
+          start: f.range === "custom" ? f.customStart : undefined,
+          end: f.range === "custom" ? f.customEnd : undefined,
+          rep_id: f.repId,
+        }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "load failed");
@@ -110,11 +121,29 @@ export function SpecialistOverview() {
   }, []);
 
   useEffect(() => {
-    load();
-    // 60s auto-refresh so the headline stays live without manual reload.
-    const t = setInterval(load, 60_000);
+    setLoading(true);
+    load(filters);
+    // 60s auto-refresh — restarts when filters change so each window
+    // selection gets its own ticker.
+    const t = setInterval(() => load(filters), 60_000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, filters]);
+
+  // Helper — convert a metric click into a DrillTarget pre-populated
+  // with the same range + rep so the sheet pulls a matching slice.
+  function drillTo(metric: DrillTarget["metric"], extras: Partial<DrillTarget> = {}) {
+    setDrill({
+      metric,
+      title: extras.title ?? "",
+      subtitle: extras.subtitle,
+      loc: extras.loc,
+      stage: extras.stage,
+      range: filters.range,
+      start: filters.range === "custom" ? filters.customStart : undefined,
+      end: filters.range === "custom" ? filters.customEnd : undefined,
+      repId: filters.repId,
+    } as DrillTarget);
+  }
 
   if (loading && !data) {
     return (
@@ -134,54 +163,56 @@ export function SpecialistOverview() {
 
   const cv = data.call_volume;
   const updated = new Date(data.generated_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const winLabel = data.window?.label ?? "today";
 
   return (
     <div className="space-y-3">
-      {/* Header row */}
-      <div className="flex items-center gap-2">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Today at a glance</div>
+      {/* Header row + filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {winLabel.charAt(0).toUpperCase() + winLabel.slice(1)} at a glance
+        </div>
         <div className="text-[10px] text-muted-foreground ml-auto inline-flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           updated {updated}
         </div>
-        <Button size="sm" variant="ghost" onClick={load} className="h-6 px-2 gap-1 text-[11px]">
+        <Button size="sm" variant="ghost" onClick={() => load(filters)} className="h-6 px-2 gap-1 text-[11px]">
           <RefreshCw className="w-3 h-3" /> Refresh
         </Button>
       </div>
+      <DashboardFilters value={filters} onChange={setFilters} />
 
-      {/* Row 1 — call volume tiles. Each tile opens the drill-down
-          sheet on click. */}
+      {/* Row 1 — call volume tiles (labels reflect the selected window) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <Kpi icon={<PhoneIncoming className="w-4 h-4 text-blue-500" />}    label="Inbound today"   value={cv.inbound_today}
-          onClick={() => setDrill({ metric: "inbound_today", title: "Inbound calls today" })} />
-        <Kpi icon={<PhoneOutgoing className="w-4 h-4 text-violet-500" />}  label="Outbound today"  value={cv.outbound_today}
-          onClick={() => setDrill({ metric: "outbound_today", title: "Outbound calls today" })} />
-        <Kpi icon={<PhoneOff className="w-4 h-4 text-rose-500" />}         label="Missed today"    value={cv.missed_today} tone={cv.missed_today > 0 ? "warn" : undefined}
-          onClick={() => setDrill({ metric: "missed_today", title: "Missed calls today" })} />
+        <Kpi icon={<PhoneIncoming className="w-4 h-4 text-blue-500" />}    label={`Inbound · ${winLabel}`}   value={cv.inbound_today}
+          onClick={() => drillTo("inbound_today", { title: `Inbound calls — ${winLabel}` })} />
+        <Kpi icon={<PhoneOutgoing className="w-4 h-4 text-violet-500" />}  label={`Outbound · ${winLabel}`}  value={cv.outbound_today}
+          onClick={() => drillTo("outbound_today", { title: `Outbound calls — ${winLabel}` })} />
+        <Kpi icon={<PhoneOff className="w-4 h-4 text-rose-500" />}         label={`Missed · ${winLabel}`}    value={cv.missed_today} tone={cv.missed_today > 0 ? "warn" : undefined}
+          onClick={() => drillTo("missed_today", { title: `Missed calls — ${winLabel}` })} />
         <Kpi icon={<Phone className="w-4 h-4 text-amber-500" />}           label="Callbacks waiting" value={data.callbacks.waiting} tone={data.callbacks.waiting > 0 ? "warn" : undefined}
-          onClick={() => setDrill({ metric: "callbacks_waiting", title: "Callbacks waiting", subtitle: "Missed calls that haven't been returned yet." })} />
+          onClick={() => drillTo("callbacks_waiting", { title: "Callbacks waiting", subtitle: "Missed calls that haven't been returned yet (point-in-time)." })} />
       </div>
 
-      {/* Row 2 — admits today + scheduled next 24h. Both the total and
-          each LOC chip are clickable. */}
+      {/* Row 2 — admits in window + scheduled next 24h (forward-looking) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <BigKpi
           icon={<CheckCircle2 className="w-5 h-5 text-emerald-500" />}
-          label="Admits today"
+          label={`Admits · ${winLabel}`}
           total={data.admits.today_total}
           byLoc={data.admits.today_by_loc}
-          subtitle="Stage = Admitted · Admit Date = today (Phoenix)"
-          onTotal={() => setDrill({ metric: "admits_today", title: "Admits today" })}
-          onLoc={(loc) => setDrill({ metric: "admits_today", title: `Admits today — ${loc}`, loc })}
+          subtitle={`Stage = Admitted · Admit Date inside ${winLabel}`}
+          onTotal={() => drillTo("admits_today", { title: `Admits — ${winLabel}` })}
+          onLoc={(loc) => drillTo("admits_today", { title: `Admits — ${winLabel} · ${loc}`, loc })}
         />
         <BigKpi
           icon={<CalendarIcon className="w-5 h-5 text-blue-500" />}
           label="Scheduled next 24h"
           total={data.admits.scheduled_next_24h_total}
           byLoc={data.admits.scheduled_next_24h_by_loc}
-          subtitle="Potential Admit Date inside the next 24h"
-          onTotal={() => setDrill({ metric: "scheduled_24h", title: "Scheduled admits — next 24h" })}
-          onLoc={(loc) => setDrill({ metric: "scheduled_24h", title: `Scheduled — ${loc}`, loc })}
+          subtitle="Potential Admit Date in next 24h (forward-looking, ignores selected window)"
+          onTotal={() => drillTo("scheduled_24h", { title: "Scheduled admits — next 24h" })}
+          onLoc={(loc) => drillTo("scheduled_24h", { title: `Scheduled — ${loc}`, loc })}
         />
       </div>
 
@@ -207,28 +238,47 @@ export function SpecialistOverview() {
                 vobs_mtd: "VOBs MTD",
                 admits_mtd: "Admits MTD",
               };
-              setDrill({ metric, title: `${labels[metric]} — ${loc}`, loc });
+              drillTo(metric, { title: `${labels[metric]} — ${loc}`, loc });
             }}
           />
         </CardContent>
       </Card>
 
-      {/* Row 4 — operational + QA tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      {/* Row 4 — operational + QA + unscored-leads tiles (5-up) */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         <Kpi icon={<ListChecks className="w-4 h-4 text-violet-500" />}    label="Open tasks"          value={data.tasks.open_total}
-          onClick={() => setDrill({ metric: "open_tasks", title: "Open tasks", subtitle: "Zoho Tasks not in Completed / Deferred status." })} />
-        <Kpi icon={<Clock className="w-4 h-4 text-amber-500" />}          label="Avg callback time"   value={fmtDuration(data.callbacks.avg_callback_time_seconds)}
-          onClick={() => setDrill({ metric: "avg_callback_time", title: "Callback time breakdown", subtitle: "Completed callbacks in last 30 days, sorted by elapsed time (longest first)." })} />
+          onClick={() => drillTo("open_tasks", { title: "Open tasks", subtitle: "Zoho Tasks not in Completed / Deferred status (point-in-time)." })} />
+        <Kpi icon={<Clock className="w-4 h-4 text-amber-500" />}          label={`Avg callback time · ${winLabel}`}   value={fmtDuration(data.callbacks.avg_callback_time_seconds)}
+          onClick={() => drillTo("avg_callback_time", { title: `Callback time breakdown — ${winLabel}`, subtitle: "Completed callbacks inside the selected window, sorted by elapsed time (longest first)." })} />
         <Kpi
           icon={<Award className={`w-4 h-4 ${scoreTone(data.qa.avg_score_30d)}`} />}
-          label="Avg QA score (30d)"
+          label={`Avg QA score · ${winLabel}`}
           value={data.qa.avg_score_30d != null ? data.qa.avg_score_30d.toFixed(1) : "—"}
           sub={data.qa.n_scored_30d > 0 ? `${data.qa.n_scored_30d} scored` : undefined}
-          onClick={() => setDrill({ metric: "avg_qa_score", title: "QA-scored calls (30d)" })}
+          onClick={() => drillTo("avg_qa_score", { title: `QA-scored calls — ${winLabel}` })}
+        />
+        <Kpi
+          icon={<Sparkles className="w-4 h-4 text-amber-500" />}
+          label="Unscored leads"
+          value={data.unscored_leads.total}
+          sub={data.unscored_leads.zoho_field_error ? "Zoho field error" : (data.unscored_leads.total > 0 ? "Lead_Score_Rating empty" : "all scored")}
+          tone={data.unscored_leads.total > 5 ? "warn" : undefined}
+          onClick={() => drillTo("unscored_leads", { title: "Unscored leads", subtitle: "Open deals where Lead_Score_Rating is empty. Use Lead_Score_Explanation to capture reasoning when you set it." })}
         />
         <Kpi icon={<TrendingUp className="w-4 h-4 text-blue-500" />}      label="Pipeline open"       value={data.pipeline.open_total}
-          onClick={() => setDrill({ metric: "pipeline_stage", title: "All open pipeline deals", subtitle: "Active in last 60 days, excluding admitted." })} />
+          onClick={() => drillTo("pipeline_stage", { title: "All open pipeline deals", subtitle: "Active in last 60 days, excluding admitted (point-in-time)." })} />
       </div>
+      {/* If Zoho rejected the Lead_Score_Rating field, surface that
+          inline so the 0 isn't mistaken for "all good". */}
+      {data.unscored_leads.zoho_field_error && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400 inline-flex items-start gap-2">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <div>
+            <strong>Lead Score Rating field couldn't be read.</strong> Zoho returned: {data.unscored_leads.zoho_field_error}.
+            Confirm the field's API name in Zoho Deals — if it differs from <code>Lead_Score_Rating</code>, update the edge function.
+          </div>
+        </div>
+      )}
 
       {/* Row 5 — pipeline by stage horizontal bar. Each bar drills into
           its specific stage. */}
@@ -240,7 +290,7 @@ export function SpecialistOverview() {
           </div>
           <StageBars
             byStage={data.pipeline.by_stage}
-            onClick={(stage) => setDrill({ metric: "pipeline_stage", title: `Pipeline — ${stage}`, stage })}
+            onClick={(stage) => drillTo("pipeline_stage", { title: `Pipeline — ${stage}`, stage })}
           />
         </CardContent>
       </Card>
