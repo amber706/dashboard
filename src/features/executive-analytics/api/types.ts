@@ -87,6 +87,10 @@ export interface DealCard {
   lastActivity: string | null;
   nextTask: string | null;
   riskFlag: DealRiskFlag;
+  /** Level_of_Care_Requested — picklist (e.g. BHRF, VIOP Adult, IOP5, DUI, DV). */
+  locRequested?: string | null;
+  /** Admitted_Level_of_Care — picklist; populated only after admission. */
+  locAdmitted?: string | null;
 }
 
 export interface PipelineSnapshot {
