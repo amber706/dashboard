@@ -45,6 +45,8 @@ import { useAnalyticsSummary } from "@/features/executive-analytics/hooks/useAna
 import { usePipelineSnapshot } from "@/features/executive-analytics/hooks/usePipelineSnapshot";
 import { useOutcomes } from "@/features/executive-analytics/hooks/useOutcomes";
 import { useRepPerformance } from "@/features/executive-analytics/hooks/useRepPerformance";
+import { useAnalyticsInsights } from "@/features/executive-analytics/hooks/useAnalyticsInsights";
+import { InsightsPanel } from "@/features/executive-analytics/components/InsightsPanel";
 import {
   ROLE_KEYS, ROLE_LABELS, visibleTabsForRole, defaultRoleFor,
   type RoleKey,
@@ -318,9 +320,28 @@ interface OpenDrillFn { (cfg: DrillDownConfig<any>): void }
 
 function ExecutiveOverview({ role, range, openDrill }: { role: RoleKey; range: ReturnType<typeof useDashboardRange>; openDrill: OpenDrillFn }) {
   const { data, isLoading, error, refetch } = useAnalyticsSummary(role, range);
+  // Pull the secondary surfaces too so AI insights see the full picture
+  // (pipeline rollups, loss reasons, per-rep speed). These hooks are
+  // already cached by their own tabs — TanStack Query dedupes the calls.
+  const pipelineQ = usePipelineSnapshot(role);
+  const outcomesQ = useOutcomes(role, range);
+  const repQ = useRepPerformance(role, range);
+  const insightsMut = useAnalyticsInsights();
+
   if (isLoading) return <SkeletonGrid />;
   if (error || !data) return <ErrorCard error={error instanceof Error ? error.message : String(error)} onRetry={() => refetch()} />;
   const badge = badgeFor(data.healthScore.score);
+
+  const generateInsights = () => {
+    insightsMut.mutate({
+      role,
+      range: { start: range.start, end: range.end, label: range.label },
+      summary: data,
+      pipeline: pipelineQ.data ?? null,
+      outcomes: outcomesQ.data ?? null,
+      rep: repQ.data ?? null,
+    });
+  };
   const badgeTone = badge === "green" ? "text-emerald-600 dark:text-emerald-400 border-emerald-500/40 bg-emerald-500/5"
     : badge === "yellow" ? "text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/5"
     : "text-rose-600 dark:text-rose-400 border-rose-500/40 bg-rose-500/5";
@@ -328,6 +349,16 @@ function ExecutiveOverview({ role, range, openDrill }: { role: RoleKey; range: R
   return (
     <>
       <MissingFieldsBanner fields={data.missing_fields} />
+
+      {/* AI insights — Claude-backed prescriptive recommendations */}
+      <InsightsPanel
+        insights={insightsMut.data?.insights ?? null}
+        generatedAt={insightsMut.data?.generatedAt ?? null}
+        loading={insightsMut.isPending}
+        error={insightsMut.error instanceof Error ? insightsMut.error.message : null}
+        onGenerate={generateInsights}
+      />
+
       {/* Health score panel */}
       <Card>
         <CardContent className="pt-4 pb-4 space-y-3">

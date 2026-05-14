@@ -43,3 +43,30 @@ export function fetchAnalyticsOutcomes(args: AnalyticsRequestBase): Promise<any>
 export function fetchAnalyticsRep(args: AnalyticsRequestBase): Promise<any> {
   return invoke<any>("executive-analytics-rep", args);
 }
+
+export interface InsightsRequest {
+  role: string;
+  range: { start: string; end: string; label?: string };
+  summary: unknown;
+  pipeline?: unknown;
+  outcomes?: unknown;
+  rep?: unknown;
+}
+
+export interface AnalyticsInsight {
+  area: string;
+  severity: "critical" | "warning" | "info";
+  observation: string;
+  action: string;
+}
+
+export interface AnalyticsInsightsResponse {
+  ok: true;
+  insights: AnalyticsInsight[];
+  generatedAt: string;
+  model: string;
+}
+
+export function fetchAnalyticsInsights(args: InsightsRequest): Promise<AnalyticsInsightsResponse | { ok: false; error: string }> {
+  return invoke("executive-analytics-insights", args);
+}
