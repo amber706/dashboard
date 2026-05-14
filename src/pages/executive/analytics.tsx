@@ -514,10 +514,26 @@ function TopRisksInfo() {
 
 function LivePipeline({ role, openDrill }: { role: RoleKey; openDrill: OpenDrillFn }) {
   const { data, isLoading, error, refetch } = usePipelineSnapshot(role);
+  const [locRequested, setLocRequested] = useState<string>("all");
+  const [locAdmitted, setLocAdmitted] = useState<string>("all");
   if (isLoading) return <SkeletonGrid />;
   if (error || !data) return <ErrorCard error={error instanceof Error ? error.message : String(error)} onRetry={() => refetch()} />;
 
   const staleCount = (data.kpis.stale?.deals ?? 0) + (data.kpis.stale?.leads ?? 0);
+
+  // Distinct LOC values across every kanban column, for the filter dropdowns.
+  const allDeals = Object.values(data.kanban ?? {}).flat() as Array<{ locRequested?: string | null; locAdmitted?: string | null }>;
+  const locRequestedOptions = [...new Set(allDeals.map((d) => d.locRequested).filter((v): v is string => !!v))].sort();
+  const locAdmittedOptions  = [...new Set(allDeals.map((d) => d.locAdmitted ).filter((v): v is string => !!v))].sort();
+
+  // Apply filters to every kanban column. "all" = no filter on that dim.
+  const matchesLoc = (d: { locRequested?: string | null; locAdmitted?: string | null }) =>
+    (locRequested === "all" || d.locRequested === locRequested) &&
+    (locAdmitted  === "all" || d.locAdmitted  === locAdmitted);
+  const filteredKanban: Record<string, any[]> = {};
+  for (const [key, rows] of Object.entries(data.kanban ?? {})) {
+    filteredKanban[key] = (rows as any[]).filter(matchesLoc);
+  }
 
   return (
     <>
@@ -554,13 +570,53 @@ function LivePipeline({ role, openDrill }: { role: RoleKey; openDrill: OpenDrill
           })}
         />
       </div>
-      {/* Kanban */}
+      {/* Kanban — full-width, taller cards, more deals per column.
+          One row of 8 stage columns; each column shows up to 15 deals
+          and scrolls for the rest. Click anywhere on the column for the
+          full drilldown. Filterable by Level of Care Requested + Admitted
+          Level of Care (both Zoho picklist fields). */}
       <Card>
         <CardContent className="pt-4 pb-4">
-          <PanelHeader title="Kanban" metric="kanban" />
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <PanelHeader title="Kanban" metric="kanban" />
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-muted-foreground">Filter:</span>
+              <Select value={locRequested} onValueChange={setLocRequested}>
+                <SelectTrigger className="w-[180px] h-8 text-xs">
+                  <SelectValue placeholder="LOC requested" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">LOC requested — all</SelectItem>
+                  {locRequestedOptions.map((v) => (
+                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={locAdmitted} onValueChange={setLocAdmitted}>
+                <SelectTrigger className="w-[180px] h-8 text-xs">
+                  <SelectValue placeholder="Admitted LOC" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Admitted LOC — all</SelectItem>
+                  {locAdmittedOptions.map((v) => (
+                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {(locRequested !== "all" || locAdmitted !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => { setLocRequested("all"); setLocAdmitted("all"); }}
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             {DISPLAY_STAGES.map((s) => {
-              const rows = (data.kanban?.[s.key] ?? []) as Array<{ id: string; name: string; owner: string; daysInStage?: number; riskFlag?: string }>;
+              const rows = (filteredKanban[s.key] ?? []) as Array<{ id: string; name: string; owner: string; daysInStage?: number; riskFlag?: string }>;
               return (
                 <button
                   key={s.key}
@@ -589,18 +645,34 @@ function LivePipeline({ role, openDrill }: { role: RoleKey; openDrill: OpenDrill
                     zohoLinkFor: (r: any) => zohoDealUrl(r.id),
                     emptyMessage: "No deals in this stage right now.",
                   })}
-                  className="text-left rounded-md border bg-card p-2 min-h-[100px] hover:border-foreground/30 hover:shadow-sm transition-all cursor-pointer"
+                  className="text-left rounded-md border bg-card p-3 min-h-[420px] hover:border-foreground/30 hover:shadow-sm transition-all cursor-pointer flex flex-col"
                 >
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 truncate">{s.label}</div>
-                  <div className="text-2xl font-semibold tabular-nums">{rows.length}</div>
-                  <div className="mt-1.5 space-y-1 max-h-[200px] overflow-y-auto">
-                    {rows.slice(0, 5).map((d) => (
-                      <div key={d.id} className="text-[10px] border-l-2 border-border pl-1.5 py-0.5">
-                        <div className="truncate font-medium">{d.name}</div>
-                        <div className="truncate text-muted-foreground">{d.owner}</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 truncate">{s.label}</div>
+                  <div className="text-3xl font-semibold tabular-nums leading-none">{rows.length}</div>
+                  <div className="mt-3 space-y-1.5 flex-1 overflow-y-auto pr-1">
+                    {rows.slice(0, 15).map((d) => {
+                      const risk = (d as any).riskFlag;
+                      const borderCls =
+                        risk === "risk" ? "border-rose-500" :
+                        risk === "warm" ? "border-amber-500" :
+                        "border-border";
+                      return (
+                        <div key={d.id} className={`text-xs border-l-4 ${borderCls} pl-2 py-1`}>
+                          <div className="truncate font-medium">{d.name}</div>
+                          <div className="flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
+                            <span className="truncate">{d.owner}</span>
+                            {typeof d.daysInStage === "number" && (
+                              <span className="tabular-nums whitespace-nowrap">{d.daysInStage}d</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {rows.length > 15 && (
+                      <div className="text-[11px] text-muted-foreground italic pt-1">
+                        + {rows.length - 15} more — click to view all
                       </div>
-                    ))}
-                    {rows.length > 5 && <div className="text-[10px] text-muted-foreground italic">+ {rows.length - 5} more</div>}
+                    )}
                   </div>
                 </button>
               );
