@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { SpecialistOverview } from "@/components/home/specialist-overview";
 
 interface SinceLastVisit {
   since: string | null;             // ISO timestamp (null = first visit)
@@ -462,6 +463,13 @@ export default function HomeV2() {
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
       <PinnedMessageBanner canPin={canPin} userId={user?.id ?? null} />
+
+      {/* Specialist headline KPI grid — org-wide today + MTD numbers.
+          Lives at the very top so anyone landing on / sees the
+          operational pulse before any personal queues. Auto-refreshes
+          every 60s; the rest of this page is the specialist's own
+          workflow (active calls, callbacks, recent work). */}
+      <SpecialistOverview />
 
       {/* Active-call banner — shows when current specialist has a ringing or in-progress call */}
       {activeCalls.length > 0 && (
