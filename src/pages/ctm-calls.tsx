@@ -616,17 +616,25 @@ export default function CTMCalls() {
             <SelectItem value="msg_inbound">SMS In</SelectItem>
           </SelectContent>
         </Select>
+        {/* CTM-native statuses — read straight from
+            ctm_raw_payload->>call_status so the dropdown matches what
+            CTM actually reports per call (the collapsed status enum on
+            call_sessions buckets "answered" / "hangup" / "no answer" /
+            "busy" all into "completed"/"missed" and loses granularity).
+            Values here are the verbatim CTM strings — spaces preserved
+            for "no answer" and "in progress". */}
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setOffset(0); }}>
           <SelectTrigger className="w-40 h-11 md:h-8">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="answered">Answered</SelectItem>
+            <SelectItem value="hangup">Hang up</SelectItem>
+            <SelectItem value="no answer">No answer</SelectItem>
+            <SelectItem value="busy">Busy</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="missed">Missed / Abandoned</SelectItem>
-            <SelectItem value="ringing">Ringing</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="voicemail">Voicemail</SelectItem>
+            <SelectItem value="in progress">In progress</SelectItem>
           </SelectContent>
         </Select>
         {/* Rep filter — searchable list of active specialists + managers,
