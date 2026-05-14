@@ -174,6 +174,7 @@ function CallsTable({ rows }: { rows: any[] }) {
           <tr>
             <th className="text-left py-1.5 pr-3">When</th>
             <th className="text-left py-1.5 pr-3">Caller</th>
+            <th className="text-left py-1.5 pr-3">Owner</th>
             <th className="text-left py-1.5 pr-3">Direction</th>
             <th className="text-left py-1.5 pr-3">Status</th>
             <th className="text-right py-1.5 pr-3">Talk</th>
@@ -188,6 +189,7 @@ function CallsTable({ rows }: { rows: any[] }) {
                 <div className="font-medium">{r.caller_name ?? "Unknown"}</div>
                 {r.caller_phone && <div className="text-muted-foreground">{r.caller_phone}</div>}
               </td>
+              <td className="py-1.5 pr-3 text-xs">{r.owner_name ?? <span className="text-muted-foreground italic">unlinked</span>}</td>
               <td className="py-1.5 pr-3 text-xs">
                 <Badge variant="outline" className="text-[10px] capitalize">{r.direction}</Badge>
               </td>
@@ -261,6 +263,7 @@ function ScoresTable({ rows }: { rows: any[] }) {
           <tr>
             <th className="text-left py-1.5 pr-3">Call</th>
             <th className="text-left py-1.5 pr-3">Caller</th>
+            <th className="text-left py-1.5 pr-3">Owner</th>
             <th className="text-right py-1.5 pr-3">Composite</th>
             <th className="text-right py-1.5 pr-3">Quality</th>
             <th className="text-right py-1.5 pr-3">Compliance</th>
@@ -275,6 +278,7 @@ function ScoresTable({ rows }: { rows: any[] }) {
                 <div className="font-medium">{r.caller_name ?? "Unknown"}</div>
                 {r.caller_phone && <div className="text-muted-foreground">{r.caller_phone}</div>}
               </td>
+              <td className="py-1.5 pr-3 text-xs">{r.owner_name ?? <span className="text-muted-foreground italic">unlinked</span>}</td>
               <td className={`py-1.5 pr-3 text-sm text-right tabular-nums font-semibold ${scoreTone(r.composite_score)}`}>
                 {r.composite_score?.toFixed(1) ?? "—"}
               </td>
