@@ -79,6 +79,19 @@ import OpsStaffing from "@/pages/ops/staffing";
 import AdminSettings from "@/pages/admin/settings";
 import AdminUsers from "@/pages/admin/users";
 
+// Warehouse-backed analytics dashboards ported from cornerstone-dashboard.
+// Each page reads from fact_*/dim_* tables in Supabase (populated by the
+// ETL in admissions-copilot/etl/).
+import WarehouseExecutive from "@/pages/analytics/executive";
+import WarehouseFunnel from "@/pages/analytics/funnel";
+import WarehouseRepMetrics from "@/pages/analytics/rep-metrics";
+import WarehouseChannel from "@/pages/analytics/channel";
+import WarehousePayer from "@/pages/analytics/payer";
+import WarehouseTeam from "@/pages/analytics/team";
+import WarehouseCensus from "@/pages/analytics/census";
+import WarehouseBdActivity from "@/pages/analytics/bd-activity";
+import WarehouseHold from "@/pages/analytics/hold";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -153,6 +166,23 @@ function AppRoutes() {
             slices the data view. */}
         <Route path="/executive/analytics" component={MgrMod("page_analytics_dashboard", ExecutiveAnalytics)} />
         <Route path="/analytics" component={MgrMod("module_executive", Analytics)} />
+
+        {/* Warehouse-backed analytics — ported from cornerstone-dashboard.
+            Reads from fact_ and dim_ tables populated by the ETL. Each
+            sub-page is independently flag-gated; module_analytics_warehouse
+            cascades visibility across them all. */}
+        <Route path="/analytics/executive"     component={MgrMod("page_warehouse_executive",   WarehouseExecutive)} />
+        <Route path="/analytics/funnel"        component={MgrMod("page_warehouse_funnel",      WarehouseFunnel)} />
+        <Route path="/analytics/rep-metrics"   component={MgrMod("page_warehouse_rep_metrics", WarehouseRepMetrics)} />
+        <Route path="/analytics/channel"       component={MgrMod("page_warehouse_channel",     WarehouseChannel)} />
+        <Route path="/analytics/payer"         component={MgrMod("page_warehouse_payer",       WarehousePayer)} />
+        <Route path="/analytics/team"          component={MgrMod("page_warehouse_team",        WarehouseTeam)} />
+        <Route path="/analytics/census"        component={MgrMod("page_warehouse_census",      WarehouseCensus)} />
+        <Route path="/analytics/bd-activity"   component={MgrMod("page_warehouse_bd_activity", WarehouseBdActivity)} />
+        {/* HOLD — same component renders a coming-soon explainer that
+            says why this view is paused and what's needed to unpause. */}
+        <Route path="/analytics/cpa-cpl"       component={MgrMod("page_warehouse_cpa_cpl",       WarehouseHold)} />
+        <Route path="/analytics/revenue-proxy" component={MgrMod("page_warehouse_revenue_proxy", WarehouseHold)} />
         <Route path="/suggestion/:id" component={Mgr(SuggestionDetail)} />
         <Route path="/ctm-agents" component={MgrMod("module_ctm", CTMAgents)} />
         <Route path="/ctm-attribution" component={MgrMod("module_ctm", CTMAttribution)} />

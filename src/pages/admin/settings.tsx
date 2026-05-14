@@ -90,6 +90,7 @@ function FeatureTogglesCard() {
   const pagesByParent: Record<ModuleKey, FeatureKey[]> = {
     module_bd: [], module_executive: [], module_training: [],
     module_kb: [], module_qa: [], module_ctm: [],
+    module_analytics_warehouse: [],
   };
   for (const f of Object.values(flags)) {
     if (!f || !f.parent) continue;

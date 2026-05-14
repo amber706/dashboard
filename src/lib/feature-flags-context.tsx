@@ -20,7 +20,11 @@ export type ModuleKey =
   | "module_qa"
   | "module_bd"
   | "module_ctm"
-  | "module_executive";
+  | "module_executive"
+  // Warehouse-backed analytics ported from cornerstone-dashboard.
+  // Distinct from module_executive (Zoho-direct) so the two surfaces
+  // can be toggled independently.
+  | "module_analytics_warehouse";
 
 // Page-level keys — sub-features inside a module (or floating sub-
 // features inside Admissions). Cascade rule: if a page's parent module
@@ -55,7 +59,21 @@ export type PageKey =
   | "page_bd_stuck_accounts"
   | "page_bd_top_accounts"
   | "page_bd_account_intel"
-  | "page_bd_meetings";
+  | "page_bd_meetings"
+  // Warehouse-backed analytics sub-pages (parent = module_analytics_warehouse).
+  // Each maps 1:1 to a port from cornerstone-dashboard/app/dashboards/*.
+  | "page_warehouse_executive"
+  | "page_warehouse_funnel"
+  | "page_warehouse_rep_metrics"
+  | "page_warehouse_channel"
+  | "page_warehouse_payer"
+  | "page_warehouse_team"
+  | "page_warehouse_census"
+  | "page_warehouse_bd_activity"
+  // HOLD — surfaced as nav entries but routed to a coming-soon page
+  // until the CPA + revenue-proxy work resumes.
+  | "page_warehouse_cpa_cpl"
+  | "page_warehouse_revenue_proxy";
 
 export type FeatureKey = ModuleKey | PageKey;
 
