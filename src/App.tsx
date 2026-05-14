@@ -152,7 +152,10 @@ function AppRoutes() {
         <Route path="/ctm-attribution" component={MgrMod("module_ctm", CTMAttribution)} />
         <Route path="/knowledge-review" component={MgrMod("page_knowledge_review", KnowledgeReview)} />
         <Route path="/ops/overview" component={MgrMod("page_ops_overview", OpsOverview)} />
-        <Route path="/ops/suggestions" component={MgrMod("page_suggestions", OpsSuggestions)} />
+        {/* AI Suggestions — open to all roles per Amber. Specialists
+            see the same list managers see; manager-only views (sign-off,
+            dismiss-all) are still gated client-side inside the page. */}
+        <Route path="/ops/suggestions" component={Mod("page_suggestions", OpsSuggestions)} />
         <Route path="/ops/workload" component={MgrMod("page_rep_workload", OpsWorkload)} />
         <Route path="/ops/attribution" component={MgrMod("page_attribution", OpsAttribution)} />
         <Route path="/ops/supervisor-review" component={MgrMod("page_supervisor_review", OpsSupervisorReview)} />
@@ -180,7 +183,10 @@ function AppRoutes() {
         <Route path="/ops/callbacks" component={Mgr(OpsCallbacks)} />
         <Route path="/ops/team" component={Mgr(OpsTeam)} />
         <Route path="/ops/staffing" component={MgrMod("page_staffing_schedule", OpsStaffing)} />
-        <Route path="/admin/leads" component={Mgr(AdminLeads)} />
+        {/* Leads — moved out of Admin gating per Amber. Lives under
+            Admissions Workflow now and is open to every authenticated
+            role. The page itself enforces what each role can edit. */}
+        <Route path="/admin/leads" component={AdminLeads} />
 
         {/* Admin only. Health check, audit log, notification + global
             settings — these expose org-level config that managers

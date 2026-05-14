@@ -89,8 +89,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // surface that replaces six individual queue pages.
     { href: "/ctm-calls", label: "Live Calls", icon: <Phone className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const, pulse: true },
     { href: "/queue", label: "Queue", icon: <Inbox className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
+    // Leads — moved here from Admin so every specialist can see the
+    // unified lead list, mapped 1:1 to Zoho Leads module.
+    { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/kb", label: "Knowledge Base", icon: <Search className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/training", label: "Practice", icon: <GraduationCap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
+    // AI Suggestions — surfaced here for specialists too. Manager view
+    // sees the same list at /ops/suggestions inside Live Ops.
+    { href: "/ops/suggestions", label: "AI Suggestions", icon: <Zap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
 
     // ALERTS (urgent flags — narrow, only the truly urgent)
     { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const, pulse: true },
@@ -100,7 +106,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // as a separate link because it has its own act/dismiss workflow.
     // (Callbacks, VOB, Intake, Outreach, Stuck, Abandoned are now all in /queue.)
     { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
-    { href: "/ops/suggestions", label: "Suggestions", icon: <Zap className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+    // AI Suggestions — surfaced in Workflow (above) for all roles.
+    // Removed from Live Ops to avoid the duplicate sidebar entry.
 
     // QUALITY (review surfaces — Coaching Feed dropped because /ops/overview
     // Attention Strip + Watchlist already surface trending-down specialists,
@@ -129,7 +136,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/objections", label: "Objection Mining", icon: <MessageSquare className="w-4 h-4" />, section: "Insights", roles: ["manager", "admin"] as const },
 
     // ADMIN
-    { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Admin", roles: ["manager", "admin"] as const },
+    // Leads — moved out of Admin section. Lives under Admissions →
+    // Workflow now, accessible to all roles. Removed from here so it
+    // doesn't appear twice in the sidebar.
     { href: "/admin/users", label: "Users", icon: <UserCheck className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
     { href: "/admin", label: "Admin Panel", icon: <Settings className="w-4 h-4" />, section: "Admin", roles: ["manager", "admin"] as const },
     { href: "/admin/health", label: "System Health", icon: <Activity className="w-4 h-4" />, section: "Admin", roles: ["admin"] as const },
