@@ -32,8 +32,16 @@ interface AccountTrend {
   name: string;
   total_referrals: number;
   total_admits: number;
+  total_refer_outs?: number;
+  total_meetings?: number;
   conversion_rate: number | null;
-  by_month: Record<string, { referrals: number; admits: number }>;
+  // Per-month bucket. v6 of bd-account-trends adds refer_outs +
+  // meetings; older deployments may not include them — fields are
+  // optional and we treat missing as 0.
+  by_month: Record<string, {
+    referrals: number; admits: number;
+    refer_outs?: number; meetings?: number;
+  }>;
 }
 
 interface TrendsResponse {
@@ -331,36 +339,49 @@ function TopAccountsLineChart({ accounts, months, loc }: {
   // Account not linked)" bucket if it shows up; it's a data-hygiene
   // signal, not a real account.
   const [topN, setTopN] = useState(5);
-  const realAccounts = useMemo(
-    () => accounts.filter((a) => !a.name.toLowerCase().includes("not linked")).slice(0, topN),
-    [accounts, topN],
-  );
+  // Which activity drives each line. Admit dots stay overlaid
+  // regardless of metric, so the chart always shows the
+  // activity→outcome relationship.
+  const [metric, setMetric] = useState<"referrals" | "meetings" | "refer_outs">("referrals");
 
-  // Each line gets its own stable color. Hue rotation keeps adjacent
-  // lines distinguishable; cycles after 7.
+  // When metric is meetings/refer_outs, rank by that metric instead of
+  // referrals so the "top 5" reflects the metric being viewed.
+  const realAccounts = useMemo(() => {
+    const filtered = accounts.filter((a) => !a.name.toLowerCase().includes("not linked"));
+    const sortField =
+      metric === "meetings" ? "total_meetings"
+      : metric === "refer_outs" ? "total_refer_outs"
+      : "total_referrals";
+    const sorted = filtered.slice().sort((x, y) => ((y as any)[sortField] ?? 0) - ((x as any)[sortField] ?? 0));
+    return sorted.slice(0, topN);
+  }, [accounts, topN, metric]);
+
   const lineColors = [
     "hsl(210, 80%, 55%)", "hsl(160, 70%, 45%)", "hsl(280, 55%, 55%)",
     "hsl(20, 80%, 55%)",  "hsl(340, 65%, 55%)", "hsl(45, 85%, 55%)",
     "hsl(190, 70%, 50%)",
   ];
 
-  // Shape the data into one row per month, with a column per account
-  // for referrals plus a sibling column with that account's admits in
-  // the same month. The custom dot renderer reads the admit column to
-  // decide which dots to enlarge.
+  // Shape the data into one row per month with a column per account
+  // for the active metric, plus a sibling column with that account's
+  // admits in the same month. The custom dot renderer reads the admit
+  // column to decide which dots to enlarge.
   const chartData = useMemo(() => {
+    const metricKey = metric === "meetings" ? "meetings" : metric === "refer_outs" ? "refer_outs" : "referrals";
     return months.map((mk) => {
       const [y, m] = mk.split("-").map(Number);
       const label = new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
       const row: Record<string, number | string> = { month: label, monthKey: mk };
       for (const a of realAccounts) {
-        const b = a.by_month[mk];
-        row[a.name] = b?.referrals ?? 0;
+        const b: any = a.by_month[mk];
+        row[a.name] = (b?.[metricKey] as number) ?? 0;
         row[`${a.name}__admits`] = b?.admits ?? 0;
       }
       return row;
     });
-  }, [realAccounts, months]);
+  }, [realAccounts, months, metric]);
+
+  const metricLabel = metric === "meetings" ? "meetings" : metric === "refer_outs" ? "refer-outs" : "referrals";
 
   // Custom dot renderer: enlarge the dot when admits > 0 in that month
   // for this account. We pluck the per-account admit count out of the
@@ -392,19 +413,31 @@ function TopAccountsLineChart({ accounts, months, loc }: {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-blue-500" /> Top accounts — referrals over time
+        <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+          <TrendingUp className="w-4 h-4 text-blue-500" /> Top accounts — {metricLabel} over time
           <Badge variant="outline" className="text-[10px]">Top {realAccounts.length}</Badge>
           {loc !== "all" && <Badge variant="outline" className="text-[10px]">LOC: {loc}</Badge>}
-          <div className="ml-auto flex items-center gap-1">
-            <span className="text-[10px] text-muted-foreground mr-1">Show</span>
-            {[3, 5, 7].map((n) => (
-              <Button key={n} size="sm" variant={topN === n ? "default" : "outline"} onClick={() => setTopN(n)} className="h-6 text-[10px] px-2">{n}</Button>
-            ))}
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground mr-1">Metric</span>
+              {([
+                { k: "referrals",  label: "Referrals" },
+                { k: "meetings",   label: "Meetings" },
+                { k: "refer_outs", label: "Refer-outs" },
+              ] as const).map((m) => (
+                <Button key={m.k} size="sm" variant={metric === m.k ? "default" : "outline"} onClick={() => setMetric(m.k)} className="h-6 text-[10px] px-2">{m.label}</Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground mr-1">Show</span>
+              {[3, 5, 7].map((n) => (
+                <Button key={n} size="sm" variant={topN === n ? "default" : "outline"} onClick={() => setTopN(n)} className="h-6 text-[10px] px-2">{n}</Button>
+              ))}
+            </div>
           </div>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          One line per account. <span className="text-foreground font-medium">Larger dot = admit month</span> — the number above it is how many admits landed that month.
+          One line per account, ranked by total {metricLabel} in the window. <span className="text-foreground font-medium">Larger dot = admit month</span> — the number above it is how many admits landed that month, so you can see which {metricLabel} actually drove conversion.
         </p>
       </CardHeader>
       <CardContent className="h-[380px]">
@@ -417,7 +450,7 @@ function TopAccountsLineChart({ accounts, months, loc }: {
               formatter={(value: any, name: any, props: any) => {
                 if (typeof name === "string" && name.endsWith("__admits")) return null as any;
                 const admits = (props?.payload?.[`${name}__admits`] as number) ?? 0;
-                return [`${value} referrals${admits > 0 ? ` · ${admits} admit${admits === 1 ? "" : "s"}` : ""}`, name];
+                return [`${value} ${metricLabel}${admits > 0 ? ` · ${admits} admit${admits === 1 ? "" : "s"}` : ""}`, name];
               }}
             />
             <Legend

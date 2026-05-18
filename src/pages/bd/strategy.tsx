@@ -24,8 +24,10 @@ interface AccountStrategy {
   id: string; name: string;
   total_referrals_in: number; total_admits: number;
   total_refer_outs: number; total_meetings: number;
+  total_calls?: number;
   admits_by_loc: Record<string, number>;
-  last_meeting: string | null; last_referral_in: string | null;
+  last_meeting: string | null; last_call?: string | null;
+  last_referral_in: string | null;
   last_refer_out: string | null; last_admit: string | null;
   recent_referrals_in: number; prior_referrals_in: number;
   recent_admits: number; prior_admits: number;
@@ -45,6 +47,12 @@ interface AccountStrategy {
   };
   segment: string;
   confidence: "High" | "Moderate" | "Low";
+  // v2 — the BD activity (call/meeting/refer-out) whose historical
+  // correlation with outcomes is strongest for this account. null when
+  // no driver clears the minimum signal bar; recommended_action then
+  // falls back to a segment-based default.
+  primary_driver?: "call" | "meeting" | "refer_out" | null;
+  primary_driver_reason?: string;
   insight: string;
   recommended_action: string;
   action_detail: string;
@@ -110,6 +118,7 @@ function fmtDate(iso: string | null): string {
 
 export default function BdStrategy() {
   const [goal, setGoal] = useState<GoalKey>("php");
+  const [months, setMonths] = useState<number>(18);
   const [segmentFilter, setSegmentFilter] = useState<string>("all");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -126,14 +135,14 @@ export default function BdStrategy() {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-account-strategy`, {
         method: "POST",
         headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ months: 18 }),
+        body: JSON.stringify({ months }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "load failed");
       setData(json);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
-  }, []);
+  }, [months]);
   useEffect(() => { load(); }, [load]);
 
   const activeGoal = useMemo(() => GOALS.find((g) => g.key === goal) ?? GOALS[0], [goal]);
@@ -177,13 +186,27 @@ export default function BdStrategy() {
         </div>
       }
     >
-      {/* Goal picker */}
+      {/* Goal + time-frame picker */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
             <Target className="w-4 h-4 text-emerald-500" /> Pick your goal
+            <div className="ml-auto flex items-center gap-1">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-1">Window</span>
+              {[6, 12, 18, 24].map((n) => (
+                <Button
+                  key={n} size="sm"
+                  variant={months === n ? "default" : "outline"}
+                  onClick={() => setMonths(n)}
+                  className="h-7 text-[10px] px-2"
+                  disabled={loading}
+                >
+                  {n}mo
+                </Button>
+              ))}
+            </div>
           </CardTitle>
-          <p className="text-xs text-muted-foreground">{activeGoal.description}</p>
+          <p className="text-xs text-muted-foreground">{activeGoal.description} Scoring + correlations are recomputed across the selected window — shorter windows surface recent shifts, longer windows give more stable signal.</p>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2 flex-wrap">
@@ -248,8 +271,9 @@ export default function BdStrategy() {
                     <th className="text-left py-2 pr-3">Segment</th>
                     <th className="text-right py-2 pr-3">Score</th>
                     <th className="text-right py-2 pr-3">R / A</th>
-                    <th className="text-right py-2 pr-3">RO / Mtg</th>
+                    <th className="text-right py-2 pr-3">Calls / Mtg / RO</th>
                     <th className="text-left py-2 pr-3">Best lag</th>
+                    <th className="text-left py-2 pr-3">Driver</th>
                     <th className="text-left py-2 pr-3">Recommended action</th>
                     <th className="text-left py-2 pr-3">Conf</th>
                     <th></th>
@@ -277,8 +301,9 @@ export default function BdStrategy() {
                           <td className="py-2 pr-3"><Badge variant="outline" className={`text-[10px] ${SEGMENT_TONE[a.segment] ?? ""}`}>{a.segment}</Badge></td>
                           <td className="py-2 pr-3 text-right tabular-nums font-semibold">{score}</td>
                           <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_referrals_in} / {a.total_admits}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_refer_outs} / {a.total_meetings}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_calls ?? 0} / {a.total_meetings} / {a.total_refer_outs}</td>
                           <td className="py-2 pr-3 text-xs text-muted-foreground">{bestLag ? `${bestLag}d` : "—"}</td>
+                          <td className="py-2 pr-3"><DriverChip driver={a.primary_driver ?? null} /></td>
                           <td className="py-2 pr-3 text-xs">{a.recommended_action}</td>
                           <td className="py-2 pr-3"><Badge variant="outline" className={`text-[10px] ${CONFIDENCE_TONE[a.confidence] ?? ""}`}>{a.confidence}</Badge></td>
                           <td className="py-2 pr-3 text-right">
@@ -287,7 +312,7 @@ export default function BdStrategy() {
                         </tr>
                         {isOpen && (
                           <tr className="bg-accent/10">
-                            <td colSpan={11} className="py-3 pl-10 pr-4">
+                            <td colSpan={12} className="py-3 pl-10 pr-4">
                               <ExpandedDetail a={a} goal={goal} />
                             </td>
                           </tr>
@@ -333,6 +358,13 @@ function ExpandedDetail({ a, goal }: { a: AccountStrategy; goal: GoalKey }) {
   return (
     <div className="space-y-3">
       <p className="text-sm">{a.insight}</p>
+      {a.primary_driver && (
+        <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+          <span className="font-medium uppercase tracking-wide text-[10px]">Primary driver:</span>
+          <DriverChip driver={a.primary_driver} />
+          <span>{a.primary_driver_reason}</span>
+        </div>
+      )}
       <p className="text-sm text-muted-foreground italic">{a.action_detail}</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -427,4 +459,17 @@ function LagPill({ label, rate, active }: { label: string; rate: number; active:
       {label}: {pct}%
     </span>
   );
+}
+
+// Color-coded chip for the primary BD driver. "—" when no driver has a
+// strong enough signal — those rows fall back to a segment-based action.
+function DriverChip({ driver }: { driver: "call" | "meeting" | "refer_out" | null }) {
+  if (!driver) return <span className="text-xs text-muted-foreground">—</span>;
+  const map: Record<string, { label: string; tone: string }> = {
+    call:      { label: "Call",      tone: "border-cyan-500/40 text-cyan-700 dark:text-cyan-300 bg-cyan-500/5" },
+    meeting:   { label: "Meeting",   tone: "border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/5" },
+    refer_out: { label: "Refer-out", tone: "border-orange-500/40 text-orange-700 dark:text-orange-300 bg-orange-500/5" },
+  };
+  const m = map[driver];
+  return <Badge variant="outline" className={`text-[10px] ${m.tone}`}>{m.label}</Badge>;
 }
