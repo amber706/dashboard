@@ -352,22 +352,19 @@ function TopAccountsLineChart({ accounts, months, loc }: {
   // Account not linked)" bucket if it shows up; it's a data-hygiene
   // signal, not a real account.
   const [topN, setTopN] = useState(5);
-  // Which activity drives each line. Admit dots stay overlaid
-  // regardless of metric, so the chart always shows the
-  // activity→outcome relationship.
-  const [metric, setMetric] = useState<"referrals" | "meetings" | "refer_outs">("referrals");
+  // Referrals are always shown as the solid baseline. The overlay
+  // toggle adds a dotted line per account for the chosen activity
+  // (meetings or refer-outs) so you can read both timelines together
+  // without re-ranking the chart.
+  const [overlay, setOverlay] = useState<"none" | "meetings" | "refer_outs">("none");
 
-  // When metric is meetings/refer_outs, rank by that metric instead of
-  // referrals so the "top 5" reflects the metric being viewed.
+  // Ranking is by referrals (the primary view). Top-N order is stable
+  // whether or not an overlay is active.
   const realAccounts = useMemo(() => {
     const filtered = accounts.filter((a) => !a.name.toLowerCase().includes("not linked"));
-    const sortField =
-      metric === "meetings" ? "total_meetings"
-      : metric === "refer_outs" ? "total_refer_outs"
-      : "total_referrals";
-    const sorted = filtered.slice().sort((x, y) => ((y as any)[sortField] ?? 0) - ((x as any)[sortField] ?? 0));
+    const sorted = filtered.slice().sort((x, y) => y.total_referrals - x.total_referrals);
     return sorted.slice(0, topN);
-  }, [accounts, topN, metric]);
+  }, [accounts, topN]);
 
   const lineColors = [
     "hsl(210, 80%, 55%)", "hsl(160, 70%, 45%)", "hsl(280, 55%, 55%)",
@@ -376,25 +373,25 @@ function TopAccountsLineChart({ accounts, months, loc }: {
   ];
 
   // Shape the data into one row per month with a column per account
-  // for the active metric, plus a sibling column with that account's
-  // admits in the same month. The custom dot renderer reads the admit
-  // column to decide which dots to enlarge.
+  // for referrals + an overlay column for the chosen activity + a
+  // sibling admits column for the custom dot renderer.
   const chartData = useMemo(() => {
-    const metricKey = metric === "meetings" ? "meetings" : metric === "refer_outs" ? "refer_outs" : "referrals";
+    const overlayKey: null | "meetings" | "refer_outs" = overlay === "none" ? null : overlay;
     return months.map((mk) => {
       const [y, m] = mk.split("-").map(Number);
       const label = new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
       const row: Record<string, number | string> = { month: label, monthKey: mk };
       for (const a of realAccounts) {
         const b: any = a.by_month[mk];
-        row[a.name] = (b?.[metricKey] as number) ?? 0;
+        row[a.name] = (b?.referrals as number) ?? 0;
         row[`${a.name}__admits`] = b?.admits ?? 0;
+        if (overlayKey) row[`${a.name}__overlay`] = (b?.[overlayKey] as number) ?? 0;
       }
       return row;
     });
-  }, [realAccounts, months, metric]);
+  }, [realAccounts, months, overlay]);
 
-  const metricLabel = metric === "meetings" ? "meetings" : metric === "refer_outs" ? "refer-outs" : "referrals";
+  const overlayLabel = overlay === "meetings" ? "meetings" : overlay === "refer_outs" ? "refer-outs" : null;
 
   // Custom dot renderer: enlarge the dot when admits > 0 in that month
   // for this account. We pluck the per-account admit count out of the
@@ -427,18 +424,18 @@ function TopAccountsLineChart({ accounts, months, loc }: {
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-          <TrendingUp className="w-4 h-4 text-blue-500" /> Top accounts — {metricLabel} over time
+          <TrendingUp className="w-4 h-4 text-blue-500" /> Top accounts — referrals over time
           <Badge variant="outline" className="text-[10px]">Top {realAccounts.length}</Badge>
           {loc !== "all" && <Badge variant="outline" className="text-[10px]">LOC: {loc}</Badge>}
           <div className="ml-auto flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1">
-              <span className="text-[10px] text-muted-foreground mr-1">Metric</span>
+              <span className="text-[10px] text-muted-foreground mr-1">Overlay</span>
               {([
-                { k: "referrals",  label: "Referrals" },
+                { k: "none",       label: "Off" },
                 { k: "meetings",   label: "Meetings" },
                 { k: "refer_outs", label: "Refer-outs" },
               ] as const).map((m) => (
-                <Button key={m.k} size="sm" variant={metric === m.k ? "default" : "outline"} onClick={() => setMetric(m.k)} className="h-6 text-[10px] px-2">{m.label}</Button>
+                <Button key={m.k} size="sm" variant={overlay === m.k ? "default" : "outline"} onClick={() => setOverlay(m.k)} className="h-6 text-[10px] px-2">{m.label}</Button>
               ))}
             </div>
             <div className="flex items-center gap-1">
@@ -450,7 +447,8 @@ function TopAccountsLineChart({ accounts, months, loc }: {
           </div>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          One line per account, ranked by total {metricLabel} in the window. <span className="text-foreground font-medium">Larger dot = admit month</span> — the number above it is how many admits landed that month, so you can see which {metricLabel} actually drove conversion.
+          Solid line per account = referrals. <span className="text-foreground font-medium">Larger dot = admit month</span> (number above it = how many admits landed).
+          {overlayLabel ? <> Toggle adds a <span className="font-medium">dotted line</span> per account for {overlayLabel} so you can see whether {overlayLabel} precede or trail referrals.</> : <> Toggle the Overlay to add a dotted Meetings or Refer-outs line per account on top of referrals.</>}
         </p>
       </CardHeader>
       <CardContent className="h-[380px]">
@@ -461,30 +459,52 @@ function TopAccountsLineChart({ accounts, months, loc }: {
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <Tooltip
               formatter={(value: any, name: any, props: any) => {
-                if (typeof name === "string" && name.endsWith("__admits")) return null as any;
+                if (typeof name === "string" && (name.endsWith("__admits") || name.endsWith("__overlay"))) return null as any;
                 const admits = (props?.payload?.[`${name}__admits`] as number) ?? 0;
-                // Always include the admit number, even when it's 0 —
-                // a "27 refer-outs · 0 admits" month is informative on
-                // its own (lots of activity, no conversion that month).
-                return [`${value} ${metricLabel} · ${admits} admit${admits === 1 ? "" : "s"}`, name];
+                const ov = overlayLabel != null ? ((props?.payload?.[`${name}__overlay`] as number) ?? 0) : null;
+                const overlayPart = overlayLabel && ov != null ? ` · ${ov} ${overlayLabel}` : "";
+                return [`${value} referrals · ${admits} admit${admits === 1 ? "" : "s"}${overlayPart}`, name];
               }}
             />
             <Legend
               wrapperStyle={{ fontSize: 11 }}
-              formatter={(v) => (typeof v === "string" && v.endsWith("__admits") ? null : v)}
+              formatter={(v) => (typeof v === "string" && (v.endsWith("__admits") || v.endsWith("__overlay")) ? null : v)}
             />
-            {realAccounts.map((a, i) => (
-              <Line
-                key={a.id}
-                type="monotone"
-                dataKey={a.name}
-                stroke={lineColors[i % lineColors.length]}
-                strokeWidth={2}
-                dot={makeDot(a.name, lineColors[i % lineColors.length])}
-                activeDot={{ r: 5 }}
-                connectNulls
-              />
-            ))}
+            {realAccounts.map((a, i) => {
+              const color = lineColors[i % lineColors.length];
+              return (
+                <Line
+                  key={a.id}
+                  type="monotone"
+                  dataKey={a.name}
+                  stroke={color}
+                  strokeWidth={2}
+                  dot={makeDot(a.name, color)}
+                  activeDot={{ r: 5 }}
+                  connectNulls
+                />
+              );
+            })}
+            {/* Dotted overlay lines per account when the toggle is on.
+                Same color as the account's solid referrals line so the
+                pair reads as "this account's referrals vs activity". */}
+            {overlay !== "none" && realAccounts.map((a, i) => {
+              const color = lineColors[i % lineColors.length];
+              return (
+                <Line
+                  key={`${a.id}__overlay`}
+                  type="monotone"
+                  dataKey={`${a.name}__overlay`}
+                  stroke={color}
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  connectNulls
+                  legendType="none"
+                />
+              );
+            })}
           </LineChart>
         </ResponsiveContainer>
       </CardContent>
@@ -497,21 +517,18 @@ function TopAccountsLineChart({ accounts, months, loc }: {
       <CardContent className="pt-0">
         <div className="border-t pt-3 mt-1">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
-            {metricLabel} → admits across the window
+            {overlayLabel ? <>{overlayLabel} → referrals → admits across the window</> : <>Referrals → admits across the window</>}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {realAccounts.map((a, i) => {
-              const metricTotal =
-                metric === "meetings" ? (a.total_meetings ?? 0)
-                : metric === "refer_outs" ? (a.total_refer_outs ?? 0)
-                : a.total_referrals;
+              const refs = a.total_referrals;
               const admits = a.total_admits;
-              const ratio = metricTotal > 0 ? Math.round((admits / metricTotal) * 100) : null;
+              const ratio = refs > 0 ? Math.round((admits / refs) * 100) : null;
               const color = lineColors[i % lineColors.length];
-              // Color-code the conversion ratio so the user can scan
-              // for the strongest signal at a glance. Thresholds are
-              // intentionally loose — this is a directional indicator,
-              // not a statistical test.
+              const overlayTotal =
+                overlay === "meetings" ? (a.total_meetings ?? 0)
+                : overlay === "refer_outs" ? (a.total_refer_outs ?? 0)
+                : null;
               const tone =
                 ratio == null ? "text-muted-foreground"
                 : ratio >= 50 ? "text-emerald-600 dark:text-emerald-400 font-semibold"
@@ -523,7 +540,7 @@ function TopAccountsLineChart({ accounts, months, loc }: {
                   <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
                   <span className="truncate flex-1 font-medium">{a.name}</span>
                   <span className="text-muted-foreground tabular-nums">
-                    {metricTotal} → {admits}
+                    {overlayTotal != null ? `${overlayTotal} → ` : ""}{refs} → {admits}
                   </span>
                   <span className={`tabular-nums w-12 text-right ${tone}`}>
                     {ratio == null ? "—" : `${ratio}%`}
