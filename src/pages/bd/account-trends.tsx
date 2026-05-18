@@ -450,7 +450,10 @@ function TopAccountsLineChart({ accounts, months, loc }: {
               formatter={(value: any, name: any, props: any) => {
                 if (typeof name === "string" && name.endsWith("__admits")) return null as any;
                 const admits = (props?.payload?.[`${name}__admits`] as number) ?? 0;
-                return [`${value} ${metricLabel}${admits > 0 ? ` · ${admits} admit${admits === 1 ? "" : "s"}` : ""}`, name];
+                // Always include the admit number, even when it's 0 —
+                // a "27 refer-outs · 0 admits" month is informative on
+                // its own (lots of activity, no conversion that month).
+                return [`${value} ${metricLabel} · ${admits} admit${admits === 1 ? "" : "s"}`, name];
               }}
             />
             <Legend
@@ -471,6 +474,52 @@ function TopAccountsLineChart({ accounts, months, loc }: {
             ))}
           </LineChart>
         </ResponsiveContainer>
+      </CardContent>
+
+      {/* Per-account correlation summary — same rank as the chart
+          lines. Shows the active metric → admits ratio across the full
+          window so the user can see which lines convert vs. just
+          generate volume (the question that motivated the metric
+          toggle in the first place). */}
+      <CardContent className="pt-0">
+        <div className="border-t pt-3 mt-1">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
+            {metricLabel} → admits across the window
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {realAccounts.map((a, i) => {
+              const metricTotal =
+                metric === "meetings" ? (a.total_meetings ?? 0)
+                : metric === "refer_outs" ? (a.total_refer_outs ?? 0)
+                : a.total_referrals;
+              const admits = a.total_admits;
+              const ratio = metricTotal > 0 ? Math.round((admits / metricTotal) * 100) : null;
+              const color = lineColors[i % lineColors.length];
+              // Color-code the conversion ratio so the user can scan
+              // for the strongest signal at a glance. Thresholds are
+              // intentionally loose — this is a directional indicator,
+              // not a statistical test.
+              const tone =
+                ratio == null ? "text-muted-foreground"
+                : ratio >= 50 ? "text-emerald-600 dark:text-emerald-400 font-semibold"
+                : ratio >= 25 ? "text-emerald-600 dark:text-emerald-400"
+                : ratio >= 10 ? "text-amber-600 dark:text-amber-400"
+                : "text-rose-600 dark:text-rose-400";
+              return (
+                <div key={a.id} className="flex items-center gap-2 text-xs">
+                  <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
+                  <span className="truncate flex-1 font-medium">{a.name}</span>
+                  <span className="text-muted-foreground tabular-nums">
+                    {metricTotal} → {admits}
+                  </span>
+                  <span className={`tabular-nums w-12 text-right ${tone}`}>
+                    {ratio == null ? "—" : `${ratio}%`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
