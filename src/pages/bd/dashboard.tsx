@@ -45,6 +45,7 @@ type PipelineGroup = keyof typeof PIPELINE_GROUPS;
 // ── Window presets ───────────────────────────────────────────────────
 type WindowPreset =
   | "today" | "last_24h" | "wtd" | "mtd"
+  | "last_month" | "last_3_months" | "last_6_months" | "last_12_months"
   | "last_7" | "last_30" | "last_90" | "ytd" | "custom";
 
 function computeWindow(preset: WindowPreset, customStart?: string, customEnd?: string): { startIso: string; endIso: string; label: string } {
@@ -67,12 +68,22 @@ function computeWindow(preset: WindowPreset, customStart?: string, customEnd?: s
   const startOfMonth = () => new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
   const startOfYear = () => new Date(now.getFullYear(), 0, 1, 0, 0, 0);
   const subDays = (n: number) => new Date(now.getTime() - n * 86400_000);
+  // "Last N months" windows anchor to the first of (current month - N)
+  // and end at the last day of the previous month — i.e. complete
+  // calendar months only, excluding the in-progress current month.
+  // This matches how the per-month bars below are bucketed.
+  const startOfMonthsBack = (n: number) => new Date(now.getFullYear(), now.getMonth() - n, 1, 0, 0, 0);
+  const endOfLastMonth = () => new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
   switch (preset) {
     case "today":    return { startIso: isoUtc(startOfTodayUtc()), endIso: isoUtc(endOfTodayUtc()), label: "Today" };
     case "last_24h": return { startIso: isoUtc(subDays(1)), endIso: isoUtc(now), label: "Last 24h" };
     case "wtd":      return { startIso: isoUtc(startOfWeek()), endIso: isoUtc(endOfTodayUtc()), label: "Week to date" };
-    case "mtd":      return { startIso: isoUtc(startOfMonth()), endIso: isoUtc(endOfTodayUtc()), label: "Month to date" };
+    case "mtd":      return { startIso: isoUtc(startOfMonth()), endIso: isoUtc(endOfTodayUtc()), label: "This month" };
+    case "last_month":      return { startIso: isoUtc(startOfMonthsBack(1)), endIso: isoUtc(endOfLastMonth()), label: "Last month" };
+    case "last_3_months":   return { startIso: isoUtc(startOfMonthsBack(3)), endIso: isoUtc(endOfLastMonth()), label: "Last 3 months" };
+    case "last_6_months":   return { startIso: isoUtc(startOfMonthsBack(6)), endIso: isoUtc(endOfLastMonth()), label: "Last 6 months" };
+    case "last_12_months":  return { startIso: isoUtc(startOfMonthsBack(12)), endIso: isoUtc(endOfLastMonth()), label: "Last 12 months" };
     case "last_7":   return { startIso: isoUtc(subDays(7)), endIso: isoUtc(now), label: "Last 7 days" };
     case "last_30":  return { startIso: isoUtc(subDays(30)), endIso: isoUtc(now), label: "Last 30 days" };
     case "last_90":  return { startIso: isoUtc(subDays(90)), endIso: isoUtc(now), label: "Last 90 days" };
@@ -89,12 +100,32 @@ const PRESETS: Array<{ key: WindowPreset; label: string }> = [
   { key: "today", label: "Today" },
   { key: "last_24h", label: "Last 24h" },
   { key: "wtd", label: "WTD" },
-  { key: "mtd", label: "MTD" },
+  { key: "mtd", label: "This month" },
+  { key: "last_month", label: "Last month" },
+  { key: "last_3_months", label: "Last 3 mo" },
+  { key: "last_6_months", label: "Last 6 mo" },
+  { key: "last_12_months", label: "Last 12 mo" },
   { key: "last_7", label: "7d" },
   { key: "last_30", label: "30d" },
   { key: "last_90", label: "90d" },
   { key: "ytd", label: "YTD" },
 ];
+
+// Maps a WindowPreset to the number of complete months to fetch for
+// the Monthly Breakdown chart. Sub-month presets get rolled up to 1
+// month so the chart still renders something useful.
+function windowToMonths(preset: WindowPreset): number {
+  switch (preset) {
+    case "last_month":      return 1;
+    case "last_3_months":   return 3;
+    case "last_6_months":   return 6;
+    case "last_12_months":  return 12;
+    case "last_90":         return 3;
+    case "last_30":         return 1;
+    case "ytd":             return new Date().getMonth() + 1;
+    default:                return 1;
+  }
+}
 
 // Smaller, meetings-specific preset list. Mixes past + future windows
 // because BD managers want to glance at upcoming meetings as easily as
