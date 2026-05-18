@@ -118,6 +118,7 @@ function fmtDate(iso: string | null): string {
 
 export default function BdStrategy() {
   const [goal, setGoal] = useState<GoalKey>("php");
+  const [months, setMonths] = useState<number>(18);
   const [segmentFilter, setSegmentFilter] = useState<string>("all");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -134,14 +135,14 @@ export default function BdStrategy() {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-account-strategy`, {
         method: "POST",
         headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ months: 18 }),
+        body: JSON.stringify({ months }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "load failed");
       setData(json);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
-  }, []);
+  }, [months]);
   useEffect(() => { load(); }, [load]);
 
   const activeGoal = useMemo(() => GOALS.find((g) => g.key === goal) ?? GOALS[0], [goal]);
@@ -185,13 +186,27 @@ export default function BdStrategy() {
         </div>
       }
     >
-      {/* Goal picker */}
+      {/* Goal + time-frame picker */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
             <Target className="w-4 h-4 text-emerald-500" /> Pick your goal
+            <div className="ml-auto flex items-center gap-1">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-1">Window</span>
+              {[6, 12, 18, 24].map((n) => (
+                <Button
+                  key={n} size="sm"
+                  variant={months === n ? "default" : "outline"}
+                  onClick={() => setMonths(n)}
+                  className="h-7 text-[10px] px-2"
+                  disabled={loading}
+                >
+                  {n}mo
+                </Button>
+              ))}
+            </div>
           </CardTitle>
-          <p className="text-xs text-muted-foreground">{activeGoal.description}</p>
+          <p className="text-xs text-muted-foreground">{activeGoal.description} Scoring + correlations are recomputed across the selected window — shorter windows surface recent shifts, longer windows give more stable signal.</p>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2 flex-wrap">
