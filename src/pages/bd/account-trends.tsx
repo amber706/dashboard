@@ -9,9 +9,9 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "wouter";
-import { Loader2, RefreshCw, ArrowLeft, BarChart3 } from "lucide-react";
+import { Loader2, RefreshCw, ArrowLeft, BarChart3, TrendingUp } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -244,6 +244,12 @@ export default function BdAccountTrends() {
             </CardContent>
           </Card>
 
+          {/* Per-account multi-line chart. Each top account is its own
+              line for monthly referrals; admit months are marked with
+              a larger filled dot so you can see where each line
+              converted vs. where it was just sending volume. */}
+          <TopAccountsLineChart accounts={data.accounts} months={data.months} loc={loc} />
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Top referring accounts</CardTitle>
@@ -304,5 +310,135 @@ export default function BdAccountTrends() {
         </>
       )}
     </PageShell>
+  );
+}
+
+// One line per top-referring account showing monthly referrals over
+// time. Admit months are demarcated with a larger filled dot on the
+// same line so you can see at a glance which accounts converted in
+// which months vs. just sending volume.
+//
+// The LOC filter is already applied at the data layer (see the parent
+// load() — pipelines and loc round-trip to bd-account-trends), so this
+// chart just consumes whatever the response gives us.
+function TopAccountsLineChart({ accounts, months, loc }: {
+  accounts: AccountTrend[];
+  months: string[];
+  loc: string;
+}) {
+  // How many accounts to plot. More than 7 lines becomes spaghetti, so
+  // expose a small control. Skip the synthetic "(BD deal — partner
+  // Account not linked)" bucket if it shows up; it's a data-hygiene
+  // signal, not a real account.
+  const [topN, setTopN] = useState(5);
+  const realAccounts = useMemo(
+    () => accounts.filter((a) => !a.name.toLowerCase().includes("not linked")).slice(0, topN),
+    [accounts, topN],
+  );
+
+  // Each line gets its own stable color. Hue rotation keeps adjacent
+  // lines distinguishable; cycles after 7.
+  const lineColors = [
+    "hsl(210, 80%, 55%)", "hsl(160, 70%, 45%)", "hsl(280, 55%, 55%)",
+    "hsl(20, 80%, 55%)",  "hsl(340, 65%, 55%)", "hsl(45, 85%, 55%)",
+    "hsl(190, 70%, 50%)",
+  ];
+
+  // Shape the data into one row per month, with a column per account
+  // for referrals plus a sibling column with that account's admits in
+  // the same month. The custom dot renderer reads the admit column to
+  // decide which dots to enlarge.
+  const chartData = useMemo(() => {
+    return months.map((mk) => {
+      const [y, m] = mk.split("-").map(Number);
+      const label = new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+      const row: Record<string, number | string> = { month: label, monthKey: mk };
+      for (const a of realAccounts) {
+        const b = a.by_month[mk];
+        row[a.name] = b?.referrals ?? 0;
+        row[`${a.name}__admits`] = b?.admits ?? 0;
+      }
+      return row;
+    });
+  }, [realAccounts, months]);
+
+  // Custom dot renderer: enlarge the dot when admits > 0 in that month
+  // for this account. We pluck the per-account admit count out of the
+  // payload (the chart row we built above) so each line gets its own
+  // admit overlay.
+  function makeDot(accountName: string, color: string) {
+    return (props: any) => {
+      const { cx, cy, payload, index } = props;
+      if (cx == null || cy == null) return <g key={`d-${accountName}-${index}`} />;
+      const admits = (payload?.[`${accountName}__admits`] as number) ?? 0;
+      if (admits > 0) {
+        // Filled larger dot + thin ring so the marker reads as "admit
+        // month" against the background line.
+        return (
+          <g key={`d-${accountName}-${index}`}>
+            <circle cx={cx} cy={cy} r={6} fill={color} stroke="hsl(var(--background))" strokeWidth={2} />
+            <text x={cx} y={cy - 9} textAnchor="middle" fontSize={9} fill={color} fontWeight={600}>{admits}</text>
+          </g>
+        );
+      }
+      return <circle key={`d-${accountName}-${index}`} cx={cx} cy={cy} r={2.5} fill={color} />;
+    };
+  }
+
+  if (realAccounts.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-blue-500" /> Top accounts — referrals over time
+          <Badge variant="outline" className="text-[10px]">Top {realAccounts.length}</Badge>
+          {loc !== "all" && <Badge variant="outline" className="text-[10px]">LOC: {loc}</Badge>}
+          <div className="ml-auto flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground mr-1">Show</span>
+            {[3, 5, 7].map((n) => (
+              <Button key={n} size="sm" variant={topN === n ? "default" : "outline"} onClick={() => setTopN(n)} className="h-6 text-[10px] px-2">{n}</Button>
+            ))}
+          </div>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          One line per account. <span className="text-foreground font-medium">Larger dot = admit month</span> — the number above it is how many admits landed that month.
+        </p>
+      </CardHeader>
+      <CardContent className="h-[380px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip
+              formatter={(value: any, name: any, props: any) => {
+                if (typeof name === "string" && name.endsWith("__admits")) return null as any;
+                const admits = (props?.payload?.[`${name}__admits`] as number) ?? 0;
+                return [`${value} referrals${admits > 0 ? ` · ${admits} admit${admits === 1 ? "" : "s"}` : ""}`, name];
+              }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: 11 }}
+              formatter={(v) => (typeof v === "string" && v.endsWith("__admits") ? null : v)}
+            />
+            {realAccounts.map((a, i) => (
+              <Line
+                key={a.id}
+                type="monotone"
+                dataKey={a.name}
+                stroke={lineColors[i % lineColors.length]}
+                strokeWidth={2}
+                dot={makeDot(a.name, lineColors[i % lineColors.length])}
+                activeDot={{ r: 5 }}
+                connectNulls
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
   );
 }
