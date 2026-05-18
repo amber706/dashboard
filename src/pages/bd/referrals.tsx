@@ -372,12 +372,12 @@ export default function BdReferrals() {
           ))}
           <span className="mx-2 h-4 w-px bg-border" />
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-8 text-xs px-2 rounded border bg-background" disabled={view === "by_loc"}>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-8 text-xs px-2 rounded border bg-background">
             <option value="all">All statuses</option>
             {distinctStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground ml-2">LOC</span>
-          <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className="h-8 text-xs px-2 rounded border bg-background" disabled={view === "by_loc"}>
+          <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className="h-8 text-xs px-2 rounded border bg-background">
             <option value="all">All LOCs</option>
             {distinctLocs.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
@@ -396,10 +396,19 @@ export default function BdReferrals() {
 
       {view === "by_loc" && data && (
         <ByLocView
-          current={data.referrals.filter((r) => r.direction === "in")}
-          prior={priorData?.referrals.filter((r) => r.direction === "in") ?? null}
+          current={data.referrals.filter((r) =>
+            r.direction === "in" &&
+            (statusFilter === "all" || r.stage === statusFilter) &&
+            (locFilter === "all" || normLoc(r.loc) === locFilter)
+          )}
+          prior={priorData?.referrals.filter((r) =>
+            r.direction === "in" &&
+            (statusFilter === "all" || r.stage === statusFilter) &&
+            (locFilter === "all" || normLoc(r.loc) === locFilter)
+          ) ?? null}
           windowStart={win.startIso}
           windowEnd={win.endIso}
+          locFilter={locFilter}
         />
       )}
 
@@ -510,11 +519,12 @@ const LOC_COLORS = [
   "hsl(190, 70%, 50%)",
 ];
 
-function ByLocView({ current, prior, windowStart, windowEnd }: {
+function ByLocView({ current, prior, windowStart, windowEnd, locFilter }: {
   current: RefRow[];
   prior: RefRow[] | null;
   windowStart: string;
   windowEnd: string;
+  locFilter: string;
 }) {
   const spanDays = Math.max(1, Math.round((new Date(windowEnd).getTime() - new Date(windowStart).getTime()) / 86_400_000));
   const granularity: "day" | "week" | "month" = spanDays <= 21 ? "day" : spanDays <= 95 ? "week" : "month";
@@ -557,7 +567,10 @@ function ByLocView({ current, prior, windowStart, windowEnd }: {
   }, [locKeys]);
 
   if (current.length === 0) {
-    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No inbound referrals in this window.</CardContent></Card>;
+    const msg = locFilter !== "all"
+      ? `No inbound referrals match the current filters (LOC: ${locFilter}).`
+      : "No inbound referrals match the current filters.";
+    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">{msg}</CardContent></Card>;
   }
 
   return (
