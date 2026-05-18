@@ -5,7 +5,7 @@
 // activity. Driven by structured Zoho fields via bd-account-search +
 // bd-account-detail.
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Link, useSearch } from "wouter";
 import {
   Loader2, Search, ArrowLeft, ExternalLink, Building2, User,
@@ -103,6 +103,17 @@ export default function BdAccountIntelligence() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("timeline");
   const [profiles, setProfiles] = useState<Array<{ id: string; full_name: string | null; email: string | null; zoho_user_id: string | null }>>([]);
+  // Anchor on the tab strip so KPI-tile drill-downs scroll the matching
+  // list into view after the tab switch.
+  const tabsRef = useRef<HTMLDivElement | null>(null);
+  function drill(next: TabKey) {
+    setTab(next);
+    // requestAnimationFrame so the scroll happens after React commits
+    // the tab change (otherwise the anchor's height/position can shift).
+    requestAnimationFrame(() => {
+      tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   // Load profiles once for owner-id → name resolution.
   useEffect(() => {
@@ -374,22 +385,28 @@ export default function BdAccountIntelligence() {
               </div>
             </CardHeader>
             <CardContent className="grid grid-cols-2 md:grid-cols-6 gap-3 pt-0">
-              <Stat label="Referrals in" value={detail.summary.referrals_in} accent="blue" />
-              <Stat label="Referrals out" value={detail.summary.referrals_out} accent="orange" />
+              <Stat label="Referrals in" value={detail.summary.referrals_in} accent="blue" onClick={() => drill("referrals")} />
+              <Stat label="Referrals out" value={detail.summary.referrals_out} accent="orange" onClick={() => drill("out")} />
+              {/* Net balance has no dedicated tab — drop into Timeline,
+                  which is the only view that shows in + out side-by-side. */}
               <Stat
                 label="Net balance"
                 value={detail.summary.net_referral_balance > 0
                   ? `+${detail.summary.net_referral_balance}`
                   : detail.summary.net_referral_balance}
                 accent={detail.summary.net_referral_balance < 0 ? "red" : "slate"}
+                onClick={() => drill("timeline")}
               />
-              <Stat label="Admits" value={detail.summary.admits} accent="emerald" />
+              <Stat label="Admits" value={detail.summary.admits} accent="emerald" onClick={() => drill("admits")} />
+              {/* Conversion = admits / referrals_in. Land on Referrals-in
+                  so they can scan the deals that contributed (or didn't). */}
               <Stat
                 label="Conversion"
                 value={detail.summary.conversion_rate != null ? `${detail.summary.conversion_rate}%` : "—"}
                 accent="amber"
+                onClick={() => drill("referrals")}
               />
-              <Stat label="Meetings" value={detail.summary.meetings_count} accent="cyan" />
+              <Stat label="Meetings" value={detail.summary.meetings_count} accent="cyan" onClick={() => drill("meetings")} />
             </CardContent>
             {detail.account.description && (
               <CardContent className="pt-0 pb-4 text-xs text-muted-foreground italic border-t mt-2 pt-2">
@@ -399,7 +416,7 @@ export default function BdAccountIntelligence() {
           </Card>
 
           {/* Tabs */}
-          <div className="flex items-center gap-2 flex-wrap border-b pb-2">
+          <div ref={tabsRef} className="flex items-center gap-2 flex-wrap border-b pb-2 scroll-mt-4">
             {([
               {
                 key: "timeline",
@@ -453,10 +470,11 @@ export default function BdAccountIntelligence() {
   );
 }
 
-function Stat({ label, value, accent }: {
+function Stat({ label, value, accent, onClick }: {
   label: string;
   value: number | string;
   accent: "blue" | "emerald" | "amber" | "violet" | "cyan" | "orange" | "slate" | "red";
+  onClick?: () => void;
 }) {
   const tone: Record<string, string> = {
     blue: "text-blue-500 dark:text-blue-400",
@@ -468,12 +486,28 @@ function Stat({ label, value, accent }: {
     slate: "text-slate-600 dark:text-slate-300",
     red: "text-red-500 dark:text-red-400",
   };
-  return (
-    <div className="text-center">
+  // Clickable when a destination tab is wired up. Renders as a button so
+  // keyboard nav + screen readers pick it up; non-clickable tiles fall
+  // back to a plain div.
+  const inner = (
+    <>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={`text-2xl font-semibold tabular-nums ${tone[accent]}`}>{value}</div>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="text-center rounded-md px-2 py-1 hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors cursor-pointer"
+        aria-label={`Drill into ${label}`}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return <div className="text-center px-2 py-1">{inner}</div>;
 }
 
 // Inbound deal table — Deal rows tied to Referring_Company. Columns:
