@@ -120,6 +120,56 @@ export default function BdAccountTrends() {
 
   const topAccounts = useMemo(() => data?.accounts.slice(0, 25) ?? [], [data]);
 
+  // Trend per account = (last full month referrals) − (prior month referrals).
+  // The current month is partial, so we skip it and compare the previous
+  // two complete months. If the window is too short for that, we fall
+  // back to comparing whatever pair we have.
+  const trendByAccount = useMemo(() => {
+    if (!data || data.months.length < 2) return new Map<string, { delta: number; current: number; prior: number }>();
+    const all = data.months;
+    // Current calendar month key, e.g. "2026-05"
+    const now = new Date();
+    const currentMk = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    // Months excluding the in-progress current month (if it's the last bucket)
+    const usable = all[all.length - 1] === currentMk ? all.slice(0, -1) : all;
+    if (usable.length < 2) {
+      const last = all[all.length - 1];
+      const prior = all[all.length - 2];
+      const m = new Map<string, { delta: number; current: number; prior: number }>();
+      for (const a of data.accounts) {
+        const c = a.by_month[last]?.referrals ?? 0;
+        const p = a.by_month[prior]?.referrals ?? 0;
+        m.set(a.id, { delta: c - p, current: c, prior: p });
+      }
+      return m;
+    }
+    const last = usable[usable.length - 1];
+    const prior = usable[usable.length - 2];
+    const m = new Map<string, { delta: number; current: number; prior: number }>();
+    for (const a of data.accounts) {
+      const c = a.by_month[last]?.referrals ?? 0;
+      const p = a.by_month[prior]?.referrals ?? 0;
+      m.set(a.id, { delta: c - p, current: c, prior: p });
+    }
+    return m;
+  }, [data]);
+
+  // Pretty labels for the two months being compared in the Trend column.
+  const trendMonthLabels = useMemo(() => {
+    if (!data || data.months.length < 2) return null;
+    const now = new Date();
+    const currentMk = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const usable = data.months[data.months.length - 1] === currentMk ? data.months.slice(0, -1) : data.months;
+    const pair = usable.length >= 2
+      ? [usable[usable.length - 2], usable[usable.length - 1]]
+      : [data.months[data.months.length - 2], data.months[data.months.length - 1]];
+    const fmt = (mk: string) => {
+      const [y, m] = mk.split("-").map(Number);
+      return new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+    };
+    return { prior: fmt(pair[0]), current: fmt(pair[1]) };
+  }, [data]);
+
   return (
     <PageShell
       eyebrow="BUSINESS DEVELOPMENT"
@@ -197,7 +247,11 @@ export default function BdAccountTrends() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Top referring accounts</CardTitle>
-              <p className="text-xs text-muted-foreground">Ranked by total referrals in the window. Click a row to filter the chart above to just that account.</p>
+              <p className="text-xs text-muted-foreground">
+                Ranked by total referrals in the window. Trend compares the two most recent full months
+                {trendMonthLabels ? <> (<span className="font-medium">{trendMonthLabels.current}</span> vs <span className="font-medium">{trendMonthLabels.prior}</span>)</> : null}
+                . Click a row to filter the chart to just that account.
+              </p>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               {topAccounts.length === 0 ? (
@@ -211,12 +265,21 @@ export default function BdAccountTrends() {
                       <th className="text-right py-2 pr-3">Referrals</th>
                       <th className="text-right py-2 pr-3">Admits</th>
                       <th className="text-right py-2 pr-3">Conv %</th>
+                      <th className="text-right py-2 pr-3">Trend</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {topAccounts.map((a, i) => {
                       const active = selectedAccountId === a.id;
+                      const t = trendByAccount.get(a.id);
+                      const delta = t?.delta ?? 0;
+                      const trendTone = delta > 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : delta < 0
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-muted-foreground";
+                      const arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "—";
                       return (
                         <tr key={a.id} className={`border-t cursor-pointer hover:bg-accent/40 ${active ? "bg-accent/30" : ""}`} onClick={() => setSelectedAccountId(active ? "all" : a.id)}>
                           <td className="py-2 pr-3 text-xs text-muted-foreground tabular-nums">{i + 1}</td>
@@ -224,6 +287,9 @@ export default function BdAccountTrends() {
                           <td className="py-2 pr-3 text-right tabular-nums">{a.total_referrals}</td>
                           <td className="py-2 pr-3 text-right tabular-nums">{a.total_admits}</td>
                           <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.conversion_rate == null ? "—" : `${a.conversion_rate}%`}</td>
+                          <td className={`py-2 pr-3 text-right tabular-nums ${trendTone}`} title={t ? `${t.prior} → ${t.current}` : ""}>
+                            {arrow} {delta > 0 ? "+" : ""}{delta}
+                          </td>
                           <td className="py-2 pr-3 text-right">
                             <Link href={`/bd/account?id=${a.id}`} onClick={(e) => e.stopPropagation()} className="text-xs text-primary hover:underline">Open →</Link>
                           </td>
