@@ -258,6 +258,19 @@ export default function BdAccountTrends() {
               converted vs. where it was just sending volume. */}
           <TopAccountsLineChart accounts={data.accounts} months={data.months} loc={loc} />
 
+          {/* Activity vs outcomes chart. Puts the chosen activity
+              (meetings / refer-outs) on the same timeline as referrals
+              and admits so the relationship is readable directly:
+              when activity spikes, do referrals follow? Do admits?
+              Scoped to the current Account dropdown. */}
+          <ActivityVsOutcomesChart
+            accounts={data.accounts}
+            months={data.months}
+            loc={loc}
+            selectedAccountId={selectedAccountId}
+            accountName={selectedAccountId === "all" ? "All accounts" : (data.accounts.find((a) => a.id === selectedAccountId)?.name ?? "Account")}
+          />
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Top referring accounts</CardTitle>
@@ -520,6 +533,133 @@ function TopAccountsLineChart({ accounts, months, loc }: {
             })}
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Activity vs outcomes chart. Reads as: "does this activity (meetings
+// or refer-outs) actually precede referrals and admits?"
+//
+// Three lines on the same timeline:
+//   - the chosen activity (purple)
+//   - referrals  (blue)
+//   - admits     (green)
+//
+// Honors the page-level Account dropdown via selectedAccountId — when
+// "all" it sums across every account; otherwise scopes to that one.
+function ActivityVsOutcomesChart({ accounts, months, loc, selectedAccountId, accountName }: {
+  accounts: AccountTrend[];
+  months: string[];
+  loc: string;
+  selectedAccountId: string;
+  accountName: string;
+}) {
+  const [activity, setActivity] = useState<"meetings" | "refer_outs">("meetings");
+  const activityLabel = activity === "meetings" ? "Meetings" : "Refer-outs";
+
+  // Compose three monthly series. The activity series comes from
+  // by_month[mk].meetings or by_month[mk].refer_outs depending on
+  // toggle; referrals and admits always come from by_month[mk].
+  const chartData = useMemo(() => {
+    const scope = selectedAccountId === "all"
+      ? accounts
+      : accounts.filter((a) => a.id === selectedAccountId);
+    return months.map((mk) => {
+      let act = 0; let refs = 0; let admits = 0;
+      for (const a of scope) {
+        const b: any = a.by_month[mk];
+        if (!b) continue;
+        act    += (activity === "meetings" ? b.meetings : b.refer_outs) ?? 0;
+        refs   += b.referrals ?? 0;
+        admits += b.admits ?? 0;
+      }
+      const [y, m] = mk.split("-").map(Number);
+      const label = new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+      return { month: label, monthKey: mk, activity: act, referrals: refs, admits };
+    });
+  }, [accounts, months, selectedAccountId, activity]);
+
+  // Window totals + simple conversion ratios shown beneath the chart.
+  // Activity-to-admits is the headline answer to "does this drive
+  // anything?" — referrals-from-activity gives the intermediate step.
+  const totals = useMemo(() => {
+    return chartData.reduce(
+      (acc, r) => {
+        acc.activity += r.activity;
+        acc.referrals += r.referrals;
+        acc.admits += r.admits;
+        return acc;
+      },
+      { activity: 0, referrals: 0, admits: 0 },
+    );
+  }, [chartData]);
+
+  const actToAdmits = totals.activity > 0 ? Math.round((totals.admits / totals.activity) * 100) : null;
+  const actToRefs   = totals.activity > 0 ? Math.round((totals.referrals / totals.activity) * 100) : null;
+  const refsToAdmits = totals.referrals > 0 ? Math.round((totals.admits / totals.referrals) * 100) : null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+          <BarChart3 className="w-4 h-4 text-violet-500" />
+          {activityLabel} vs Referrals & Admits
+          <Badge variant="outline" className="text-[10px]">{accountName}</Badge>
+          {loc !== "all" && <Badge variant="outline" className="text-[10px]">LOC: {loc}</Badge>}
+          <div className="ml-auto flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground mr-1">Activity</span>
+            {([
+              { k: "meetings",   label: "Meetings" },
+              { k: "refer_outs", label: "Refer-outs" },
+            ] as const).map((m) => (
+              <Button key={m.k} size="sm" variant={activity === m.k ? "default" : "outline"} onClick={() => setActivity(m.k)} className="h-6 text-[10px] px-2">{m.label}</Button>
+            ))}
+          </div>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Three lines on the same timeline: <span className="font-medium" style={{ color: "hsl(280, 55%, 60%)" }}>{activityLabel.toLowerCase()}</span>,
+          {" "}<span className="font-medium" style={{ color: "hsl(210, 80%, 55%)" }}>referrals</span>,
+          {" "}<span className="font-medium" style={{ color: "hsl(160, 70%, 45%)" }}>admits</span>.
+          Use this to see whether {activityLabel.toLowerCase()} actually precede referrals and admits — when the purple line spikes, do the blue / green lines follow a month or two later?
+        </p>
+      </CardHeader>
+      <CardContent className="h-[340px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Line type="monotone" dataKey="activity" name={activityLabel} stroke="hsl(280, 55%, 60%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="referrals" name="Referrals" stroke="hsl(210, 80%, 55%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="admits" name="Admits" stroke="hsl(160, 70%, 45%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+      <CardContent className="pt-0">
+        <div className="border-t pt-3 mt-1 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Window totals</div>
+            <div className="mt-1">
+              <span style={{ color: "hsl(280, 55%, 60%)" }} className="font-medium">{totals.activity}</span> {activityLabel.toLowerCase()} ·{" "}
+              <span style={{ color: "hsl(210, 80%, 55%)" }} className="font-medium">{totals.referrals}</span> referrals ·{" "}
+              <span style={{ color: "hsl(160, 70%, 45%)" }} className="font-medium">{totals.admits}</span> admits
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{activityLabel} → Referrals</div>
+            <div className="mt-1 tabular-nums">{actToRefs == null ? "—" : `${actToRefs}%`} <span className="text-muted-foreground">({totals.activity} → {totals.referrals})</span></div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{activityLabel} → Admits</div>
+            <div className="mt-1 tabular-nums">{actToAdmits == null ? "—" : `${actToAdmits}%`} <span className="text-muted-foreground">({totals.activity} → {totals.admits})</span></div>
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-2">
+          Note: window ratios show same-period totals. The Strategy Command Center computes lagged (30/60/90-day) correlations per account — that's where you go to see "meetings here predict admits 60 days later."
+        </p>
       </CardContent>
     </Card>
   );
