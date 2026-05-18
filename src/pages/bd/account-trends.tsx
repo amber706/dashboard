@@ -151,17 +151,19 @@ export default function BdAccountTrends() {
       : data.accounts.filter((a) => a.id === selectedAccountId);
     const referrals: Array<{ id: string; account: string }> = [];
     const admits: Array<{ id: string; account: string }> = [];
-    const referOuts: Array<{ id: string; account: string }> = [];
+    // Snake-case keys keep parity with the JSON field names on the
+    // bd-account-trends response (refer_out_ids, meeting_ids).
+    const refer_outs: Array<{ id: string; account: string }> = [];
     const meetings: Array<{ id: string; account: string }> = [];
     for (const a of accts) {
       const b = a.by_month[drillMonth];
       if (!b) continue;
       for (const id of (b.referral_ids ?? []))  referrals.push({ id, account: a.name });
       for (const id of (b.admit_ids ?? []))     admits.push({ id, account: a.name });
-      for (const id of (b.refer_out_ids ?? [])) referOuts.push({ id, account: a.name });
+      for (const id of (b.refer_out_ids ?? [])) refer_outs.push({ id, account: a.name });
       for (const id of (b.meeting_ids ?? []))   meetings.push({ id, account: a.name });
     }
-    return { referrals, admits, referOuts, meetings };
+    return { referrals, admits, refer_outs, meetings };
   }, [drillMonth, data, selectedAccountId]);
 
   function onChartClick(e: any) {
@@ -340,16 +342,16 @@ export default function BdAccountTrends() {
                       {selectedAccountId === "all" ? "All accounts" : (data.accounts.find((a) => a.id === selectedAccountId)?.name ?? "Account")}
                     </SheetTitle>
                     <SheetDescription>
-                      {drillRecords.referrals.length} referrals · {drillRecords.admits.length} admits · {drillRecords.referOuts.length} refer-outs · {drillRecords.meetings.length} meetings
+                      {drillRecords.referrals.length} referrals · {drillRecords.admits.length} admits · {drillRecords.refer_outs.length} refer-outs · {drillRecords.meetings.length} meetings
                       {loc !== "all" ? <> · LOC: {loc}</> : null}
                     </SheetDescription>
                   </SheetHeader>
                   <div className="mt-4 space-y-4">
                     {[
-                      { label: "Referrals",  rows: drillRecords.referrals, module: "Potentials" as const },
-                      { label: "Admits",     rows: drillRecords.admits,    module: "Potentials" as const },
-                      { label: "Refer-outs", rows: drillRecords.referOuts, module: "Potentials" as const },
-                      { label: "Meetings",   rows: drillRecords.meetings,  module: "Events"     as const },
+                      { label: "Referrals",  rows: drillRecords.referrals,  module: "Potentials" as const },
+                      { label: "Admits",     rows: drillRecords.admits,     module: "Potentials" as const },
+                      { label: "Refer-outs", rows: drillRecords.refer_outs, module: "Potentials" as const },
+                      { label: "Meetings",   rows: drillRecords.meetings,   module: "Events"     as const },
                     ].map((sec) => (
                       <section key={sec.label}>
                         <h3 className="text-xs uppercase tracking-wide text-muted-foreground mb-1.5">
@@ -398,6 +400,8 @@ export default function BdAccountTrends() {
                       <th className="text-left py-2 pr-3">Account</th>
                       <th className="text-right py-2 pr-3">Referrals</th>
                       <th className="text-right py-2 pr-3">Admits</th>
+                      <th className="text-right py-2 pr-3">Refer-outs</th>
+                      <th className="text-right py-2 pr-3">Meetings</th>
                       <th className="text-right py-2 pr-3">Conv %</th>
                       <th className="text-right py-2 pr-3">Trend</th>
                       <th></th>
@@ -420,6 +424,8 @@ export default function BdAccountTrends() {
                           <td className="py-2 pr-3 font-medium">{a.name}</td>
                           <td className="py-2 pr-3 text-right tabular-nums">{a.total_referrals}</td>
                           <td className="py-2 pr-3 text-right tabular-nums">{a.total_admits}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_refer_outs ?? 0}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_meetings ?? 0}</td>
                           <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.conversion_rate == null ? "—" : `${a.conversion_rate}%`}</td>
                           <td className={`py-2 pr-3 text-right tabular-nums ${trendTone}`} title={t ? `${t.prior} → ${t.current}` : ""}>
                             {arrow} {delta > 0 ? "+" : ""}{delta}
