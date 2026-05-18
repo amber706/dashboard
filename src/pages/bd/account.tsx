@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { exportCsv, isoToday } from "@/lib/bd-csv";
+import { AccountTrendCharts } from "./account-trend-charts";
 
 interface AccountSearchResult {
   id: string;
@@ -414,6 +415,10 @@ export default function BdAccountIntelligence() {
               </CardContent>
             )}
           </Card>
+
+          {/* Monthly trend charts — three line graphs with their own
+              LOC + pipeline filter row, and per-month drill-down sheet. */}
+          <AccountTrendCharts accountId={detail.account.id} accountName={detail.account.name ?? "Account"} />
 
           {/* Tabs */}
           <div ref={tabsRef} className="flex items-center gap-2 flex-wrap border-b pb-2 scroll-mt-4">
