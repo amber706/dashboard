@@ -65,6 +65,7 @@ import BdAccountIntelligence from "@/pages/bd/account";
 import BdMeetings from "@/pages/bd/meetings";
 import BdTopAccounts from "@/pages/bd/top-accounts";
 import BdAccountTrends from "@/pages/bd/account-trends";
+import BdStrategy from "@/pages/bd/strategy";
 import BdReferrals from "@/pages/bd/referrals";
 import BdStuckAccounts from "@/pages/bd/stuck-accounts";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
@@ -241,6 +242,7 @@ function AppRoutes() {
         <Route path="/bd/account" component={MgrMod("page_bd_account_intel", BdAccountIntelligence)} />
         <Route path="/bd/top-accounts" component={MgrMod("page_bd_top_accounts", BdTopAccounts)} />
         <Route path="/bd/account-trends" component={MgrMod("page_bd_account_trends", BdAccountTrends)} />
+        <Route path="/bd/strategy" component={MgrMod("page_bd_strategy", BdStrategy)} />
         <Route path="/bd/meetings" component={MgrMod("page_bd_meetings", BdMeetings)} />
 
         {/* Master-tab placeholder routes — modules not yet built.
