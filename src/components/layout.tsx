@@ -175,6 +175,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/bd/referrals", label: "Referrals", icon: <ArrowLeftRight className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/stuck-accounts", label: "Stuck Accounts", icon: <AlertTriangle className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/top-accounts", label: "Top Referring Accounts", icon: <Trophy className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
+    { href: "/bd/account-trends", label: "Account Trends", icon: <BarChart3 className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/account", label: "Account Intelligence", icon: <Search className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/meetings", label: "Meetings", icon: <Calendar className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
   ];
@@ -222,6 +223,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href === "/bd/referrals") return "page_bd_referrals";
     if (href === "/bd/stuck-accounts") return "page_bd_stuck_accounts";
     if (href === "/bd/top-accounts") return "page_bd_top_accounts";
+    if (href === "/bd/account-trends") return "page_bd_account_trends";
     if (href === "/bd/account") return "page_bd_account_intel";
     if (href === "/bd/meetings") return "page_bd_meetings";
     // Module-level fallthrough.
