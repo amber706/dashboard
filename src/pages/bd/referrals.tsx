@@ -18,10 +18,11 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "wouter";
 import {
   Loader2, RefreshCw, ArrowLeft, ExternalLink,
-  TrendingUp, ArrowRight,
+  TrendingUp, ArrowRight, BarChart3,
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { supabase } from "@/lib/supabase";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -123,10 +124,18 @@ export default function BdReferrals() {
   // DUI / DV are separate service lines and skew the numbers if mixed in.
   const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set(["Commercial", "AHCCCS"]));
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // LOC filter — applies to the flat list. The By-LOC view ignores it
+  // because that view's whole job is to break the data out per LOC.
+  const [locFilter, setLocFilter] = useState<string>("all");
+  // View toggle. "list" is the flat sortable table; "by_loc" is the new
+  // per-level-of-care breakdown with the current-vs-prior comparison and
+  // the stacked bar chart.
+  const [view, setView] = useState<"list" | "by_loc">("list");
   const [sortKey, setSortKey] = useState<"timestamp" | "account" | "stage" | "rep" | "owner">("timestamp");
   const [sortDesc, setSortDesc] = useState(true);
 
   const [data, setData] = useState<BdReferralsList | null>(null);
+  const [priorData, setPriorData] = useState<BdReferralsList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<RepProfile[]>([]);
@@ -156,6 +165,33 @@ export default function BdReferrals() {
   }, [win.startIso, win.endIso, pipelinesParam]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Prior-window fetch for the By-LOC comparison view. Same length as
+  // the current window, shifted back so we can show "Apr referred X, May
+  // referring Y" deltas per account. Skipped until the user opens the
+  // By-LOC tab to avoid extra Zoho COQL pages on every page load.
+  useEffect(() => {
+    if (view !== "by_loc") return;
+    const startMs = new Date(win.startIso).getTime();
+    const endMs = new Date(win.endIso).getTime();
+    const span = endMs - startMs;
+    if (!Number.isFinite(span) || span <= 0) return;
+    const priorEnd = new Date(startMs - 1).toISOString().slice(0, 19) + "+00:00";
+    const priorStart = new Date(startMs - 1 - span).toISOString().slice(0, 19) + "+00:00";
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-referrals-list`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ start_iso: priorStart, end_iso: priorEnd, pipelines: pipelinesParam }),
+        });
+        const json = await res.json();
+        if (json.ok) setPriorData(json);
+      } catch { /* non-fatal — the view still works without prior */ }
+    })();
+  }, [view, win.startIso, win.endIso, pipelinesParam]);
 
   useEffect(() => {
     (async () => {
@@ -206,10 +242,23 @@ export default function BdReferrals() {
     return Array.from(s).sort();
   }, [data, direction]);
 
+  // LOC dropdown values — every distinct Admitted_Level_of_Care seen on
+  // the current-direction referrals, plus a "(no LOC)" bucket for rows
+  // missing the field. Sorted alphabetically.
+  const distinctLocs = useMemo(() => {
+    if (!data) return [];
+    const s = new Set<string>();
+    for (const r of data.referrals) {
+      if (r.direction === direction) s.add(normLoc(r.loc));
+    }
+    return Array.from(s).sort();
+  }, [data, direction]);
+
   const filtered = useMemo(() => {
     if (!data) return [];
     let rows = data.referrals.filter((r) => r.direction === direction);
     if (statusFilter !== "all") rows = rows.filter((r) => r.stage === statusFilter);
+    if (locFilter !== "all") rows = rows.filter((r) => normLoc(r.loc) === locFilter);
     rows = rows.slice().sort((a, b) => {
       const cmp = (() => {
         if (sortKey === "timestamp") return (a.timestamp ?? "").localeCompare(b.timestamp ?? "");
@@ -222,7 +271,7 @@ export default function BdReferrals() {
       return sortDesc ? -cmp : cmp;
     });
     return rows;
-  }, [data, direction, statusFilter, sortKey, sortDesc]);
+  }, [data, direction, statusFilter, locFilter, sortKey, sortDesc]);
 
   function header(key: typeof sortKey, label: string) {
     const active = sortKey === key;
@@ -272,21 +321,29 @@ export default function BdReferrals() {
         </div>
       }
     >
-      {/* Top tabs: In / Out */}
+      {/* Top tabs: In / Out / By LOC. "By LOC" pivots the inbound list
+          into a per-level-of-care breakdown with current-vs-prior account
+          comparison and a stacked bar chart over time. */}
       <div className="flex items-center gap-1 border-b">
         <button
-          onClick={() => { setDirection("in"); setStatusFilter("all"); }}
-          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${direction === "in" ? "border-blue-500 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => { setDirection("in"); setStatusFilter("all"); setLocFilter("all"); setView("list"); }}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${view === "list" && direction === "in" ? "border-blue-500 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
           <TrendingUp className="w-4 h-4 text-blue-500" /> Referrals in
           <Badge variant="outline" className="text-[10px] ml-1">{inCount}</Badge>
         </button>
         <button
-          onClick={() => { setDirection("out"); setStatusFilter("all"); }}
-          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${direction === "out" ? "border-orange-500 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          onClick={() => { setDirection("out"); setStatusFilter("all"); setLocFilter("all"); setView("list"); }}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${view === "list" && direction === "out" ? "border-orange-500 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
           <ArrowRight className="w-4 h-4 text-orange-500" /> Referrals out
           <Badge variant="outline" className="text-[10px] ml-1">{outCount}</Badge>
+        </button>
+        <button
+          onClick={() => { setView("by_loc"); setDirection("in"); }}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${view === "by_loc" ? "border-emerald-500 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <BarChart3 className="w-4 h-4 text-emerald-500" /> By LOC
         </button>
       </div>
 
@@ -315,14 +372,19 @@ export default function BdReferrals() {
           ))}
           <span className="mx-2 h-4 w-px bg-border" />
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-8 text-xs px-2 rounded border bg-background">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-8 text-xs px-2 rounded border bg-background" disabled={view === "by_loc"}>
             <option value="all">All statuses</option>
             {distinctStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground ml-2">LOC</span>
+          <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className="h-8 text-xs px-2 rounded border bg-background" disabled={view === "by_loc"}>
+            <option value="all">All LOCs</option>
+            {distinctLocs.map((l) => <option key={l} value={l}>{l}</option>)}
+          </select>
           <span className="text-xs text-muted-foreground ml-2">
-            {data ? `${filtered.length} of ${direction === "in" ? inCount : outCount}` : ""}
+            {data && view === "list" ? `${filtered.length} of ${direction === "in" ? inCount : outCount}` : ""}
           </span>
-          <Button size="sm" variant="outline" onClick={downloadCsv} disabled={!data || filtered.length === 0} className="ml-auto h-8 text-xs">
+          <Button size="sm" variant="outline" onClick={downloadCsv} disabled={!data || filtered.length === 0 || view === "by_loc"} className="ml-auto h-8 text-xs">
             Download CSV
           </Button>
         </div>
@@ -330,9 +392,18 @@ export default function BdReferrals() {
 
       {error && <Card className="border-red-500/30 bg-red-500/5"><CardContent className="pt-4 pb-4 text-sm text-red-600 dark:text-red-400">{error}</CardContent></Card>}
       {!data && loading && <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading referrals…</CardContent></Card>}
-      {data && filtered.length === 0 && !loading && <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No referrals match the current filters.</CardContent></Card>}
+      {view === "list" && data && filtered.length === 0 && !loading && <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No referrals match the current filters.</CardContent></Card>}
 
-      {data && filtered.length > 0 && (
+      {view === "by_loc" && data && (
+        <ByLocView
+          current={data.referrals.filter((r) => r.direction === "in")}
+          prior={priorData?.referrals.filter((r) => r.direction === "in") ?? null}
+          windowStart={win.startIso}
+          windowEnd={win.endIso}
+        />
+      )}
+
+      {view === "list" && data && filtered.length > 0 && (
         <Card>
           <CardContent className="pt-4 pb-4 overflow-x-auto">
             <table className="w-full text-sm">
@@ -408,4 +479,199 @@ export default function BdReferrals() {
 function isoDay(d: Date): string {
   const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, "0"); const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+// Canonicalize the LOC label. Empty/null becomes "(no LOC)" so it falls
+// into a single bucket instead of multiple invisible-empty groups.
+function normLoc(loc: string | null | undefined): string {
+  const v = (loc ?? "").trim();
+  return v || "(no LOC)";
+}
+
+// Bucket granularity for the stacked bar chart — depends on the window
+// width. Very short windows render daily bars, MTD/30d renders weekly,
+// longer windows roll up to monthly so the chart stays legible.
+function bucketKey(iso: string, granularity: "day" | "week" | "month"): string {
+  const d = new Date(iso);
+  if (granularity === "month") return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  if (granularity === "day")   return d.toISOString().slice(0, 10);
+  // Week: ISO week start (Monday)
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+  return monday.toISOString().slice(0, 10);
+}
+
+// 7-color palette for stacked LOC bars and per-LOC card headers. Cycles
+// for orgs with more than 7 active LOCs.
+const LOC_COLORS = [
+  "hsl(210, 80%, 55%)", "hsl(160, 70%, 45%)", "hsl(45, 85%, 55%)",
+  "hsl(280, 55%, 55%)", "hsl(340, 65%, 55%)", "hsl(20, 80%, 55%)",
+  "hsl(190, 70%, 50%)",
+];
+
+function ByLocView({ current, prior, windowStart, windowEnd }: {
+  current: RefRow[];
+  prior: RefRow[] | null;
+  windowStart: string;
+  windowEnd: string;
+}) {
+  const spanDays = Math.max(1, Math.round((new Date(windowEnd).getTime() - new Date(windowStart).getTime()) / 86_400_000));
+  const granularity: "day" | "week" | "month" = spanDays <= 21 ? "day" : spanDays <= 95 ? "week" : "month";
+
+  // Aggregate per-LOC totals + per-account-per-LOC counts for the current
+  // window. Mirror the same shape for the prior window so we can show
+  // current vs. prior side-by-side.
+  const currentByLoc = useMemo(() => groupByLoc(current), [current]);
+  const priorByLoc   = useMemo(() => prior ? groupByLoc(prior) : null, [prior]);
+
+  // Order LOCs by current referral volume, descending. LOCs that only
+  // exist in prior data still get a row so a drop to zero is visible.
+  const locKeys = useMemo(() => {
+    const all = new Set<string>([...Object.keys(currentByLoc), ...Object.keys(priorByLoc ?? {})]);
+    return Array.from(all).sort((a, b) => (currentByLoc[b]?.total ?? 0) - (currentByLoc[a]?.total ?? 0));
+  }, [currentByLoc, priorByLoc]);
+
+  // Stacked-bar chart data — one row per bucket, with a numeric series
+  // per LOC. We cap the series to top-7 LOCs by volume so the legend
+  // stays readable; anything else rolls into "Other".
+  const chartData = useMemo(() => {
+    const topLocs = locKeys.slice(0, 7);
+    const otherSet = new Set(locKeys.slice(7));
+    const buckets = new Map<string, Record<string, number | string>>();
+    for (const r of current) {
+      if (!r.timestamp) continue;
+      const key = bucketKey(r.timestamp, granularity);
+      let row = buckets.get(key);
+      if (!row) { row = { bucket: key }; buckets.set(key, row); }
+      const loc = normLoc(r.loc);
+      const series = otherSet.has(loc) ? "Other" : loc;
+      row[series] = ((row[series] as number | undefined) ?? 0) + 1;
+    }
+    return Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([, row]) => row);
+  }, [current, locKeys, granularity]);
+  const chartLocs = useMemo(() => {
+    const top = locKeys.slice(0, 7);
+    const hasOther = locKeys.length > 7;
+    return hasOther ? [...top, "Other"] : top;
+  }, [locKeys]);
+
+  if (current.length === 0) {
+    return <Card><CardContent className="pt-6 pb-6 text-sm text-muted-foreground text-center">No inbound referrals in this window.</CardContent></Card>;
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Inbound referrals by level of care</CardTitle>
+          <p className="text-xs text-muted-foreground">Stacked by LOC, bucketed {granularity === "day" ? "daily" : granularity === "week" ? "weekly" : "monthly"}. Top 7 LOCs shown.</p>
+        </CardHeader>
+        <CardContent className="h-[320px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {chartLocs.map((loc, i) => (
+                <Bar key={loc} dataKey={loc} stackId="a" fill={LOC_COLORS[i % LOC_COLORS.length]} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {locKeys.map((loc, i) => {
+          const cur = currentByLoc[loc] ?? { total: 0, byAccount: {} };
+          const prv = priorByLoc?.[loc] ?? { total: 0, byAccount: {} };
+          const color = LOC_COLORS[i % LOC_COLORS.length];
+          const totalDelta = cur.total - prv.total;
+          // Rank accounts by max(current, prior) so accounts that dropped
+          // to zero still surface in the comparison.
+          const accountKeys = Array.from(new Set([...Object.keys(cur.byAccount), ...Object.keys(prv.byAccount)]))
+            .sort((a, b) => Math.max(cur.byAccount[b] ?? 0, prv.byAccount[b] ?? 0) - Math.max(cur.byAccount[a] ?? 0, prv.byAccount[a] ?? 0))
+            .slice(0, 8);
+          return (
+            <Card key={loc}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }} />
+                  {loc}
+                  <Badge variant="outline" className="text-[10px]">{cur.total} now</Badge>
+                  {prior && (
+                    <Badge variant="outline" className={`text-[10px] ${totalDelta > 0 ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400" : totalDelta < 0 ? "border-rose-500/40 text-rose-700 dark:text-rose-400" : ""}`}>
+                      {totalDelta >= 0 ? "+" : ""}{totalDelta} vs prior
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {accountKeys.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">No accounts.</p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="text-left py-1.5 pr-2">Account</th>
+                        <th className="text-right py-1.5 pr-2">Now</th>
+                        {prior && <th className="text-right py-1.5 pr-2">Prior</th>}
+                        {prior && <th className="text-right py-1.5">Δ</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accountKeys.map((acctKey) => {
+                        const curN = cur.byAccount[acctKey] ?? 0;
+                        const prvN = prv.byAccount[acctKey] ?? 0;
+                        const delta = curN - prvN;
+                        const [acctId, acctName] = acctKey.split("|", 2);
+                        return (
+                          <tr key={acctKey} className="border-t">
+                            <td className="py-1.5 pr-2">
+                              {acctId ? (
+                                <Link href={`/bd/account?id=${acctId}`} className="text-primary hover:underline">{acctName || "—"}</Link>
+                              ) : (acctName || "—")}
+                            </td>
+                            <td className="py-1.5 pr-2 text-right tabular-nums font-medium">{curN}</td>
+                            {prior && <td className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground">{prvN}</td>}
+                            {prior && (
+                              <td className={`py-1.5 text-right tabular-nums ${delta > 0 ? "text-emerald-700 dark:text-emerald-400" : delta < 0 ? "text-rose-700 dark:text-rose-400" : "text-muted-foreground"}`}>
+                                {delta >= 0 ? "+" : ""}{delta}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+      {!prior && (
+        <p className="text-xs text-muted-foreground">Loading prior-window comparison…</p>
+      )}
+    </>
+  );
+}
+
+// Roll referrals up to { LOC → { total, byAccount: { "id|name": count } } }.
+// Account key joins id + name so we can render a stable Link to /bd/account
+// while still showing the name even when the id is missing.
+function groupByLoc(rows: RefRow[]): Record<string, { total: number; byAccount: Record<string, number> }> {
+  const out: Record<string, { total: number; byAccount: Record<string, number> }> = {};
+  for (const r of rows) {
+    const loc = normLoc(r.loc);
+    let entry = out[loc];
+    if (!entry) { entry = { total: 0, byAccount: {} }; out[loc] = entry; }
+    entry.total++;
+    const acctKey = `${r.account_id ?? ""}|${r.account_name ?? ""}`;
+    if (acctKey === "|") continue;
+    entry.byAccount[acctKey] = (entry.byAccount[acctKey] ?? 0) + 1;
+  }
+  return out;
 }
