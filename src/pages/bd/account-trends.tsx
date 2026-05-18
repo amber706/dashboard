@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "wouter";
 import { Loader2, RefreshCw, ArrowLeft, BarChart3 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -231,24 +231,31 @@ export default function BdAccountTrends() {
             </CardHeader>
             <CardContent className="h-[360px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
+                <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="referrals" name="Referrals" fill="hsl(210, 80%, 55%)" />
-                  <Bar dataKey="admits" name="Admits" fill="hsl(160, 70%, 45%)" />
-                </BarChart>
+                  <Line type="monotone" dataKey="referrals" name="Referrals" stroke="hsl(210, 80%, 55%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="admits"    name="Admits"    stroke="hsl(160, 70%, 45%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                </LineChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Top referring accounts</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+                Top referring accounts
+                <Badge variant="outline" className="text-[10px]">{months}mo</Badge>
+                {pipelineGroups.size > 0 && (
+                  <Badge variant="outline" className="text-[10px]">{Array.from(pipelineGroups).join(" + ")}</Badge>
+                )}
+                {loc !== "all" && <Badge variant="outline" className="text-[10px]">LOC: {loc}</Badge>}
+              </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Ranked by total referrals in the window. Trend compares the two most recent full months
+                Ranked by total referrals in the window — scoped to the filters above. Trend compares the two most recent full months
                 {trendMonthLabels ? <> (<span className="font-medium">{trendMonthLabels.current}</span> vs <span className="font-medium">{trendMonthLabels.prior}</span>)</> : null}
                 . Click a row to filter the chart to just that account.
               </p>
