@@ -366,10 +366,21 @@ function TopAccountsLineChart({ accounts, months, loc }: {
     return sorted.slice(0, topN);
   }, [accounts, topN]);
 
+  // High-contrast palette tuned for the dark UI. Hues are spread far
+  // enough apart that each line reads as a distinct color even when
+  // they cross. Lightness sits in the 60-75% range so lines pop
+  // against the dark background; the previous 45-55% palette was
+  // washing out on dark mode. Colorblind-aware: blue/orange and
+  // green/pink are the strongest signal pairs and don't sit next to
+  // each other.
   const lineColors = [
-    "hsl(210, 80%, 55%)", "hsl(160, 70%, 45%)", "hsl(280, 55%, 55%)",
-    "hsl(20, 80%, 55%)",  "hsl(340, 65%, 55%)", "hsl(45, 85%, 55%)",
-    "hsl(190, 70%, 50%)",
+    "hsl(213, 94%, 68%)",  // bright blue
+    "hsl(158, 64%, 52%)",  // emerald
+    "hsl(43, 96%, 60%)",   // amber
+    "hsl(330, 89%, 70%)",  // pink
+    "hsl(255, 92%, 76%)",  // violet
+    "hsl(27, 96%, 61%)",   // orange
+    "hsl(187, 86%, 60%)",  // cyan
   ];
 
   // Shape the data into one row per month with a column per account
