@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "wouter";
-import { Loader2, RefreshCw, ArrowLeft, BarChart3, TrendingUp } from "lucide-react";
+import { Loader2, RefreshCw, ArrowLeft, BarChart3, TrendingUp, ExternalLink } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/dashboard/PageShell";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 
 const PIPELINE_GROUPS = {
   DUI: ["DUI", "DUI - Cash"],
@@ -36,11 +37,14 @@ interface AccountTrend {
   total_meetings?: number;
   conversion_rate: number | null;
   // Per-month bucket. v6 of bd-account-trends adds refer_outs +
-  // meetings; older deployments may not include them — fields are
-  // optional and we treat missing as 0.
+  // meetings; each bucket also carries the deal/event IDs that rolled
+  // into it so a chart click can drill straight into the underlying
+  // records without an extra roundtrip.
   by_month: Record<string, {
     referrals: number; admits: number;
     refer_outs?: number; meetings?: number;
+    referral_ids?: string[]; admit_ids?: string[];
+    refer_out_ids?: string[]; meeting_ids?: string[];
   }>;
 }
 
@@ -71,6 +75,12 @@ export default function BdAccountTrends() {
   const [data, setData] = useState<TrendsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Per-month drill-down state. `monthKey` is the canonical bucket id
+  // (e.g. "2025-08"); the sheet pulls IDs from data.accounts for that
+  // month, scoped to either a single account (selectedAccountId) or
+  // every account when the chart is in "All accounts combined" mode.
+  const [drillMonth, setDrillMonth] = useState<string | null>(null);
 
   const pipelinesParam = useMemo(() => {
     if (pipelineGroups.size === 0) return undefined;
@@ -125,9 +135,41 @@ export default function BdAccountTrends() {
       }
       const [y, m] = mk.split("-").map(Number);
       const label = new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-      return { month: label, referrals, admits, meetings, refer_outs };
+      // monthKey kept alongside the pretty label so the chart's click
+      // handler can map back to the canonical bucket id without re-parsing.
+      return { month: label, monthKey: mk, referrals, admits, meetings, refer_outs };
     });
   }, [data, selectedAccountId]);
+
+  // Aggregate deal IDs for the currently-open drill-down month, scoped
+  // to either a single account (when selectedAccountId is set) or
+  // unioned across every account.
+  const drillRecords = useMemo(() => {
+    if (!drillMonth || !data) return null;
+    const accts = selectedAccountId === "all"
+      ? data.accounts
+      : data.accounts.filter((a) => a.id === selectedAccountId);
+    const referrals: Array<{ id: string; account: string }> = [];
+    const admits: Array<{ id: string; account: string }> = [];
+    const referOuts: Array<{ id: string; account: string }> = [];
+    const meetings: Array<{ id: string; account: string }> = [];
+    for (const a of accts) {
+      const b = a.by_month[drillMonth];
+      if (!b) continue;
+      for (const id of (b.referral_ids ?? []))  referrals.push({ id, account: a.name });
+      for (const id of (b.admit_ids ?? []))     admits.push({ id, account: a.name });
+      for (const id of (b.refer_out_ids ?? [])) referOuts.push({ id, account: a.name });
+      for (const id of (b.meeting_ids ?? []))   meetings.push({ id, account: a.name });
+    }
+    return { referrals, admits, referOuts, meetings };
+  }, [drillMonth, data, selectedAccountId]);
+
+  function onChartClick(e: any) {
+    const label: string | undefined = e?.activeLabel;
+    if (!label) return;
+    const row = chartData.find((r) => r.month === label);
+    if (row) setDrillMonth(row.monthKey);
+  }
 
   const topAccounts = useMemo(() => data?.accounts.slice(0, 25) ?? [], [data]);
 
@@ -242,12 +284,13 @@ export default function BdAccountTrends() {
                 Four bars per month — <span style={{ color: "hsl(213, 94%, 68%)" }} className="font-medium">Referrals</span>,
                 {" "}<span style={{ color: "hsl(158, 64%, 52%)" }} className="font-medium">Admits</span>,
                 {" "}<span style={{ color: "hsl(43, 96%, 60%)" }} className="font-medium">Meetings</span>,
-                {" "}<span style={{ color: "hsl(27, 96%, 61%)" }} className="font-medium">Refer-outs</span>. Click an account in the table to scope.
+                {" "}<span style={{ color: "hsl(27, 96%, 61%)" }} className="font-medium">Refer-outs</span>.
+                Click a bar to drill into that month's records, or click an account in the table to scope the chart.
               </p>
             </CardHeader>
             <CardContent className="h-[360px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
+                <BarChart data={chartData} onClick={onChartClick} style={{ cursor: chartData.length > 0 ? "pointer" : "default" }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
@@ -280,6 +323,60 @@ export default function BdAccountTrends() {
             selectedAccountId={selectedAccountId}
             accountName={selectedAccountId === "all" ? "All accounts" : (data.accounts.find((a) => a.id === selectedAccountId)?.name ?? "Account")}
           />
+
+          {/* Per-month drill-down sheet. Opens when the user clicks any
+              bar on the top all-accounts chart above. Lists every
+              record that rolled into that month — referrals, admits,
+              refer-outs, meetings — scoped to the current account
+              selection. */}
+          <Sheet open={drillMonth != null} onOpenChange={(o) => { if (!o) setDrillMonth(null); }}>
+            <SheetContent className="sm:max-w-xl overflow-y-auto">
+              {drillMonth && drillRecords && (
+                <>
+                  <SheetHeader>
+                    <SheetTitle>
+                      {(() => { const [y, m] = drillMonth.split("-").map(Number); return new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" }); })()}
+                      {" · "}
+                      {selectedAccountId === "all" ? "All accounts" : (data.accounts.find((a) => a.id === selectedAccountId)?.name ?? "Account")}
+                    </SheetTitle>
+                    <SheetDescription>
+                      {drillRecords.referrals.length} referrals · {drillRecords.admits.length} admits · {drillRecords.referOuts.length} refer-outs · {drillRecords.meetings.length} meetings
+                      {loc !== "all" ? <> · LOC: {loc}</> : null}
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="mt-4 space-y-4">
+                    {[
+                      { label: "Referrals",  rows: drillRecords.referrals, module: "Potentials" as const },
+                      { label: "Admits",     rows: drillRecords.admits,    module: "Potentials" as const },
+                      { label: "Refer-outs", rows: drillRecords.referOuts, module: "Potentials" as const },
+                      { label: "Meetings",   rows: drillRecords.meetings,  module: "Events"     as const },
+                    ].map((sec) => (
+                      <section key={sec.label}>
+                        <h3 className="text-xs uppercase tracking-wide text-muted-foreground mb-1.5">
+                          {sec.label} <span className="text-foreground">({sec.rows.length})</span>
+                        </h3>
+                        {sec.rows.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No records.</p>
+                        ) : (
+                          <ul className="space-y-1 max-h-[30vh] overflow-y-auto">
+                            {sec.rows.map((r) => (
+                              <li key={r.id} className="text-xs flex items-center gap-2 border-t pt-1.5">
+                                <span className="font-mono text-muted-foreground truncate">{r.id}</span>
+                                <span className="text-muted-foreground truncate flex-1">{r.account}</span>
+                                <a href={`https://crm.zoho.com/crm/tab/${sec.module}/${r.id}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-0.5">
+                                  Zoho <ExternalLink className="w-3 h-3" />
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </section>
+                    ))}
+                  </div>
+                </>
+              )}
+            </SheetContent>
+          </Sheet>
 
           <Card>
             <CardHeader className="pb-2">
