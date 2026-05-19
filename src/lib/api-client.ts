@@ -969,6 +969,12 @@ async function getCTMCalls(queryString: string): Promise<Response> {
   // specialist_id filter — drives the "filter by rep" dropdown on /ctm-calls.
   // "unlinked" is a sentinel meaning "show calls with no specialist linkage."
   const specialistId = params.get("specialist_id");
+  // queue filter — slices calls by where they were routed inside CTM.
+  // ctm_routing_path is a JSONB array of {route_name, route_type} steps;
+  // we match against route_name on CallQueue / VoiceMenuItem entries to
+  // bucket between Admissions, DUI, Treatment-Commercial, Treatment-Medicaid.
+  // Values: "admissions" | "dui" | "treatment_commercial" | "treatment_medicaid"
+  const queue = params.get("queue");
 
   let q = supabase
     .from("call_sessions")
@@ -1010,6 +1016,32 @@ async function getCTMCalls(queryString: string): Promise<Response> {
     // midnight (start of day).
     const endIso = /T\d/.test(endDate) ? endDate : `${endDate}T23:59:59.999Z`;
     q = q.lte("started_at", endIso);
+  }
+  // Queue filter — Postgres can't easily match a substring inside a
+  // nested JSONB array via PostgREST, so we do it via a server-side
+  // `ctm_routing_path::text ilike` match. The CTM route names are
+  // stable strings ("Admissions Queue", "DUI Queue 2025",
+  // "Treatment Reps - Commercial", "Treatment Reps - Medicaid", and
+  // the "Main Admissions IVR:2" → DUI handoff item), so ilike is fine.
+  if (queue && queue !== "all") {
+    const patterns: Record<string, string[]> = {
+      admissions: [
+        "%\"Admissions Queue\"%",
+        "%\"Treatment Reps - Commercial\"%",
+        "%\"Treatment Reps - Medicaid\"%",
+      ],
+      treatment_commercial: ["%\"Treatment Reps - Commercial\"%"],
+      treatment_medicaid:   ["%\"Treatment Reps - Medicaid\"%"],
+      dui: ["%\"DUI Queue 2025\"%", "%\"Main Admissions IVR:2\"%"],
+    };
+    const pats = patterns[queue];
+    if (pats && pats.length) {
+      // PostgREST OR helper: build (text.ilike.X,text.ilike.Y,...) on
+      // the cast routing_path column. Cast is required because ilike
+      // doesn't operate on jsonb.
+      const orExpr = pats.map((p) => `ctm_routing_path::text.ilike.${p}`).join(",");
+      q = q.or(orExpr);
+    }
   }
 
   const { data, error, count } = await q;

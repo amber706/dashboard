@@ -161,9 +161,10 @@ function readInitialFiltersFromUrl(): {
   hasTranscript: boolean;
   dateRange: DateRange | null;
   specialist: string;
+  queue: string;
 } {
   if (typeof window === "undefined") {
-    return { direction: "all", status: "all", subtype: "all", hasTranscript: false, dateRange: getDefaultDateRange(), specialist: "all" };
+    return { direction: "all", status: "all", subtype: "all", hasTranscript: false, dateRange: getDefaultDateRange(), specialist: "all", queue: "all" };
   }
   const p = new URLSearchParams(window.location.search);
   const direction = p.get("direction") ?? "all";
@@ -173,6 +174,10 @@ function readInitialFiltersFromUrl(): {
   // Specialist filter — used by the manager-command-center rep cards
   // to drill into one rep's calls. Profile id, "unlinked", or "all".
   const specialist = p.get("specialist") ?? "all";
+  // Queue filter — slices Admissions vs DUI traffic, derived from
+  // CTM routing path. Values: all | admissions | dui |
+  // treatment_commercial | treatment_medicaid.
+  const queue = p.get("queue") ?? "all";
 
   let dateRange: DateRange | null = getDefaultDateRange();
   const datePreset = p.get("date");
@@ -192,7 +197,7 @@ function readInitialFiltersFromUrl(): {
   } else if (startParam && endParam) {
     dateRange = { startDate: new Date(startParam), endDate: new Date(endParam) };
   }
-  return { direction, status, subtype, hasTranscript, dateRange, specialist };
+  return { direction, status, subtype, hasTranscript, dateRange, specialist, queue };
 }
 
 export default function CTMCalls() {
@@ -216,6 +221,7 @@ export default function CTMCalls() {
   // dashboard drill-throughs (e.g. /ctm-calls?specialist=<id>) land
   // pre-filtered.
   const [specialistFilter, setSpecialistFilter] = useState<string>(initialUrlFilters.specialist);
+  const [queueFilter, setQueueFilter] = useState<string>(initialUrlFilters.queue);
   const [specialists, setSpecialists] = useState<Array<{ id: string; full_name: string | null; email: string | null }>>([]);
   const [dateRange, setDateRange] = useState<DateRange | null>(initialUrlFilters.dateRange);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -296,6 +302,7 @@ export default function CTMCalls() {
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (hasTranscriptFilter) params.set("has_transcript", "true");
       if (specialistFilter !== "all") params.set("specialist_id", specialistFilter);
+      if (queueFilter !== "all") params.set("queue", queueFilter);
       if (dateRange) {
         params.set("start_date", formatDateParam(dateRange.startDate));
         params.set("end_date", formatDateParam(dateRange.endDate));
@@ -312,7 +319,7 @@ export default function CTMCalls() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [offset, dirFilter, statusFilter, subtypeFilter, hasTranscriptFilter, specialistFilter, dateRange]);
+  }, [offset, dirFilter, statusFilter, subtypeFilter, hasTranscriptFilter, specialistFilter, queueFilter, dateRange]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -658,6 +665,23 @@ export default function CTMCalls() {
             {specialists.map((s) => (
               <SelectItem key={s.id} value={s.id}>{s.full_name ?? s.email ?? s.id}</SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        {/* Queue filter — slices Admissions vs DUI traffic by reading
+            the call's CTM routing path. The IVR routes inbound calls
+            into one of these queues server-side; we surface the same
+            split here so the same call list can be sliced by where
+            it actually landed. */}
+        <Select value={queueFilter} onValueChange={(v) => { setQueueFilter(v); setOffset(0); }}>
+          <SelectTrigger className="w-44 h-11 md:h-8">
+            <SelectValue placeholder="Queue" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Queues</SelectItem>
+            <SelectItem value="admissions">Admissions (Treatment)</SelectItem>
+            <SelectItem value="treatment_commercial">↳ Treatment · Commercial</SelectItem>
+            <SelectItem value="treatment_medicaid">↳ Treatment · AHCCCS</SelectItem>
+            <SelectItem value="dui">DUI</SelectItem>
           </SelectContent>
         </Select>
         {hasTranscriptFilter && (
