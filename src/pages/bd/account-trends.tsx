@@ -102,27 +102,30 @@ export default function BdAccountTrends() {
     setPipelineGroups((prev) => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; });
   }
 
-  // Compose the chart rows. Each row is { month, referrals, admits }.
-  // "All accounts" sums every account; a single account picks just
-  // that account's monthly counts.
+  // Compose the chart rows. Each row carries all four metric totals
+  // for the month so the chart can render side-by-side bars. "All
+  // accounts" sums every account; a single account picks just that
+  // account's monthly counts.
   const chartData = useMemo(() => {
     if (!data) return [];
     return data.months.map((mk) => {
-      let referrals = 0; let admits = 0;
+      let referrals = 0; let admits = 0; let meetings = 0; let refer_outs = 0;
+      const accumulate = (b: any) => {
+        if (!b) return;
+        referrals  += b.referrals  ?? 0;
+        admits     += b.admits     ?? 0;
+        meetings   += b.meetings   ?? 0;
+        refer_outs += b.refer_outs ?? 0;
+      };
       if (selectedAccountId === "all") {
-        for (const a of data.accounts) {
-          const b = a.by_month[mk];
-          if (b) { referrals += b.referrals; admits += b.admits; }
-        }
+        for (const a of data.accounts) accumulate(a.by_month[mk]);
       } else {
         const a = data.accounts.find((x) => x.id === selectedAccountId);
-        const b = a?.by_month[mk];
-        if (b) { referrals = b.referrals; admits = b.admits; }
+        accumulate(a?.by_month[mk]);
       }
-      // Pretty month label: "Jun 2025" instead of "2025-06"
       const [y, m] = mk.split("-").map(Number);
       const label = new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-      return { month: label, referrals, admits };
+      return { month: label, referrals, admits, meetings, refer_outs };
     });
   }, [data, selectedAccountId]);
 
@@ -235,7 +238,12 @@ export default function BdAccountTrends() {
                 <Badge variant="outline" className="text-[10px]">{months}mo</Badge>
                 {loc !== "all" && <Badge variant="outline" className="text-[10px]">LOC: {loc}</Badge>}
               </CardTitle>
-              <p className="text-xs text-muted-foreground">Referrals (blue) vs Admits (green), per month. Click an account in the table to scope.</p>
+              <p className="text-xs text-muted-foreground">
+                Four bars per month — <span style={{ color: "hsl(213, 94%, 68%)" }} className="font-medium">Referrals</span>,
+                {" "}<span style={{ color: "hsl(158, 64%, 52%)" }} className="font-medium">Admits</span>,
+                {" "}<span style={{ color: "hsl(43, 96%, 60%)" }} className="font-medium">Meetings</span>,
+                {" "}<span style={{ color: "hsl(27, 96%, 61%)" }} className="font-medium">Refer-outs</span>. Click an account in the table to scope.
+              </p>
             </CardHeader>
             <CardContent className="h-[360px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -245,8 +253,10 @@ export default function BdAccountTrends() {
                   <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="referrals" name="Referrals" fill="hsl(210, 80%, 55%)" />
-                  <Bar dataKey="admits" name="Admits" fill="hsl(160, 70%, 45%)" />
+                  <Bar dataKey="referrals"  name="Referrals"  fill="hsl(213, 94%, 68%)" />
+                  <Bar dataKey="admits"     name="Admits"     fill="hsl(158, 64%, 52%)" />
+                  <Bar dataKey="meetings"   name="Meetings"   fill="hsl(43, 96%, 60%)" />
+                  <Bar dataKey="refer_outs" name="Refer-outs" fill="hsl(27, 96%, 61%)" />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -366,10 +376,21 @@ function TopAccountsLineChart({ accounts, months, loc }: {
     return sorted.slice(0, topN);
   }, [accounts, topN]);
 
+  // High-contrast palette tuned for the dark UI. Hues are spread far
+  // enough apart that each line reads as a distinct color even when
+  // they cross. Lightness sits in the 60-75% range so lines pop
+  // against the dark background; the previous 45-55% palette was
+  // washing out on dark mode. Colorblind-aware: blue/orange and
+  // green/pink are the strongest signal pairs and don't sit next to
+  // each other.
   const lineColors = [
-    "hsl(210, 80%, 55%)", "hsl(160, 70%, 45%)", "hsl(280, 55%, 55%)",
-    "hsl(20, 80%, 55%)",  "hsl(340, 65%, 55%)", "hsl(45, 85%, 55%)",
-    "hsl(190, 70%, 50%)",
+    "hsl(213, 94%, 68%)",  // bright blue
+    "hsl(158, 64%, 52%)",  // emerald
+    "hsl(43, 96%, 60%)",   // amber
+    "hsl(330, 89%, 70%)",  // pink
+    "hsl(255, 92%, 76%)",  // violet
+    "hsl(27, 96%, 61%)",   // orange
+    "hsl(187, 86%, 60%)",  // cyan
   ];
 
   // Shape the data into one row per month with a column per account
