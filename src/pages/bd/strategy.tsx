@@ -384,7 +384,19 @@ function ExpandedDetail({ a, goal }: { a: AccountStrategy; goal: GoalKey }) {
         </section>
 
         <section>
-          <h4 className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">Lag patterns (goal-relevant)</h4>
+          <h4
+            className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5 cursor-help"
+            title={
+              "Each percentage = of the months where this account had the activity, what % of those months also had the outcome at that lag.\n\n" +
+              "0d  = same month (coincided, not caused)\n" +
+              "30d = activity precedes outcome by ~1 month\n" +
+              "60d = ~2 months\n" +
+              "90d = ~3 months\n\n" +
+              "'X obs' = months with the activity in the window — small samples are unreliable, hence the Confidence chip. The green highlight is the strongest lag the engine could find (≥25% rate, ≥2 observations)."
+            }
+          >
+            Lag patterns (goal-relevant) ⓘ
+          </h4>
           <ul className="space-y-1.5 text-xs">
             {focusPairs.map((p) => {
               const c = a.correlations[p.key];
