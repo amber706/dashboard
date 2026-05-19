@@ -79,8 +79,13 @@ async function fetchFunnel(range: DateRange): Promise<FunnelAnalysis> {
       .eq("cohort_month", cohortMonth),
     fact().from("fact_pipeline").select("*", { count: "exact", head: true })
       .eq("cohort_month", cohortMonth).eq("is_won", true),
-    fact().from("fact_admit").select("admit_date, lead_created_time")
+    // fact_admit doesn't carry lead_created_time on this org's
+    // warehouse schema — only fact_pipeline does. Pull the matched
+    // rows from fact_pipeline instead (is_won=true + admit_date in
+    // window) so the median speed-to-admit calc works.
+    fact().from("fact_pipeline").select("admit_date, lead_created_time")
       .gte("admit_date", range.from).lte("admit_date", range.to)
+      .eq("is_won", true)
       .not("lead_created_time", "is", null)
       .limit(2000),
     fact().from("fact_pipeline").select(
