@@ -28,11 +28,13 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
-import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 import { useChartView, type PipelineFilter, type Slice, type NestedRow } from "@/features/analytics-warehouse/hooks/useChartView";
 import { useReferOutBreakdowns } from "@/features/analytics-warehouse/hooks/useReferOutBreakdowns";
-import type { DatePreset } from "@/features/analytics-warehouse/api/types";
+import { useUnattributedDetail } from "@/features/analytics-warehouse/hooks/useUnattributedDetail";
 import { resolveDateRange } from "@/features/analytics-warehouse/hooks/useDateRange";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 
 // Color palette — 8 distinct, accessible hues. Adjacent colors contrast
 // so a stacked bar segment never blends into its neighbor.
@@ -241,6 +243,12 @@ export default function AnalyticsChartView() {
   const { data, isLoading } = useChartView(range, pipeline);
   const { data: brk, isLoading: brkLoading } = useReferOutBreakdowns(range, pipeline);
 
+  // Unattributed drill-down — fetched lazily, only when the user
+  // opens the dialog. enabled=open keeps the query dormant on first
+  // page paint.
+  const [unattOpen, setUnattOpen] = useState(false);
+  const { data: unatt, isLoading: unattLoading } = useUnattributedDetail(range, pipeline, unattOpen);
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <PageHeader
@@ -313,7 +321,7 @@ export default function AnalyticsChartView() {
           <Card className="border-amber-500/40 bg-amber-500/5">
             <CardContent className="p-4 text-sm flex items-start gap-3">
               <span className="mt-0.5 inline-block w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-              <div className="space-y-1">
+              <div className="space-y-1 flex-1">
                 <div>
                   <span className="font-semibold">Attribution gap.</span>{" "}
                   Unattributed share is high in this window —
@@ -323,9 +331,12 @@ export default function AnalyticsChartView() {
                   Target is under 5%.
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Most common causes: Source field blank on Lead in Zoho, GCLID dropped before form submit, or a partner Source value not in the dim_source map yet. Channel attribution feeds every chart below — the higher this banner reads, the less trust the splits warrant.
+                  Most common causes: Source field blank on Lead in Zoho, GCLID dropped before form submit, or a partner Source value not in the dim_source map yet.
                 </div>
               </div>
+              <Button size="sm" variant="outline" onClick={() => setUnattOpen(true)} className="shrink-0 h-8 text-xs">
+                Drill into unattributed
+              </Button>
             </CardContent>
           </Card>
         );
@@ -374,6 +385,119 @@ export default function AnalyticsChartView() {
         <PieCard title="Referred Out by Policy"      slices={brk?.referred_out_by_policy}   loading={brkLoading} />
         <PieCard title="Referred Out by Company"     slices={brk?.referred_out_by_company}  loading={brkLoading} />
       </div>
+
+      {/* Unattributed drill-down dialog. Lazily loaded — query only
+          fires when the dialog opens, never on first page paint. */}
+      <Dialog open={unattOpen} onOpenChange={setUnattOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Unattributed leads — drill-down</DialogTitle>
+            <DialogDescription>
+              {range.from} → {range.to} · pipeline: {pipeline === "all" ? "All" : pipeline === "commercial" ? "Commercial" : "AHCCCS"}
+            </DialogDescription>
+          </DialogHeader>
+          {unattLoading || !unatt ? (
+            <Skeleton className="h-72 w-full" />
+          ) : unatt.total === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No unattributed leads in this window.
+            </p>
+          ) : (
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {/* Headline */}
+              <Card>
+                <CardContent className="p-3 text-sm">
+                  <span className="font-semibold tabular-nums">{fmtNumber(unatt.total)}</span> unattributed leads in this window. Every row here was created without a Source value in Zoho — the fix is upstream.
+                </CardContent>
+              </Card>
+
+              {/* Signal coverage — how many of these rows have ANY
+                  tracking signal at all (gclid, landing url, campaign).
+                  fully_blank is the painful number: a manually-keyed
+                  lead with nothing attached. */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Tracking signals on these rows</h3>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                  <SignalCell label="Has Source" value={unatt.signal_coverage.has_tracking_source} total={unatt.total} />
+                  <SignalCell label="Has GCLID" value={unatt.signal_coverage.has_gclid} total={unatt.total} />
+                  <SignalCell label="Has landing URL" value={unatt.signal_coverage.has_landing} total={unatt.total} />
+                  <SignalCell label="Has campaign" value={unatt.signal_coverage.has_campaign} total={unatt.total} />
+                  <SignalCell label="Fully blank" value={unatt.signal_coverage.fully_blank} total={unatt.total} highlight />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  "Fully blank" = no Source, GCLID, landing URL, or campaign — the lead was keyed manually with no tracking attached. Train the owners below to fill in Source on the Lead in Zoho.
+                </p>
+              </div>
+
+              {/* By owner — actionable: which reps are creating these */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">By owner — who's creating untracked leads</h3>
+                <table className="w-full text-xs">
+                  <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="text-left py-1.5 pr-2">Owner</th>
+                      <th className="text-right py-1.5 pr-2">Unattributed</th>
+                      <th className="text-right py-1.5 pr-2">Share</th>
+                      <th className="text-right py-1.5">Admits</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unatt.by_owner.map((r) => (
+                      <tr key={r.owner} className="border-t">
+                        <td className="py-1.5 pr-2 font-medium">{r.owner}</td>
+                        <td className="py-1.5 pr-2 text-right tabular-nums">{fmtNumber(r.count)}</td>
+                        <td className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground">
+                          {((r.count / unatt.total) * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums">{fmtNumber(r.admits)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Most-recent samples — spot-check window */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">10 most recent unattributed leads</h3>
+                <table className="w-full text-xs">
+                  <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="text-left py-1.5 pr-2">Lead</th>
+                      <th className="text-left py-1.5 pr-2">Owner</th>
+                      <th className="text-left py-1.5 pr-2">Stage</th>
+                      <th className="text-right py-1.5">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unatt.samples.map((s, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="py-1.5 pr-2 font-medium">
+                          {[s.first_name, s.last_initial].filter(Boolean).join(" ") || "—"}
+                        </td>
+                        <td className="py-1.5 pr-2 text-muted-foreground">{s.owner ?? "—"}</td>
+                        <td className="py-1.5 pr-2 text-muted-foreground">{s.stage_raw ?? "—"}</td>
+                        <td className="py-1.5 text-right tabular-nums text-muted-foreground">
+                          {s.lead_created_time ? new Date(s.lead_created_time).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SignalCell({ label, value, total, highlight }: { label: string; value: number; total: number; highlight?: boolean }) {
+  const pct = total > 0 ? (value / total) * 100 : 0;
+  return (
+    <div className={`rounded border p-2 ${highlight ? "border-rose-500/40 bg-rose-500/5" : ""}`}>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="text-sm font-semibold tabular-nums mt-0.5">{fmtNumber(value)} <span className="text-[10px] font-normal text-muted-foreground">({pct.toFixed(0)}%)</span></div>
     </div>
   );
 }
