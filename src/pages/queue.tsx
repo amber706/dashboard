@@ -43,6 +43,63 @@ interface QueueItem {
   lead_quality_score: number | null;
   // Sortable timestamp — earliest action needed first.
   sort_at: string;
+  // Absolute timestamp of the last contact (missed call, lead created,
+  // VOB submitted, intake scheduled — whichever is the relevant "when".)
+  // Drives the date + age chips on the row.
+  last_contact_at: string | null;
+  // True for missed calls + abandoned calls. These get pinned to the
+  // top of the queue per Amber's spec — a missed inbound is the
+  // single highest-priority thing on the page.
+  is_missed_call: boolean;
+  // Context fields for callback / abandoned rows so a rep doesn't have
+  // to leave this page to triage. Other types (VOB, intake, outreach,
+  // stuck) leave these null and the chips just don't render.
+  reason_label: string | null;          // "Missed call" / "Abandoned" / "Voicemail" / "Rep flagged: needs callback"
+  ivr_queue: IvrQueue | null;           // DUI / Commercial / AHCCCS / BD / VOB / Alumni / Other
+  tracking_label: string | null;        // raw CTM tracking_label for the "Source: ..." chip
+  original_rep_name: string | null;     // specialist who handled the inbound (not necessarily the owner)
+  caller_phone: string | null;          // dedupe key for the prior-calls lookup
+  prior_calls: number;                  // 0 = first-time caller; >0 = returning
+}
+
+// IVR queue derived from CTM tracking_label. Cornerstone's tracking
+// labels embed the routing intent ("DUI - Main", "Google Ads DUI PPC",
+// "Treatment - Main", "BD Inbound" etc.), so we pattern-match — most
+// specific bucket wins.
+type IvrQueue = "DUI" | "Commercial" | "AHCCCS" | "BD" | "VOB" | "Alumni" | "Other";
+
+function deriveIvr(trackingLabel: string | null | undefined): IvrQueue {
+  const t = (trackingLabel ?? "").toLowerCase();
+  if (!t) return "Other";
+  if (t.includes("dui")) return "DUI";
+  if (t.includes("ahcccs")) return "AHCCCS";
+  if (t.includes("bd ") || t.includes("bd inbound") || t.includes("business development")) return "BD";
+  if (t.includes("vob")) return "VOB";
+  if (t.includes("alumni") || t.includes("readmit")) return "Alumni";
+  if (t.includes("treatment") || t.includes("admissions") || t.includes("commercial") ||
+      t.includes("organic") || t.includes("gmb") || t.includes("psychology today") ||
+      t.includes("addictioncenter") || t.includes("ppc")) return "Commercial";
+  return "Other";
+}
+
+const IVR_TONE: Record<IvrQueue, string> = {
+  DUI:        "border-violet-500/40 text-violet-700 dark:text-violet-400 bg-violet-500/10",
+  Commercial: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
+  AHCCCS:     "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10",
+  BD:         "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
+  VOB:        "border-cyan-500/40 text-cyan-700 dark:text-cyan-400 bg-cyan-500/10",
+  Alumni:     "border-pink-500/40 text-pink-700 dark:text-pink-400 bg-pink-500/10",
+  Other:      "border-zinc-500/30 text-zinc-500 bg-zinc-500/5",
+};
+
+function deriveReason(status: string | null, disposition: string | null): string {
+  if (disposition === "needs_callback") return "Rep flagged: needs callback";
+  switch (status) {
+    case "missed":    return "Missed call (we didn't pick up)";
+    case "abandoned": return "Caller abandoned (hung up before pickup)";
+    case "voicemail": return "Left voicemail";
+    default:          return status ?? "";
+  }
 }
 
 // Three priority levels using clinical-team vocabulary:
@@ -109,6 +166,27 @@ function fmtDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+// "Today 3:42pm" / "Yesterday 11:08am" / "Tue May 14, 3:42pm" — the
+// callback queue's primary "when did this happen" chip. Specialists
+// don't want to do mental math on relative durations alone; they want
+// to see the actual time the missed call came in.
+function fmtCallTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+  const isYesterday = d.toDateString() === yest.toDateString();
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).toLowerCase().replace(" ", "");
+  if (sameDay) return `Today ${time}`;
+  if (isYesterday) return `Yesterday ${time}`;
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString(undefined, {
+    weekday: "short", month: "short", day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  }) + ` ${time}`;
+}
+
 export default function QueuePage() {
   const { user } = useAuth();
   const { role } = useRole();
@@ -136,13 +214,17 @@ export default function QueuePage() {
 
       const [callbackRes, vobRes, intakeRes, leadsAllRes, abandonedRes] = await Promise.all([
         // Callbacks: missed/abandoned/voicemail with callback_status='pending'
-        // OR answered + needs_callback disposition.
+        // OR answered + needs_callback disposition. Also pulls
+        // ctm_raw_payload (for IVR/source derivation) and the
+        // specialist_profile (original rep) so the card can render
+        // full context without a second round-trip.
         supabase
           .from("call_sessions")
           .select(`id, ctm_call_id, caller_name, caller_phone_normalized, started_at, status,
-            specialist_id, specialist_disposition, callback_status,
+            specialist_id, specialist_disposition, callback_status, ctm_raw_payload,
             lead_id,
-            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name, owner_id, insurance_provider, urgency, lead_quality_tier, lead_quality_score, owner:profiles!leads_owner_id_fkey(full_name, email))`)
+            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name, owner_id, insurance_provider, urgency, lead_quality_tier, lead_quality_score, owner:profiles!leads_owner_id_fkey(full_name, email)),
+            specialist_profile:profiles!call_sessions_specialist_id_fkey(full_name, email)`)
           .or("callback_status.eq.pending")
           .gte("started_at", sevenAgoISO)
           .order("started_at", { ascending: true })
@@ -180,13 +262,16 @@ export default function QueuePage() {
           .gte("created_at", ninetyAgoISO)
           .limit(500),
 
-        // Abandoned: status=abandoned + no callback yet.
+        // Abandoned: status=abandoned + no callback yet. Same context
+        // joins as the Callbacks query above so the card can render
+        // reason / IVR / source / original rep without re-fetching.
         supabase
           .from("call_sessions")
-          .select(`id, ctm_call_id, caller_name, caller_phone_normalized, started_at,
-            specialist_id, callback_status,
+          .select(`id, ctm_call_id, caller_name, caller_phone_normalized, started_at, status,
+            specialist_id, specialist_disposition, callback_status, ctm_raw_payload,
             lead_id,
-            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name, owner_id, insurance_provider, urgency, lead_quality_tier, lead_quality_score, owner:profiles!leads_owner_id_fkey(full_name, email))`)
+            lead:leads!call_sessions_lead_id_fkey(id, first_name, last_name, owner_id, insurance_provider, urgency, lead_quality_tier, lead_quality_score, owner:profiles!leads_owner_id_fkey(full_name, email)),
+            specialist_profile:profiles!call_sessions_specialist_id_fkey(full_name, email)`)
           .eq("status", "abandoned")
           .is("callback_status", null)
           .gte("started_at", sevenAgoISO)
@@ -200,10 +285,14 @@ export default function QueuePage() {
       for (const c of (callbackRes.data ?? []) as any[]) {
         const lead = Array.isArray(c.lead) ? c.lead[0] : c.lead;
         const owner = lead?.owner ? (Array.isArray(lead.owner) ? lead.owner[0] : lead.owner) : null;
+        const specProfile = c.specialist_profile
+          ? (Array.isArray(c.specialist_profile) ? c.specialist_profile[0] : c.specialist_profile)
+          : null;
         const name = c.caller_name
           ?? [lead?.first_name, lead?.last_name].filter(Boolean).join(" ")
           ?? c.caller_phone_normalized
           ?? "Unknown";
+        const trackingLabel = (c.ctm_raw_payload?.tracking_label as string | null) ?? null;
         merged.push({
           key: `cb:${c.id}`,
           type: "callback",
@@ -218,6 +307,14 @@ export default function QueuePage() {
           lead_quality_tier: lead?.lead_quality_tier ?? null,
           lead_quality_score: lead?.lead_quality_score ?? null,
           sort_at: c.started_at ?? new Date().toISOString(),
+          last_contact_at: c.started_at ?? null,
+          is_missed_call: true,
+          reason_label: deriveReason(c.status as string | null, c.specialist_disposition as string | null),
+          ivr_queue: deriveIvr(trackingLabel),
+          tracking_label: trackingLabel,
+          original_rep_name: specProfile?.full_name ?? specProfile?.email ?? null,
+          caller_phone: c.caller_phone_normalized ?? null,
+          prior_calls: 0,
         });
       }
 
@@ -239,6 +336,14 @@ export default function QueuePage() {
           lead_quality_tier: l.lead_quality_tier ?? null,
           lead_quality_score: l.lead_quality_score ?? null,
           sort_at: l.created_at ?? new Date().toISOString(),
+          last_contact_at: l.created_at ?? null,
+          is_missed_call: false,
+          reason_label: null,
+          ivr_queue: null,
+          tracking_label: null,
+          original_rep_name: null,
+          caller_phone: null,
+          prior_calls: 0,
         });
       }
 
@@ -260,6 +365,14 @@ export default function QueuePage() {
           lead_quality_tier: l.lead_quality_tier ?? null,
           lead_quality_score: l.lead_quality_score ?? null,
           sort_at: l.intake_scheduled_at ?? new Date().toISOString(),
+          last_contact_at: l.intake_scheduled_at ?? null,
+          is_missed_call: false,
+          reason_label: null,
+          ivr_queue: null,
+          tracking_label: null,
+          original_rep_name: null,
+          caller_phone: null,
+          prior_calls: 0,
         });
       }
 
@@ -310,6 +423,14 @@ export default function QueuePage() {
               lead_quality_tier: l.lead_quality_tier ?? null,
               lead_quality_score: l.lead_quality_score ?? null,
               sort_at: calls.lastOut ?? l.created_at ?? new Date().toISOString(),
+              last_contact_at: calls.lastOut ?? calls.lastIn ?? l.created_at ?? null,
+              is_missed_call: false,
+              reason_label: null,
+              ivr_queue: null,
+              tracking_label: null,
+              original_rep_name: null,
+              caller_phone: null,
+              prior_calls: 0,
             });
           }
         }
@@ -332,6 +453,14 @@ export default function QueuePage() {
             lead_quality_tier: l.lead_quality_tier ?? null,
             lead_quality_score: l.lead_quality_score ?? null,
             sort_at: calls?.lastAny ?? l.created_at ?? new Date().toISOString(),
+            last_contact_at: calls?.lastAny ?? l.created_at ?? null,
+            is_missed_call: false,
+            reason_label: null,
+            ivr_queue: null,
+            tracking_label: null,
+            original_rep_name: null,
+            caller_phone: null,
+            prior_calls: 0,
           });
         }
       }
@@ -340,10 +469,14 @@ export default function QueuePage() {
       for (const c of (abandonedRes.data ?? []) as any[]) {
         const lead = Array.isArray(c.lead) ? c.lead[0] : c.lead;
         const owner = lead?.owner ? (Array.isArray(lead.owner) ? lead.owner[0] : lead.owner) : null;
+        const specProfile = c.specialist_profile
+          ? (Array.isArray(c.specialist_profile) ? c.specialist_profile[0] : c.specialist_profile)
+          : null;
         const name = c.caller_name
           ?? [lead?.first_name, lead?.last_name].filter(Boolean).join(" ")
           ?? c.caller_phone_normalized
           ?? "Unknown";
+        const trackingLabel = (c.ctm_raw_payload?.tracking_label as string | null) ?? null;
         merged.push({
           key: `abandoned:${c.id}`,
           type: "abandoned",
@@ -358,7 +491,41 @@ export default function QueuePage() {
           lead_quality_tier: lead?.lead_quality_tier ?? null,
           lead_quality_score: lead?.lead_quality_score ?? null,
           sort_at: c.started_at ?? new Date().toISOString(),
+          last_contact_at: c.started_at ?? null,
+          is_missed_call: true,
+          reason_label: deriveReason(c.status as string | null, c.specialist_disposition as string | null),
+          ivr_queue: deriveIvr(trackingLabel),
+          tracking_label: trackingLabel,
+          original_rep_name: specProfile?.full_name ?? specProfile?.email ?? null,
+          caller_phone: c.caller_phone_normalized ?? null,
+          prior_calls: 0,
         });
+      }
+
+      // First-time-caller detection for missed-call rows. One batched
+      // query over every distinct caller phone in the visible callbacks
+      // + abandoned rows, grouped client-side. Each row gets a
+      // prior_calls count = number of call_sessions for that phone
+      // BEFORE this row's started_at. 0 = first-time.
+      const missedRows = merged.filter((r) => r.is_missed_call && r.caller_phone);
+      const phones = Array.from(new Set(missedRows.map((r) => r.caller_phone as string)));
+      if (phones.length > 0) {
+        const earliestStartMs = Math.min(...missedRows.map((r) => new Date(r.sort_at).getTime()));
+        const earliestIso = new Date(earliestStartMs).toISOString();
+        const { data: priors } = await supabase
+          .from("call_sessions")
+          .select("caller_phone_normalized")
+          .in("caller_phone_normalized", phones)
+          .lt("started_at", earliestIso)
+          .limit(5000);
+        const priorByPhone = new Map<string, number>();
+        for (const p of (priors ?? []) as any[]) {
+          const k = p.caller_phone_normalized as string;
+          priorByPhone.set(k, (priorByPhone.get(k) ?? 0) + 1);
+        }
+        for (const r of missedRows) {
+          if (r.caller_phone) r.prior_calls = priorByPhone.get(r.caller_phone) ?? 0;
+        }
       }
 
       // De-dupe by key (stuck and outreach can both fire for the same lead;
@@ -391,9 +558,25 @@ export default function QueuePage() {
       return true;
     });
 
-    // Quality-first: tier A → B → C → D → null, then by urgency timestamp
-    // Urgency-first (default): intake first (soonest), then oldest action
+    // Sort policy:
+    //
+    //   1. Missed calls (callback + abandoned) ALWAYS pin to the top —
+    //      per Amber's spec, an inbound we didn't pick up is the single
+    //      highest-priority thing on the page, regardless of the toggle.
+    //      Within missed calls, freshest first so the still-hot caller
+    //      gets a return ring before they go elsewhere.
+    //   2. Inside the rest of the queue:
+    //        - "By priority" → tier A → B → C → D, score tiebreaker
+    //        - "Oldest first" → intake (soonest) first, else oldest age
     return [...list].sort((a, b) => {
+      // Missed calls always win.
+      if (a.is_missed_call && !b.is_missed_call) return -1;
+      if (b.is_missed_call && !a.is_missed_call) return 1;
+      if (a.is_missed_call && b.is_missed_call) {
+        // Freshest missed call first.
+        return a.sort_at < b.sort_at ? 1 : -1;
+      }
+
       if (sortBy === "quality") {
         const ar = a.lead_quality_tier ? TIER_RANK[a.lead_quality_tier] : 99;
         const br = b.lead_quality_tier ? TIER_RANK[b.lead_quality_tier] : 99;
@@ -402,7 +585,7 @@ export default function QueuePage() {
         const bScore = b.lead_quality_score ?? -1;
         if (aScore !== bScore) return bScore - aScore;
       }
-      // Urgency fallback: intake ascending (soonest first), others oldest first
+      // Oldest-first fallback: intake ascending (soonest first), others oldest first
       if (a.type === "intake" && b.type !== "intake") return -1;
       if (b.type === "intake" && a.type !== "intake") return 1;
       return a.sort_at < b.sort_at ? -1 : 1;
@@ -499,44 +682,111 @@ export default function QueuePage() {
   );
 }
 
-function QueueRow({ item, showOwner }: { item: QueueItem; showOwner: boolean }) {
+function QueueRow({ item, showOwner: _showOwner }: { item: QueueItem; showOwner: boolean }) {
   // Map queue urgency/tier into IncidentCard's severity scale so rows
-  // pick up the same color-bar + pill treatment as /ops/alerts. Tier A
-  // (Urgent) and high urgency drive "critical"; tier B is "high"; the
-  // routine bucket lands on "low" so it doesn't shout.
-  const severity: Severity = item.urgency === "high" || item.lead_quality_tier === "A"
+  // pick up the same color-bar + pill treatment as /ops/alerts. Missed
+  // calls are ALWAYS critical regardless of tier — losing an inbound is
+  // the single worst outcome on this page. Otherwise tier A / high
+  // urgency drive critical, tier B drives high, rest fall to low.
+  const severity: Severity = item.is_missed_call || item.urgency === "high" || item.lead_quality_tier === "A"
     ? "critical"
     : item.lead_quality_tier === "B"
       ? "high"
       : "low";
 
-  const timingChips = [
-    { icon: Clock, label: item.meta, srLabel: "Time since call" },
-  ];
+  // Timing chips, stacked right-aligned. Two-line layout:
+  //   • Date + time of the missed call / last activity (absolute)
+  //   • Time elapsed since (relative duration)
+  // Specialists asked for both — relative alone forces mental math,
+  // absolute alone doesn't telegraph urgency.
+  const timingChips: Array<{ icon?: typeof Phone; label: React.ReactNode; mono?: boolean; muted?: boolean; srLabel?: string }> = [];
+  if (item.last_contact_at) {
+    timingChips.push({
+      icon: Calendar,
+      label: fmtCallTime(item.last_contact_at),
+      srLabel: "Date of contact",
+    });
+  }
+  timingChips.push({
+    icon: Clock,
+    label: item.last_contact_at ? `${fmtAge(item.last_contact_at)} ago` : item.meta,
+    muted: true,
+    srLabel: "Time elapsed since contact",
+  });
 
+  // Context chips — phone, insurance, owner, tier. Owner is ALWAYS
+  // shown (not gated on the "All team" toggle) so a specialist working
+  // their own queue still sees who's already assigned to each item.
   const contextChips: Array<{ icon?: typeof Phone; label: React.ReactNode; mono?: boolean; muted?: boolean; srLabel?: string }> = [];
+
+  // For missed-call rows, lead with the WHY (reason) + WHERE (IVR
+  // queue) + WHO-CALLED (first-time vs returning). Reps triage these
+  // first before they care about owner / insurance / phone.
+  if (item.is_missed_call && item.reason_label) {
+    contextChips.push({ label: item.reason_label, srLabel: "Why this is queued" });
+  }
+  if (item.is_missed_call && item.ivr_queue) {
+    contextChips.push({
+      label: <span className={IVR_TONE[item.ivr_queue] + " px-1.5 py-0.5 rounded border text-[10px]"}>IVR: {item.ivr_queue}</span>,
+      srLabel: "IVR queue",
+    });
+  }
+  if (item.is_missed_call && item.caller_phone) {
+    contextChips.push({
+      label: item.prior_calls === 0
+        ? <span className="text-emerald-600 dark:text-emerald-400 font-medium">First-time caller</span>
+        : <span className="text-muted-foreground">Returning ({item.prior_calls} prior)</span>,
+      srLabel: "Caller history",
+    });
+  }
+
   if (item.subtitle) {
     contextChips.push({ icon: Phone, label: item.subtitle, mono: true, srLabel: "Phone" });
   }
   if (item.insurance_provider) {
     contextChips.push({ label: item.insurance_provider, srLabel: "Insurance" });
   }
-  if (showOwner && item.owner_name) {
-    contextChips.push({ icon: UserIcon, label: item.owner_name, srLabel: "Owner" });
+  if (item.is_missed_call && item.tracking_label) {
+    contextChips.push({
+      label: <span><span className="text-muted-foreground">Source:</span> {item.tracking_label}</span>,
+      srLabel: "Call source",
+    });
   }
-  if (item.lead_quality_tier) {
+  contextChips.push({
+    icon: UserIcon,
+    label: item.owner_name
+      ? <span><span className="text-muted-foreground">Rep:</span> {item.owner_name}</span>
+      : <span className="text-muted-foreground italic">Unassigned</span>,
+    srLabel: "Assigned rep",
+  });
+  // For missed calls, also show the ORIGINAL rep who took the inbound
+  // — different from owner_name (which is the lead owner). Tells the
+  // person working the queue who they're following up after.
+  if (item.is_missed_call && item.original_rep_name && item.original_rep_name !== item.owner_name) {
+    contextChips.push({
+      icon: UserIcon,
+      label: <span><span className="text-muted-foreground">Original rep:</span> {item.original_rep_name}</span>,
+      srLabel: "Original rep on the call",
+    });
+  }
+  if (item.lead_quality_tier && !item.is_missed_call) {
     contextChips.push({
       label: <span className={item.lead_quality_tier === "A" ? "text-rose-600 dark:text-rose-400" : item.lead_quality_tier === "B" ? "text-amber-600 dark:text-amber-400" : ""}>{TIER_LABEL[item.lead_quality_tier]}</span>,
       srLabel: "Priority tier",
     });
   }
 
-  // The "body" is the caller name — visually prominent, like the
-  // transcript quote on alerts. Wrap with the link so the whole card is
-  // a click target.
+  // The "body" is the caller name — visually prominent, with a MISSED
+  // CALL prefix when applicable so it pops in the feed without making
+  // the rep read the chip row.
   const body = (
     <Link href={item.href} className="block hover:underline">
-      <span className="font-semibold text-[15px]">{item.title}</span>
+      {item.is_missed_call && (
+        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold text-rose-600 dark:text-rose-400 mr-2 align-middle">
+          <PhoneOff className="w-3 h-3" /> Missed call
+        </span>
+      )}
+      <span className="font-semibold text-[15px] align-middle">{item.title}</span>
     </Link>
   );
 
@@ -549,13 +799,13 @@ function QueueRow({ item, showOwner }: { item: QueueItem; showOwner: boolean }) 
   return (
     <IncidentCard
       severity={severity}
-      category={TYPE_LABEL[item.type]}
+      category={item.is_missed_call ? "MISSED CALL" : TYPE_LABEL[item.type]}
       status="open"
       timingChips={timingChips}
       contextChips={contextChips}
       body={body}
       actions={actions}
-      ariaLabel={`${TYPE_LABEL[item.type]} for ${item.title}`}
+      ariaLabel={`${item.is_missed_call ? "Missed call" : TYPE_LABEL[item.type]} for ${item.title}`}
     />
   );
 }

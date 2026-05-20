@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { computeStandardWindow, presetToMonths, STANDARD_PRESETS, type StandardWindowPreset } from "@/lib/bd-window-presets";
 
 const PIPELINE_GROUPS = {
   DUI: ["DUI", "DUI - Cash"],
@@ -53,6 +54,12 @@ interface TrendsResponse {
   window: { months: number; start: string; end: string };
   months: string[];
   accounts: AccountTrend[];
+  // All BD-rep-owned meetings bucketed by month, INCLUDING meetings
+  // to accounts not in the top-5 chart. Used by "All accounts" view
+  // so the total reflects actual BD activity, not just BD activity
+  // toward top-referring accounts. Added in bd-account-trends v8.
+  bd_meetings_by_month?: Record<string, number>;
+  bd_meetings_total?: number;
 }
 
 // Discovered LOCs that show up across Cornerstone's deal stream. Used
@@ -64,8 +71,14 @@ const COMMON_LOCS = [
   "Detox", "DTX", "Screening", "Classes",
 ];
 
+// Window selection is driven entirely by the shared standard preset set
+// (This month / Last month / Last 3 mo / Last 6 mo / Last year). Each
+// preset maps to (months, skipLast) so the chart still renders calendar
+// buckets correctly. See src/lib/bd-window-presets.ts.
+
 export default function BdAccountTrends() {
-  const [months, setMonths] = useState<number>(12);
+  const [preset, setPreset] = useState<StandardWindowPreset>("last_year");
+  const { months, skipLast } = useMemo(() => presetToMonths(preset), [preset]);
   const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set(["Commercial", "AHCCCS"]));
   const [loc, setLoc] = useState<string>("all");
   // "" / "all" means "all accounts combined" on the chart. Otherwise
@@ -112,13 +125,31 @@ export default function BdAccountTrends() {
     setPipelineGroups((prev) => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; });
   }
 
+  // Trim the most-recent N buckets when a preset wants to focus on a
+  // specific slice (e.g. "Last mo" hides the current partial month).
+  // Falls through to the full month list when skipLast is 0.
+  const visibleMonths = useMemo(() => {
+    if (!data) return [] as string[];
+    if (skipLast <= 0) return data.months;
+    return data.months.slice(0, data.months.length - skipLast);
+  }, [data, skipLast]);
+
   // Compose the chart rows. Each row carries all four metric totals
-  // for the month so the chart can render side-by-side bars. "All
-  // accounts" sums every account; a single account picks just that
-  // account's monthly counts.
+  // for the month so the chart can render side-by-side bars.
+  //
+  // "All accounts" mode: referrals / admits / refer-outs sum across
+  // every account, BUT meetings come from the response's top-level
+  // `bd_meetings_by_month` (all BD-rep-owned meetings, including
+  // those to accounts NOT in the top-5 chart). Per Amber's spec —
+  // we want the all-accounts totals to reflect actual BD volume,
+  // but per-account lines / referral-correlated views stay scoped
+  // to meetings against those specific accounts.
+  //
+  // Single-account mode: every metric reads from that account's
+  // by_month bucket.
   const chartData = useMemo(() => {
     if (!data) return [];
-    return data.months.map((mk) => {
+    return visibleMonths.map((mk) => {
       let referrals = 0; let admits = 0; let meetings = 0; let refer_outs = 0;
       const accumulate = (b: any) => {
         if (!b) return;
@@ -129,17 +160,19 @@ export default function BdAccountTrends() {
       };
       if (selectedAccountId === "all") {
         for (const a of data.accounts) accumulate(a.by_month[mk]);
+        // Override meetings with the all-BD total when available.
+        if (data.bd_meetings_by_month && data.bd_meetings_by_month[mk] != null) {
+          meetings = data.bd_meetings_by_month[mk];
+        }
       } else {
         const a = data.accounts.find((x) => x.id === selectedAccountId);
         accumulate(a?.by_month[mk]);
       }
       const [y, m] = mk.split("-").map(Number);
       const label = new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-      // monthKey kept alongside the pretty label so the chart's click
-      // handler can map back to the canonical bucket id without re-parsing.
       return { month: label, monthKey: mk, referrals, admits, meetings, refer_outs };
     });
-  }, [data, selectedAccountId]);
+  }, [data, selectedAccountId, visibleMonths]);
 
   // Aggregate deal IDs for the currently-open drill-down month, scoped
   // to either a single account (when selectedAccountId is set) or
@@ -243,8 +276,16 @@ export default function BdAccountTrends() {
       <div className="space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Window</span>
-          {[6, 12, 18, 24].map((n) => (
-            <Button key={n} size="sm" variant={months === n ? "default" : "outline"} onClick={() => setMonths(n)} className="h-8 text-xs">{n}mo</Button>
+          {STANDARD_PRESETS.map((p) => (
+            <Button
+              key={p.key}
+              size="sm"
+              variant={preset === p.key ? "default" : "outline"}
+              onClick={() => setPreset(p.key)}
+              className="h-8 text-xs"
+            >
+              {p.label}
+            </Button>
           ))}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -279,7 +320,9 @@ export default function BdAccountTrends() {
               <CardTitle className="text-base flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-emerald-500" />
                 {selectedAccountId === "all" ? "All accounts" : (data.accounts.find((a) => a.id === selectedAccountId)?.name ?? "Account")}
-                <Badge variant="outline" className="text-[10px]">{months}mo</Badge>
+                <Badge variant="outline" className="text-[10px]">
+                  {STANDARD_PRESETS.find((p) => p.key === preset)?.label ?? `${months}mo`}
+                </Badge>
                 {loc !== "all" && <Badge variant="outline" className="text-[10px]">LOC: {loc}</Badge>}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
@@ -311,7 +354,7 @@ export default function BdAccountTrends() {
               line for monthly referrals; admit months are marked with
               a larger filled dot so you can see where each line
               converted vs. where it was just sending volume. */}
-          <TopAccountsLineChart accounts={data.accounts} months={data.months} loc={loc} />
+          <TopAccountsLineChart accounts={data.accounts} months={visibleMonths} loc={loc} />
 
           {/* Activity vs outcomes chart. Puts the chosen activity
               (meetings / refer-outs) on the same timeline as referrals
@@ -320,10 +363,11 @@ export default function BdAccountTrends() {
               Scoped to the current Account dropdown. */}
           <ActivityVsOutcomesChart
             accounts={data.accounts}
-            months={data.months}
+            months={visibleMonths}
             loc={loc}
             selectedAccountId={selectedAccountId}
             accountName={selectedAccountId === "all" ? "All accounts" : (data.accounts.find((a) => a.id === selectedAccountId)?.name ?? "Account")}
+            bdMeetingsByMonth={data.bd_meetings_by_month}
           />
 
           {/* Per-month drill-down sheet. Opens when the user clicks any
@@ -470,6 +514,10 @@ function TopAccountsLineChart({ accounts, months, loc }: {
   // (meetings or refer-outs) so you can read both timelines together
   // without re-ranking the chart.
   const [overlay, setOverlay] = useState<"none" | "meetings" | "refer_outs">("none");
+  // Focus on a single account — clicking a chip in the summary grid
+  // (or the legend) isolates that one line so the user can read it
+  // without the others crossing it. null = show all top-N.
+  const [focusedAccountId, setFocusedAccountId] = useState<string | null>(null);
 
   // Ranking is by referrals (the primary view). Top-N order is stable
   // whether or not an overlay is active.
@@ -478,6 +526,20 @@ function TopAccountsLineChart({ accounts, months, loc }: {
     const sorted = filtered.slice().sort((x, y) => y.total_referrals - x.total_referrals);
     return sorted.slice(0, topN);
   }, [accounts, topN]);
+
+  // Accounts actually drawn on the chart. When focus is set, narrow to
+  // that one; otherwise the full top-N. Colors are looked up by the
+  // ORIGINAL index in realAccounts so a focused line keeps its color
+  // from the unfocused view (no jarring re-color on toggle).
+  const visibleAccounts = useMemo(() => {
+    if (!focusedAccountId) return realAccounts;
+    const match = realAccounts.find((a) => a.id === focusedAccountId);
+    return match ? [match] : realAccounts;
+  }, [realAccounts, focusedAccountId]);
+  const colorIndex = (id: string) => {
+    const idx = realAccounts.findIndex((a) => a.id === id);
+    return idx < 0 ? 0 : idx;
+  };
 
   // High-contrast palette tuned for the dark UI. Hues are spread far
   // enough apart that each line reads as a distinct color even when
@@ -568,6 +630,16 @@ function TopAccountsLineChart({ accounts, months, loc }: {
                 <Button key={n} size="sm" variant={topN === n ? "default" : "outline"} onClick={() => setTopN(n)} className="h-6 text-[10px] px-2">{n}</Button>
               ))}
             </div>
+            {focusedAccountId && (
+              <div className="flex items-center gap-1">
+                <Badge variant="secondary" className="text-[10px]">
+                  Focus: {realAccounts.find((a) => a.id === focusedAccountId)?.name ?? "—"}
+                </Badge>
+                <Button size="sm" variant="outline" onClick={() => setFocusedAccountId(null)} className="h-6 text-[10px] px-2">
+                  Show all
+                </Button>
+              </div>
+            )}
           </div>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
@@ -581,21 +653,53 @@ function TopAccountsLineChart({ accounts, months, loc }: {
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="month" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            {/* Custom tooltip — Recharts' default formatter still
+                renders the row chrome for series we return null on,
+                which leaks "<Account>__overlay :" lines into the
+                box. We render the body ourselves so only the real
+                "<N referrals · M admits[ · K overlay]" rows show. */}
             <Tooltip
-              formatter={(value: any, name: any, props: any) => {
-                if (typeof name === "string" && (name.endsWith("__admits") || name.endsWith("__overlay"))) return null as any;
-                const admits = (props?.payload?.[`${name}__admits`] as number) ?? 0;
-                const ov = overlayLabel != null ? ((props?.payload?.[`${name}__overlay`] as number) ?? 0) : null;
-                const overlayPart = overlayLabel && ov != null ? ` · ${ov} ${overlayLabel}` : "";
-                return [`${value} referrals · ${admits} admit${admits === 1 ? "" : "s"}${overlayPart}`, name];
+              content={({ active, payload, label }: any) => {
+                if (!active || !payload || payload.length === 0) return null;
+                // De-dupe by account name — Recharts emits both the
+                // solid and dotted series, but we only want one row
+                // per account in the tooltip.
+                const seen = new Set<string>();
+                const rows = payload
+                  .map((p: any) => p?.name as string | undefined)
+                  .filter((n): n is string => typeof n === "string" && !n.endsWith("__admits") && !n.endsWith("__overlay"))
+                  .filter((n) => (seen.has(n) ? false : (seen.add(n), true)));
+                if (rows.length === 0) return null;
+                const row = payload[0]?.payload ?? {};
+                return (
+                  <div className="rounded-md border bg-popover text-popover-foreground shadow-md px-3 py-2 text-xs">
+                    <div className="font-medium mb-1">{label}</div>
+                    {rows.map((name) => {
+                      const refs = (row[name] as number) ?? 0;
+                      const admits = (row[`${name}__admits`] as number) ?? 0;
+                      const ov = overlayLabel != null ? ((row[`${name}__overlay`] as number) ?? 0) : null;
+                      const color = lineColors[colorIndex((visibleAccounts.find((a) => a.name === name)?.id) ?? "") % lineColors.length];
+                      return (
+                        <div key={name} className="flex items-center gap-2 leading-tight">
+                          <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: color }} />
+                          <span className="truncate max-w-[180px]">{name}</span>
+                          <span className="ml-auto tabular-nums text-muted-foreground whitespace-nowrap">
+                            {refs} ref · {admits} admit{admits === 1 ? "" : "s"}
+                            {overlayLabel && ov != null ? ` · ${ov} ${overlayLabel}` : ""}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
               }}
             />
             <Legend
               wrapperStyle={{ fontSize: 11 }}
               formatter={(v) => (typeof v === "string" && (v.endsWith("__admits") || v.endsWith("__overlay")) ? null : v)}
             />
-            {realAccounts.map((a, i) => {
-              const color = lineColors[i % lineColors.length];
+            {visibleAccounts.map((a) => {
+              const color = lineColors[colorIndex(a.id) % lineColors.length];
               return (
                 <Line
                   key={a.id}
@@ -612,8 +716,8 @@ function TopAccountsLineChart({ accounts, months, loc }: {
             {/* Dotted overlay lines per account when the toggle is on.
                 Same color as the account's solid referrals line so the
                 pair reads as "this account's referrals vs activity". */}
-            {overlay !== "none" && realAccounts.map((a, i) => {
-              const color = lineColors[i % lineColors.length];
+            {overlay !== "none" && visibleAccounts.map((a) => {
+              const color = lineColors[colorIndex(a.id) % lineColors.length];
               return (
                 <Line
                   key={`${a.id}__overlay`}
@@ -642,13 +746,14 @@ function TopAccountsLineChart({ accounts, months, loc }: {
         <div className="border-t pt-3 mt-1">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
             {overlayLabel ? <>{overlayLabel} → referrals → admits across the window</> : <>Referrals → admits across the window</>}
+            <span className="ml-2 normal-case tracking-normal text-muted-foreground/70">— click an account to isolate it on the chart</span>
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {realAccounts.map((a, i) => {
+            {realAccounts.map((a) => {
               const refs = a.total_referrals;
               const admits = a.total_admits;
               const ratio = refs > 0 ? Math.round((admits / refs) * 100) : null;
-              const color = lineColors[i % lineColors.length];
+              const color = lineColors[colorIndex(a.id) % lineColors.length];
               const overlayTotal =
                 overlay === "meetings" ? (a.total_meetings ?? 0)
                 : overlay === "refer_outs" ? (a.total_refer_outs ?? 0)
@@ -659,8 +764,23 @@ function TopAccountsLineChart({ accounts, months, loc }: {
                 : ratio >= 25 ? "text-emerald-600 dark:text-emerald-400"
                 : ratio >= 10 ? "text-amber-600 dark:text-amber-400"
                 : "text-rose-600 dark:text-rose-400";
+              const isFocused = focusedAccountId === a.id;
+              const isDimmed = focusedAccountId != null && !isFocused;
               return (
-                <div key={a.id} className="flex items-center gap-2 text-xs">
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setFocusedAccountId(isFocused ? null : a.id)}
+                  className={`flex items-center gap-2 text-xs text-left rounded-md px-2 py-1 transition ${
+                    isFocused
+                      ? "bg-accent ring-1 ring-inset ring-border"
+                      : isDimmed
+                        ? "opacity-50 hover:opacity-100 hover:bg-accent/50"
+                        : "hover:bg-accent/50"
+                  }`}
+                  aria-pressed={isFocused}
+                  title={isFocused ? "Click to show all" : `Isolate ${a.name}`}
+                >
                   <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
                   <span className="truncate flex-1 font-medium">{a.name}</span>
                   <span className="text-muted-foreground tabular-nums">
@@ -669,7 +789,7 @@ function TopAccountsLineChart({ accounts, months, loc }: {
                   <span className={`tabular-nums w-12 text-right ${tone}`}>
                     {ratio == null ? "—" : `${ratio}%`}
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -689,23 +809,29 @@ function TopAccountsLineChart({ accounts, months, loc }: {
 //
 // Honors the page-level Account dropdown via selectedAccountId — when
 // "all" it sums across every account; otherwise scopes to that one.
-function ActivityVsOutcomesChart({ accounts, months, loc, selectedAccountId, accountName }: {
+function ActivityVsOutcomesChart({ accounts, months, loc, selectedAccountId, accountName, bdMeetingsByMonth }: {
   accounts: AccountTrend[];
   months: string[];
   loc: string;
   selectedAccountId: string;
   accountName: string;
+  /** All-BD-meetings totals per month. When in "all accounts" mode
+   *  + meetings activity, the activity series prefers this so the
+   *  total reflects BD volume rather than just BD volume to top
+   *  accounts. */
+  bdMeetingsByMonth?: Record<string, number>;
 }) {
   const [activity, setActivity] = useState<"meetings" | "refer_outs">("meetings");
   const activityLabel = activity === "meetings" ? "Meetings" : "Refer-outs";
 
-  // Compose three monthly series. The activity series comes from
-  // by_month[mk].meetings or by_month[mk].refer_outs depending on
-  // toggle; referrals and admits always come from by_month[mk].
+  // Compose three monthly series. Referrals + admits always come
+  // from per-account by_month (those are correlated by definition).
+  // Meetings in all-accounts mode prefer the all-BD top-level total.
   const chartData = useMemo(() => {
     const scope = selectedAccountId === "all"
       ? accounts
       : accounts.filter((a) => a.id === selectedAccountId);
+    const allAccountsMode = selectedAccountId === "all";
     return months.map((mk) => {
       let act = 0; let refs = 0; let admits = 0;
       for (const a of scope) {
@@ -715,11 +841,16 @@ function ActivityVsOutcomesChart({ accounts, months, loc, selectedAccountId, acc
         refs   += b.referrals ?? 0;
         admits += b.admits ?? 0;
       }
+      // Override the activity series with the all-BD meetings total
+      // in all-accounts + meetings mode.
+      if (allAccountsMode && activity === "meetings" && bdMeetingsByMonth && bdMeetingsByMonth[mk] != null) {
+        act = bdMeetingsByMonth[mk];
+      }
       const [y, m] = mk.split("-").map(Number);
       const label = new Date(y, (m ?? 1) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
       return { month: label, monthKey: mk, activity: act, referrals: refs, admits };
     });
-  }, [accounts, months, selectedAccountId, activity]);
+  }, [accounts, months, selectedAccountId, activity, bdMeetingsByMonth]);
 
   // Window totals + simple conversion ratios shown beneath the chart.
   // Activity-to-admits is the headline answer to "does this drive

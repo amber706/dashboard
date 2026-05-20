@@ -12,14 +12,14 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Loader2, RefreshCw, ArrowRight, Building2, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw, ArrowRight, Building2, Sparkles, AlertTriangle, FileSearch } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/dashboard/PageShell";
 
-type Preset = "today" | "this_week" | "this_month" | "last_3_months" | "last_6_months";
+type Preset = "today" | "this_week" | "this_month" | "last_month" | "last_3_months" | "last_6_months" | "last_12_months";
 
 interface Window { startIso: string; endIso: string; label: string; }
 
@@ -49,27 +49,49 @@ function computeWindow(p: Preset): Window {
   const now = new Date();
   const end = endOfDay(now);
   switch (p) {
-    case "today":         return { startIso: isoUtc(startOfDay(now)),                    endIso: isoUtc(end), label: "Today" };
-    case "this_week":     return { startIso: isoUtc(startOfWeek(now)),                   endIso: isoUtc(end), label: "This week" };
-    case "this_month":    return { startIso: isoUtc(startOfMonth(now)),                  endIso: isoUtc(end), label: "This month" };
-    case "last_3_months": return { startIso: isoUtc(addMonths(startOfMonth(now), -2)),   endIso: isoUtc(end), label: "Last 3 months" };
-    case "last_6_months": return { startIso: isoUtc(addMonths(startOfMonth(now), -5)),   endIso: isoUtc(end), label: "Last 6 months" };
+    case "today":          return { startIso: isoUtc(startOfDay(now)),                   endIso: isoUtc(end), label: "Today" };
+    case "this_week":      return { startIso: isoUtc(startOfWeek(now)),                  endIso: isoUtc(end), label: "This week" };
+    case "this_month":     return { startIso: isoUtc(startOfMonth(now)),                 endIso: isoUtc(end), label: "This month" };
+    case "last_month": {
+      const start = addMonths(startOfMonth(now), -1);
+      const endLast = endOfDay(new Date(now.getFullYear(), now.getMonth(), 0));
+      return { startIso: isoUtc(start), endIso: isoUtc(endLast), label: "Last month" };
+    }
+    case "last_3_months":  return { startIso: isoUtc(addMonths(startOfMonth(now), -2)),  endIso: isoUtc(end), label: "Last 3 months" };
+    case "last_6_months":  return { startIso: isoUtc(addMonths(startOfMonth(now), -5)),  endIso: isoUtc(end), label: "Last 6 months" };
+    case "last_12_months": return { startIso: isoUtc(addMonths(startOfMonth(now), -11)), endIso: isoUtc(end), label: "Last 12 months" };
   }
 }
 
 const PRESETS: Array<{ key: Preset; label: string }> = [
-  { key: "today",         label: "Today" },
-  { key: "this_week",     label: "This week" },
-  { key: "this_month",    label: "This month" },
-  { key: "last_3_months", label: "Last 3 months" },
-  { key: "last_6_months", label: "Last 6 months" },
+  { key: "today",          label: "Today" },
+  { key: "this_week",      label: "This week" },
+  { key: "this_month",     label: "This month" },
+  { key: "last_3_months",  label: "Last 3 months" },
+  { key: "last_6_months",  label: "Last 6 months" },
+];
+
+// VOB Intelligence has its own window control with a wider set of
+// presets, because the user wants to scan VOB cost shape across
+// multiple horizons (today's intake, this week, last month, etc.).
+const VOB_PRESETS: Array<{ key: Preset; label: string }> = [
+  { key: "today",          label: "Today" },
+  { key: "this_week",      label: "This week" },
+  { key: "this_month",     label: "This month" },
+  { key: "last_month",     label: "Last month" },
+  { key: "last_3_months",  label: "Last 3 months" },
+  { key: "last_6_months",  label: "Last 6 months" },
+  { key: "last_12_months", label: "Last 12 months" },
 ];
 
 interface Suggestion {
   account_id: string;
   account_name: string;
   loc_outbound: string[];
+  treats: string[];
   accepts_payer: boolean | null;
+  age_fit: boolean;
+  clinical_fit: boolean;
   referrals_in: number;
   referrals_out: number;
   score: number;
@@ -85,6 +107,8 @@ interface NewPolicy {
   insurance_type: string | null;
   policy_type: string | null;
   insurance_provider: string | null;
+  age_group: string | null;
+  mh_sud_primary: string | null;
   suggestions: Suggestion[];
 }
 interface ReferredOut {
@@ -105,6 +129,51 @@ interface StrategyResponse {
   commercial: { new_policies: NewPolicy[]; referred_out: ReferredOut[] };
   ahcccs:     { new_policies: NewPolicy[]; referred_out: ReferredOut[] };
   partners_considered: number;
+  error?: string;
+}
+
+interface VobFlags {
+  inn_only: boolean;
+  oon_eligible: boolean;
+  pos_check: boolean;
+  high_responsibility: boolean;
+}
+interface VobRow {
+  vob_id: string;
+  vob_name: string | null;
+  created_time: string | null;
+  patient_name: string | null;
+  patient_state: string | null;
+  policy_type: string | null;
+  network: "ppo" | "hmo" | "epo" | "pos" | "unknown";
+  insurance_provider: string | null;
+  insurance_type: string | null;
+  vob_status: string | null;
+  vob_level_of_care: string | null;
+  total_patient_responsibility: number | null;
+  coinsurance_pct: number | null;
+  oop_max: number | null;
+  oop_remaining: number | null;
+  deductible_remaining: number | null;
+  deal_id: string | null;
+  deal_name: string | null;
+  deal_stage: string | null;
+  deal_pipeline: string | null;
+  deal_insurance_type: string | null;
+  flags: VobFlags;
+}
+interface VobResponse {
+  ok: boolean;
+  window: { start_iso: string; end_iso: string };
+  threshold: { large_responsibility: number };
+  vobs: VobRow[];
+  totals: {
+    count: number;
+    inn_only: number;
+    oon_eligible: number;
+    pos_check: number;
+    high_responsibility: number;
+  };
   error?: string;
 }
 
@@ -178,6 +247,23 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
                     )}
                   </div>
                 </div>
+                {/* Caller-side tags that drive partner matching: age
+                    population and clinical primary. If neither is set
+                    we hide the row so we don't broadcast blanks. */}
+                {(r.age_group || r.mh_sud_primary) && (
+                  <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                    {r.age_group && (
+                      <Badge variant="outline" className="text-[10px] border-violet-500/30 text-violet-700 dark:text-violet-300">
+                        {r.age_group.includes("Adolescent") ? "Adolescent" : "Adult"}
+                      </Badge>
+                    )}
+                    {r.mh_sud_primary && (
+                      <Badge variant="outline" className="text-[10px] border-cyan-500/30 text-cyan-700 dark:text-cyan-300">
+                        {r.mh_sud_primary.includes("SUD") ? "SUD primary" : "MH primary"}
+                      </Badge>
+                    )}
+                  </div>
+                )}
                 {isLost(r.stage) && r.lost_reason && (
                   <div className="mt-2 text-[11px] text-rose-700 dark:text-rose-400">
                     Lost reason: <span className="font-medium">{r.lost_reason}</span>
@@ -196,6 +282,21 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
                               <span className="truncate">{s.account_name}</span>
                             </span>
                             <span className="flex items-center gap-1.5 shrink-0 text-[10px] text-muted-foreground">
+                              {/* Population + clinical fit indicators —
+                                  match-checks done on the edge against
+                                  the caller's Age_Group and MH/SUD
+                                  primary. Only render when there's a
+                                  caller-side signal to match against. */}
+                              {r.age_group && s.age_fit && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 border-violet-500/30 text-violet-700 dark:text-violet-300">
+                                  {r.age_group.includes("Adolescent") ? "adol" : "adult"}
+                                </Badge>
+                              )}
+                              {r.mh_sud_primary && s.clinical_fit && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 border-cyan-500/30 text-cyan-700 dark:text-cyan-300">
+                                  {r.mh_sud_primary.includes("SUD") ? "SUD" : "MH"}
+                                </Badge>
+                              )}
                               {s.accepts_payer === true && <Badge variant="outline" className="text-[9px] h-4 px-1 border-emerald-500/30 text-emerald-700 dark:text-emerald-400">in-net</Badge>}
                               <span>in {s.referrals_in} · out {s.referrals_out}</span>
                             </span>
@@ -276,12 +377,149 @@ function ReferredOutCard({ title, rows, bucketLabel }: { title: string; rows: Re
   );
 }
 
+function VobIntelligenceCard({
+  preset, onPresetChange, data, loading, error,
+}: {
+  preset: Preset;
+  onPresetChange: (p: Preset) => void;
+  data: VobResponse | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const fmtMoney = (n: number | null) => n == null ? "—" : `$${Math.round(n).toLocaleString()}`;
+  const networkBadge = (network: VobRow["network"], policy: string | null) => {
+    if (network === "ppo") return <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400">PPO</Badge>;
+    if (network === "hmo") return <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">HMO</Badge>;
+    if (network === "epo") return <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">EPO</Badge>;
+    if (network === "pos") return <Badge variant="outline" className="text-[10px] border-blue-500/40 text-blue-700 dark:text-blue-400">POS</Badge>;
+    return <Badge variant="outline" className="text-[10px] text-muted-foreground">{policy ?? "—"}</Badge>;
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileSearch className="w-4 h-4 text-primary" />
+          VOB Intelligence
+          {data && <Badge variant="outline" className="ml-2 text-[10px]">{data.totals.count}</Badge>}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Commercial VOBs submitted in window. Network shape derived from Policy_Type: PPO carries OON benefits, HMO/EPO are in-network only, POS varies (verify).
+          Large patient responsibility threshold: ${data?.threshold.large_responsibility.toLocaleString() ?? "5,000"}+.
+        </p>
+        <div className="mt-2 flex items-center gap-1 flex-wrap">
+          {VOB_PRESETS.map((p) => (
+            <Button
+              key={p.key}
+              size="sm"
+              variant={preset === p.key ? "default" : "outline"}
+              onClick={() => onPresetChange(p.key)}
+              className="h-7 text-[11px] px-2"
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {error && (
+          <div className="text-sm text-rose-700 dark:text-rose-400 py-2">{error}</div>
+        )}
+        {loading && !data && (
+          <div className="py-6 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin inline mr-2" /> Loading VOBs…</div>
+        )}
+        {data && data.vobs.length === 0 && (
+          <p className="text-sm text-muted-foreground py-6 text-center">No commercial VOBs in this window.</p>
+        )}
+        {data && data.vobs.length > 0 && (
+          <>
+            {/* Quick summary chips — totals across the loaded set */}
+            <div className="flex items-center gap-1.5 flex-wrap mb-3 text-[11px]">
+              <span className="text-muted-foreground">Flagged:</span>
+              <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-400">{data.totals.oon_eligible} PPO/OON</Badge>
+              <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-400">{data.totals.inn_only} INN-only</Badge>
+              <Badge variant="outline" className="border-blue-500/30 text-blue-700 dark:text-blue-400">{data.totals.pos_check} POS verify</Badge>
+              <Badge variant="outline" className="border-rose-500/30 text-rose-700 dark:text-rose-400">{data.totals.high_responsibility} {">$"}{(data.threshold.large_responsibility / 1000).toFixed(0)}k cost</Badge>
+            </div>
+            <div className="max-h-[600px] overflow-y-auto pr-1">
+              <table className="w-full text-xs">
+                <thead className="text-[10px] uppercase tracking-wider text-muted-foreground sticky top-0 bg-background">
+                  <tr>
+                    <th className="text-left py-1.5 pr-2">Patient</th>
+                    <th className="text-left py-1.5 pr-2">Carrier</th>
+                    <th className="text-left py-1.5 pr-2">Plan</th>
+                    <th className="text-left py-1.5 pr-2">LOC</th>
+                    <th className="text-left py-1.5 pr-2">Disposition</th>
+                    <th className="text-right py-1.5 pr-2">Patient resp.</th>
+                    <th className="text-left py-1.5 pr-2">Flags</th>
+                    <th className="text-right py-1.5">VOB date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.vobs.map((v) => {
+                    const activeFlags: Array<{ key: string; label: string; tone: string }> = [];
+                    if (v.flags.high_responsibility) activeFlags.push({ key: "cost", label: `${fmtMoney(v.total_patient_responsibility)}+ cost`, tone: "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/5" });
+                    if (v.flags.inn_only) activeFlags.push({ key: "inn", label: "INN-only", tone: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/5" });
+                    if (v.flags.pos_check) activeFlags.push({ key: "pos", label: "POS verify", tone: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/5" });
+                    return (
+                      <tr key={v.vob_id} className="border-t align-top hover:bg-accent/20">
+                        <td className="py-1.5 pr-2 font-medium">
+                          {v.deal_id ? <ZohoDealLink id={v.deal_id}>{v.patient_name ?? v.deal_name ?? "(no name)"}</ZohoDealLink> : (v.patient_name ?? "—")}
+                        </td>
+                        <td className="py-1.5 pr-2 text-muted-foreground">{v.insurance_provider ?? "—"}</td>
+                        <td className="py-1.5 pr-2">{networkBadge(v.network, v.policy_type)}</td>
+                        <td className="py-1.5 pr-2 text-muted-foreground">{v.vob_level_of_care ?? "—"}</td>
+                        <td className="py-1.5 pr-2">
+                          {v.deal_stage ? <Badge variant="outline" className={`text-[10px] ${stageTone(v.deal_stage)}`}>{v.deal_stage}</Badge> : "—"}
+                        </td>
+                        <td className="py-1.5 pr-2 text-right tabular-nums font-medium">
+                          {v.total_patient_responsibility != null && v.total_patient_responsibility >= 5000 ? (
+                            <span className="text-rose-700 dark:text-rose-400">{fmtMoney(v.total_patient_responsibility)}</span>
+                          ) : fmtMoney(v.total_patient_responsibility)}
+                        </td>
+                        <td className="py-1.5 pr-2">
+                          {activeFlags.length === 0 ? (
+                            <span className="text-[10px] text-muted-foreground">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {activeFlags.map((f) => (
+                                <Badge key={f.key} variant="outline" className={`text-[9px] gap-1 ${f.tone}`}>
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  {f.label}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums text-muted-foreground">{fmtDate(v.created_time)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function BdReferOutStrategy() {
   const [preset, setPreset] = useState<Preset>("this_month");
   const win = useMemo(() => computeWindow(preset), [preset]);
   const [data, setData] = useState<StrategyResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // VOB Intelligence has its own window (defaults to "today") so the
+  // BD lead can scan today's incoming VOBs without resetting the
+  // strategy view's window.
+  const [vobPreset, setVobPreset] = useState<Preset>("today");
+  const vobWin = useMemo(() => computeWindow(vobPreset), [vobPreset]);
+  const [vobData, setVobData] = useState<VobResponse | null>(null);
+  const [vobLoading, setVobLoading] = useState(true);
+  const [vobError, setVobError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -304,7 +542,29 @@ export default function BdReferOutStrategy() {
     }
   }, [win.startIso, win.endIso]);
 
+  const loadVobs = useCallback(async () => {
+    setVobLoading(true);
+    setVobError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-vob-intelligence`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ start_iso: vobWin.startIso, end_iso: vobWin.endIso }),
+      });
+      const json = (await res.json()) as VobResponse;
+      if (!json.ok) throw new Error(json.error ?? "load failed");
+      setVobData(json);
+    } catch (e) {
+      setVobError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVobLoading(false);
+    }
+  }, [vobWin.startIso, vobWin.endIso]);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadVobs(); }, [loadVobs]);
 
   return (
     <PageShell
@@ -359,6 +619,15 @@ export default function BdReferOutStrategy() {
           <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> Loading…
         </CardContent></Card>
       )}
+
+      {/* VOB Intelligence — independent window (defaults to "Today"). */}
+      <VobIntelligenceCard
+        preset={vobPreset}
+        onPresetChange={setVobPreset}
+        data={vobData}
+        loading={vobLoading}
+        error={vobError}
+      />
 
       {data && (
         <div className="space-y-6">

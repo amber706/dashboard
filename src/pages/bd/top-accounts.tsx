@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { exportCsv, isoToday } from "@/lib/bd-csv";
+import { computeStandardWindow, STANDARD_PRESETS, type StandardWindowPreset } from "@/lib/bd-window-presets";
 
 interface FlagState {
   state: "active" | "ok" | "no_data";
@@ -69,12 +70,8 @@ interface TopAccountsResponse {
   accounts: TopAccount[];
 }
 
-const PRESETS = [
-  { label: "30 days", days: 30 },
-  { label: "90 days", days: 90 },
-  { label: "180 days", days: 180 },
-  { label: "Year", days: 365 },
-];
+// Window presets come from the shared standard set (This month, Last
+// month, Last 3 mo, Last 6 mo, Last year). See src/lib/bd-window-presets.
 
 const FLAG_LABELS: Record<keyof Omit<AccountFlags, "active_count">, string> = {
   reciprocal_gap: "Reciprocal gap",
@@ -95,12 +92,35 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+type Direction = "all" | "in" | "out";
+
 export default function BdTopAccounts() {
-  const [days, setDays] = useState(90);
+  const [preset, setPreset] = useState<StandardWindowPreset>("last_3_months");
+  const days = computeStandardWindow(preset).days;
   const [minReferrals, setMinReferrals] = useState(1);
+  const [direction, setDirection] = useState<Direction>("all");
   const [data, setData] = useState<TopAccountsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filter + resort accounts client-side based on the direction toggle.
+  // "in"  → accounts that sent us referrals (sorted by referrals_in)
+  // "out" → accounts we sent referrals to (sorted by referrals_out)
+  // "all" → both, server order (flags-first, then referrals_in)
+  const visibleAccounts = (() => {
+    if (!data) return [] as TopAccount[];
+    if (direction === "in") {
+      return [...data.accounts]
+        .filter((a) => a.referrals_recent >= minReferrals)
+        .sort((a, b) => b.referrals_recent - a.referrals_recent);
+    }
+    if (direction === "out") {
+      return [...data.accounts]
+        .filter((a) => a.referrals_out_recent > 0)
+        .sort((a, b) => b.referrals_out_recent - a.referrals_out_recent);
+    }
+    return data.accounts;
+  })();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -151,7 +171,7 @@ export default function BdTopAccounts() {
         .filter((k) => a.flags[k].state === "active")
         .map((k) => FLAG_LABELS[k])
         .join("; ") },
-    ], data.accounts);
+    ], visibleAccounts);
   }
 
   return (
@@ -171,7 +191,7 @@ export default function BdTopAccounts() {
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={downloadCsv} disabled={!data || data.accounts.length === 0} className="h-9 text-xs">
+          <Button variant="outline" size="sm" onClick={downloadCsv} disabled={!data || visibleAccounts.length === 0} className="h-9 text-xs">
             Download CSV
           </Button>
         </div>
@@ -180,15 +200,32 @@ export default function BdTopAccounts() {
       {/* Filters */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Window</span>
-        {PRESETS.map((p) => (
+        {STANDARD_PRESETS.map((p) => (
           <Button
-            key={p.label}
+            key={p.key}
             size="sm"
-            variant={days === p.days ? "default" : "outline"}
-            onClick={() => setDays(p.days)}
+            variant={preset === p.key ? "default" : "outline"}
+            onClick={() => setPreset(p.key)}
             className="h-8 text-xs"
           >
             {p.label}
+          </Button>
+        ))}
+        <span className="mx-3 h-4 w-px bg-border" />
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Direction</span>
+        {([
+          { key: "all", label: "Both" },
+          { key: "in", label: "Inbound only" },
+          { key: "out", label: "Outbound only" },
+        ] as { key: Direction; label: string }[]).map((d) => (
+          <Button
+            key={d.key}
+            size="sm"
+            variant={direction === d.key ? "default" : "outline"}
+            onClick={() => setDirection(d.key)}
+            className="h-8 text-xs"
+          >
+            {d.label}
           </Button>
         ))}
         <span className="mx-3 h-4 w-px bg-border" />
@@ -197,6 +234,8 @@ export default function BdTopAccounts() {
           value={minReferrals}
           onChange={(e) => setMinReferrals(Number(e.target.value))}
           className="h-8 text-xs px-2 rounded border bg-background"
+          disabled={direction === "out"}
+          title={direction === "out" ? "Min referrals applies to inbound only" : undefined}
         >
           <option value="1">1+</option>
           <option value="3">3+</option>
@@ -246,7 +285,11 @@ export default function BdTopAccounts() {
           <CardTitle className="text-base flex items-center justify-between">
             <span>Accounts</span>
             <span className="text-xs font-normal text-muted-foreground">
-              {data ? `${data.totals.accounts_returned} of ${data.totals.accounts_examined} examined` : "loading"}
+              {data ? (
+                direction === "all"
+                  ? `${data.totals.accounts_returned} of ${data.totals.accounts_examined} examined`
+                  : `${visibleAccounts.length} ${direction === "in" ? "inbound" : "outbound"} of ${data.totals.accounts_returned}`
+              ) : "loading"}
             </span>
           </CardTitle>
         </CardHeader>
@@ -255,7 +298,7 @@ export default function BdTopAccounts() {
             <div className="text-sm text-muted-foreground flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading from Zoho…
             </div>
-          ) : data && data.accounts.length === 0 ? (
+          ) : data && visibleAccounts.length === 0 ? (
             <p className="text-sm text-muted-foreground">No accounts match the current filters.</p>
           ) : data && (
             <div className="overflow-x-auto">
@@ -277,7 +320,7 @@ export default function BdTopAccounts() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.accounts.map((a, i) => {
+                  {visibleAccounts.map((a, i) => {
                     const activeFlags = (Object.keys(FLAG_LABELS) as Array<keyof typeof FLAG_LABELS>)
                       .filter((k) => a.flags[k].state === "active");
                     return (

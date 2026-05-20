@@ -99,6 +99,7 @@ export function LiveFloor() {
         .from("profiles")
         .select("id, full_name, email, is_ai_agent, availability_status, availability_status_set_at")
         .eq("is_active", true)
+        .eq("show_in_dashboards", true)
         .in("role", ["specialist", "manager"]),
     ]);
 
@@ -300,10 +301,12 @@ export function TodayKpis() {
   const [data, setData] = useState<{
     inbound: number;
     answered: number;
+    missed: number;
+    abandoned: number;
     answer_rate: number | null;
     avg_qa: number | null;
     callbacks_pending: number;
-  }>({ inbound: 0, answered: 0, answer_rate: null, avg_qa: null, callbacks_pending: 0 });
+  }>({ inbound: 0, answered: 0, missed: 0, abandoned: 0, answer_rate: null, avg_qa: null, callbacks_pending: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -311,14 +314,41 @@ export function TodayKpis() {
     async function load() {
       const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
       const startISO = startOfDay.toISOString();
-      const [inboundRes, answeredRes, scoresRes, callbackRes] = await Promise.all([
+      // Inbound is still the headline volume number (every inbound that
+      // hit our queue, including abandoned). Answer rate uses a NARROWER
+      // denominator that excludes abandoned calls — per Amber's spec, a
+      // caller who hung up before we could pick up shouldn't count
+      // against our answer rate. Missed + abandoned are surfaced
+      // SEPARATELY on the tile subtitle so the breakdown is readable
+      // without drilling in.
+      const [
+        inboundRes, answerableRes, answeredRes, missedRes, abandonedRes,
+        scoresRes, callbackRes,
+      ] = await Promise.all([
         supabase.from("call_sessions").select("id", { count: "exact", head: true })
           .gte("started_at", startISO)
           .eq("direction", "inbound"),
+        // Answer-rate denominator: inbound, excluding abandoned.
+        supabase.from("call_sessions").select("id", { count: "exact", head: true })
+          .gte("started_at", startISO)
+          .eq("direction", "inbound")
+          .neq("status", "abandoned"),
         supabase.from("call_sessions").select("id", { count: "exact", head: true })
           .gte("started_at", startISO)
           .eq("direction", "inbound")
           .in("status", ["completed", "in_progress", "transferred"]),
+        // Missed: we let it ring and didn't pick up. Counted against us.
+        supabase.from("call_sessions").select("id", { count: "exact", head: true })
+          .gte("started_at", startISO)
+          .eq("direction", "inbound")
+          .in("status", ["missed", "no_answer", "voicemail"]),
+        // Abandoned: caller hung up before we could pick up. NOT counted
+        // against us — these are split out on the tile so it's obvious
+        // they're being treated separately from missed.
+        supabase.from("call_sessions").select("id", { count: "exact", head: true })
+          .gte("started_at", startISO)
+          .eq("direction", "inbound")
+          .eq("status", "abandoned"),
         supabase.from("call_scores").select("composite_score").gte("created_at", startISO),
         // Scope callbacks-pending to the last 24h. Older pending callbacks
         // are stale leads — they belong on the >72h drilldown, not the
@@ -331,11 +361,16 @@ export function TodayKpis() {
       const scores = (scoresRes.data ?? []).map((s: any) => s.composite_score).filter((n: number | null): n is number => typeof n === "number");
       const avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
       const inbound = inboundRes.count ?? 0;
+      const answerable = answerableRes.count ?? 0;
       const answered = answeredRes.count ?? 0;
+      const missed = missedRes.count ?? 0;
+      const abandoned = abandonedRes.count ?? 0;
       setData({
         inbound,
         answered,
-        answer_rate: inbound > 0 ? Math.round((answered / inbound) * 100) : null,
+        missed,
+        abandoned,
+        answer_rate: answerable > 0 ? Math.round((answered / answerable) * 100) : null,
         avg_qa: avg,
         callbacks_pending: callbackRes.count ?? 0,
       });
@@ -355,19 +390,23 @@ export function TodayKpis() {
       href: "/ctm-calls?date=today&direction=inbound",
       label: "Inbound today",
       value: data.inbound,
-      sub: "view all inbound →",
+      // Show the breakdown directly on the tile so the math is readable
+      // at a glance: ✓ answered, ✗ missed (on us), • abandoned (not on us).
+      sub: `${data.answered} answered · ${data.missed} missed · ${data.abandoned} abandoned`,
       icon: PhoneIncoming,
       accent: undefined as "amber" | "rose" | undefined,
-      info: "Total inbound call_sessions started today (since midnight local). Includes connected, missed, voicemail, and abandoned — every inbound that hit our queue. Drills to /ctm-calls filtered to today's inbound only.",
+      info: "Total inbound call_sessions started today (since midnight local). Subtitle splits the volume into Answered (status completed / in_progress / transferred), Missed (status missed / no_answer / voicemail — we didn't pick up), and Abandoned (caller hung up before we could pick up — not counted against the answer rate). Drills to /ctm-calls filtered to today's inbound only.",
     },
     {
       href: "/ctm-calls?date=today&direction=inbound&status=completed",
       label: "Answer rate",
       value: data.answer_rate == null ? "—" : `${data.answer_rate}%`,
-      sub: `${data.answered} answered →`,
+      // Make the formula explicit on the tile — "151 / 232 (excl. 0 abandoned)" —
+      // so Amber can read off the math without opening the tooltip.
+      sub: `${data.answered} / ${data.answered + data.missed}${data.abandoned > 0 ? ` (excl. ${data.abandoned} abandoned)` : ""}`,
       icon: Phone,
       accent: data.answer_rate != null && data.answer_rate < 60 ? "rose" : data.answer_rate != null && data.answer_rate < 80 ? "amber" : undefined,
-      info: "Today's answered calls ÷ today's inbound. 'Answered' = status of completed, in_progress, or transferred. Card turns amber under 80%, rose under 60%. The denominator is the same Inbound count shown to the left.",
+      info: "Today's answered calls ÷ (answered + missed). Abandoned calls (caller hung up before we could pick up) are excluded from the denominator — they don't count against us. The unanswered cohort is just missed / no_answer / voicemail. Card turns amber under 80%, rose under 60%.",
     },
     {
       href: "/ops/qa-review",
@@ -644,16 +683,25 @@ export function RepWorkloadCards() {
       const startISO = startOfDay.toISOString();
 
       const [profilesRes, todayCallsRes, todayScoresRes, callbacksRes, activeCallsRes] = await Promise.all([
-        // Active specialists (skip AI agents — they get their own line)
+        // Active specialists (skip AI agents — they get their own line).
+        // Respect the admin-controlled show_in_dashboards flag so reps
+        // an admin has hidden (test accounts, contractors, etc.) don't
+        // clutter the Rep workload grid.
         supabase.from("profiles")
           .select("id, full_name, email, availability_status")
           .eq("is_active", true)
+          .eq("show_in_dashboards", true)
           .neq("is_ai_agent", true)
           .in("role", ["specialist", "manager"]),
         // Today's calls grouped by specialist (we'll bucket client-side)
+        // Today's INBOUND calls only — outbound dials that didn't connect
+        // shouldn't count against a rep's "missed" tally. We also need
+        // direction so the calls_today total reflects work actually
+        // received (not outbound attempts).
         supabase.from("call_sessions")
-          .select("specialist_id, status")
+          .select("specialist_id, status, direction")
           .gte("started_at", startISO)
+          .eq("direction", "inbound")
           .not("specialist_id", "is", null),
         // Today's QA scores
         supabase.from("call_scores")
@@ -673,13 +721,18 @@ export function RepWorkloadCards() {
       ]);
       if (cancelled) return;
 
-      // Roll up today's calls
+      // Roll up today's calls. "Missed" = we let it ring and didn't
+      // answer (missed / no_answer / voicemail). Abandoned calls
+      // (caller hung up before we could pick up) are deliberately NOT
+      // counted as missed — they're a caller-behavior signal, not a
+      // rep-performance signal. Source query is already inbound-only
+      // so outbound dials don't bleed into this either.
       const callsBySpec = new Map<string, { total: number; missed: number }>();
       for (const c of (todayCallsRes.data ?? []) as any[]) {
         if (!c.specialist_id) continue;
         const cur = callsBySpec.get(c.specialist_id) ?? { total: 0, missed: 0 };
         cur.total++;
-        if (c.status === "missed" || c.status === "abandoned" || c.status === "no_answer") {
+        if (c.status === "missed" || c.status === "no_answer" || c.status === "voicemail") {
           cur.missed++;
         }
         callsBySpec.set(c.specialist_id, cur);
@@ -921,12 +974,14 @@ export function TrainingWatchlist() {
       const sevenAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
       const [newHiresRes, overdueRes, lowScorersRes] = await Promise.all([
-        // New hires: profiles created in last 30 days, role specialist
+        // New hires: profiles created in last 30 days, role specialist.
+        // Respect show_in_dashboards so test accounts don't appear.
         supabase.from("profiles")
           .select("id, full_name, email, created_at, is_ai_agent")
           .gte("created_at", thirtyAgo)
           .eq("role", "specialist")
-          .eq("is_active", true),
+          .eq("is_active", true)
+          .eq("show_in_dashboards", true),
         // Specialists with overdue assignments
         supabase.from("training_assignments")
           .select("specialist_id, due_at, specialist:profiles!training_assignments_specialist_id_fkey(full_name, email)")
