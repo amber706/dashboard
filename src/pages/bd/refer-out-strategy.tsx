@@ -17,7 +17,21 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { PageShell } from "@/components/dashboard/PageShell";
+
+// Shared input styling for the per-column filter row across the tables
+// on this page. Spreadsheet-style: every column gets a filter cell.
+const FILTER_INPUT_CLS =
+  "h-6 w-full text-[10px] px-1.5 py-0 bg-background border-muted-foreground/20 placeholder:text-muted-foreground/40";
+
+// Tokenize a stage tag (Closed Won, Refer Out Type, etc.) for substring
+// matching that's friendlier than exact equality.
+function matchesText(haystack: string | null | undefined, needle: string): boolean {
+  if (!needle) return true;
+  if (haystack == null) return false;
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}
 
 type Preset = "today" | "this_week" | "this_month" | "last_month" | "last_3_months" | "last_6_months" | "last_12_months";
 
@@ -122,6 +136,7 @@ interface ReferredOut {
   loc_requested: string | null;
   stage: string | null;
   insurance_provider: string | null;
+  policy_type: string | null;
   bd_rep: string | null;
   referred_out_id: string | null;
   referred_out_name: string | null;
@@ -354,6 +369,43 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
 }
 
 function ReferredOutCard({ title, rows, bucketLabel }: { title: string; rows: ReferredOut[]; bucketLabel: string }) {
+  // Spreadsheet-style per-column filters. Free text on Deal/Sent to,
+  // dropdowns on Payer-carrier/Plan/LOC/Reason/BD rep distinct values,
+  // substring on Date.
+  const [fDeal, setFDeal] = useState("");
+  const [fSent, setFSent] = useState("");
+  const [fCarrier, setFCarrier] = useState("");
+  const [fPlan, setFPlan] = useState("");
+  const [fLoc, setFLoc] = useState("");
+  const [fReason, setFReason] = useState("");
+  const [fBd, setFBd] = useState("");
+  const [fDate, setFDate] = useState("");
+
+  const uniq = (xs: Array<string | null>) =>
+    Array.from(new Set(xs.filter((x): x is string => !!x))).sort();
+  const carrierOptions = useMemo(() => uniq(rows.map((r) => r.insurance_provider)), [rows]);
+  const planOptions = useMemo(() => uniq(rows.map((r) => r.policy_type)).filter((p) => p !== "Not Applicable"), [rows]);
+  const locOptions = useMemo(() => uniq(rows.map((r) => r.loc_requested)), [rows]);
+  const reasonOptions = useMemo(() => uniq(rows.map((r) => r.refer_out_type)), [rows]);
+  const bdOptions = useMemo(() => uniq(rows.map((r) => r.bd_rep)), [rows]);
+
+  const filtered = useMemo(() => rows.filter((r) => {
+    if (!matchesText(r.deal_name, fDeal)) return false;
+    if (!matchesText(r.referred_out_name, fSent)) return false;
+    if (fCarrier && r.insurance_provider !== fCarrier) return false;
+    if (fPlan && r.policy_type !== fPlan) return false;
+    if (fLoc && r.loc_requested !== fLoc) return false;
+    if (fReason && r.refer_out_type !== fReason) return false;
+    if (fBd && r.bd_rep !== fBd) return false;
+    if (fDate && !matchesText(fmtDate(r.refer_out_date), fDate)) return false;
+    return true;
+  }), [rows, fDeal, fSent, fCarrier, fPlan, fLoc, fReason, fBd, fDate]);
+
+  const hasFilters = !!(fDeal || fSent || fCarrier || fPlan || fLoc || fReason || fBd || fDate);
+  const clearFilters = () => {
+    setFDeal(""); setFSent(""); setFCarrier(""); setFPlan(""); setFLoc(""); setFReason(""); setFBd(""); setFDate("");
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -370,20 +422,68 @@ function ReferredOutCard({ title, rows, bucketLabel }: { title: string; rows: Re
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">No outbound {bucketLabel.toLowerCase()} referrals in this window.</p>
         ) : (
+          <>
+          {hasFilters && (
+            <div className="flex items-center justify-between mb-2 text-[11px]">
+              <span className="text-muted-foreground">
+                Showing <span className="font-medium text-foreground">{filtered.length}</span> of {rows.length}
+              </span>
+              <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={clearFilters}>Clear filters</Button>
+            </div>
+          )}
           <div className="max-h-[600px] overflow-y-auto pr-1">
             <table className="w-full text-xs">
-              <thead className="text-[10px] uppercase tracking-wider text-muted-foreground sticky top-0 bg-background">
+              <thead className="text-[10px] uppercase tracking-wider text-muted-foreground sticky top-0 bg-background z-10">
                 <tr>
                   <th className="text-left py-1.5 pr-2">Deal</th>
                   <th className="text-left py-1.5 pr-2">Sent to</th>
+                  <th className="text-left py-1.5 pr-2">Payer</th>
                   <th className="text-left py-1.5 pr-2">LOC</th>
                   <th className="text-left py-1.5 pr-2">Refer-out reason</th>
                   <th className="text-left py-1.5 pr-2">BD rep</th>
                   <th className="text-right py-1.5">Date</th>
                 </tr>
+                <tr className="border-b">
+                  <th className="pr-2 pb-1.5"><Input value={fDeal} onChange={(e) => setFDeal(e.target.value)} placeholder="Filter…" className={FILTER_INPUT_CLS} /></th>
+                  <th className="pr-2 pb-1.5"><Input value={fSent} onChange={(e) => setFSent(e.target.value)} placeholder="Filter…" className={FILTER_INPUT_CLS} /></th>
+                  <th className="pr-2 pb-1.5">
+                    <div className="flex gap-1">
+                      <select value={fCarrier} onChange={(e) => setFCarrier(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                        <option value="">Carrier</option>
+                        {carrierOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <select value={fPlan} onChange={(e) => setFPlan(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                        <option value="">Plan</option>
+                        {planOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                  </th>
+                  <th className="pr-2 pb-1.5">
+                    <select value={fLoc} onChange={(e) => setFLoc(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                      <option value="">All</option>
+                      {locOptions.map((l) => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </th>
+                  <th className="pr-2 pb-1.5">
+                    <select value={fReason} onChange={(e) => setFReason(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                      <option value="">All</option>
+                      {reasonOptions.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </th>
+                  <th className="pr-2 pb-1.5">
+                    <select value={fBd} onChange={(e) => setFBd(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                      <option value="">All</option>
+                      {bdOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  </th>
+                  <th className="pb-1.5"><Input value={fDate} onChange={(e) => setFDate(e.target.value)} placeholder="May" className={FILTER_INPUT_CLS + " text-right"} /></th>
+                </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {filtered.length === 0 && (
+                  <tr><td colSpan={7} className="py-6 text-center text-muted-foreground text-[11px]">No rows match these filters.</td></tr>
+                )}
+                {filtered.map((r) => (
                   <tr key={r.deal_id} className="border-t">
                     <td className="py-1.5 pr-2 font-medium">
                       <ZohoDealLink id={r.deal_id}>{r.deal_name ?? "(no name)"}</ZohoDealLink>
@@ -395,6 +495,27 @@ function ReferredOutCard({ title, rows, bucketLabel }: { title: string; rows: Re
                         </Link>
                       ) : (r.referred_out_name ?? "—")}
                     </td>
+                    <td className="py-1.5 pr-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-muted-foreground">{r.insurance_provider ?? "—"}</span>
+                        {r.policy_type && r.policy_type !== "Not Applicable" && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] h-4 px-1 ${
+                              r.policy_type === "PPO"
+                                ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+                                : r.policy_type === "POS"
+                                ? "border-blue-500/40 text-blue-700 dark:text-blue-400"
+                                : r.policy_type === "HMO" || r.policy_type === "EPO"
+                                ? "border-amber-500/40 text-amber-700 dark:text-amber-400"
+                                : "border-muted text-muted-foreground"
+                            }`}
+                          >
+                            {r.policy_type}
+                          </Badge>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-1.5 pr-2">{r.loc_requested ?? "—"}</td>
                     <td className="py-1.5 pr-2">{r.refer_out_type ?? "—"}</td>
                     <td className="py-1.5 pr-2">{r.bd_rep ?? "—"}</td>
@@ -404,6 +525,7 @@ function ReferredOutCard({ title, rows, bucketLabel }: { title: string; rows: Re
               </tbody>
             </table>
           </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -426,6 +548,75 @@ function VobIntelligenceCard({
     if (network === "epo") return <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400">EPO</Badge>;
     if (network === "pos") return <Badge variant="outline" className="text-[10px] border-blue-500/40 text-blue-700 dark:text-blue-400">POS</Badge>;
     return <Badge variant="outline" className="text-[10px] text-muted-foreground">{policy ?? "—"}</Badge>;
+  };
+
+  // Per-column filters (spreadsheet-style). Text columns use substring
+  // match, categorical columns use a select with the distinct values
+  // present in the loaded set. Patient resp. takes a ">= $" minimum.
+  const [fPatient, setFPatient] = useState("");
+  const [fCarrier, setFCarrier] = useState("");
+  const [fPlan, setFPlan] = useState("");
+  const [fLoc, setFLoc] = useState("");
+  const [fDispo, setFDispo] = useState("");
+  const [fMinResp, setFMinResp] = useState("");
+  const [fFlag, setFFlag] = useState("");
+  const [fDate, setFDate] = useState("");
+
+  const planOptions = useMemo(() => {
+    if (!data) return [] as string[];
+    const s = new Set<string>();
+    data.vobs.forEach((v) => {
+      if (v.network === "ppo") s.add("PPO");
+      else if (v.network === "hmo") s.add("HMO");
+      else if (v.network === "epo") s.add("EPO");
+      else if (v.network === "pos") s.add("POS");
+      else if (v.policy_type) s.add(v.policy_type);
+    });
+    return Array.from(s).sort();
+  }, [data]);
+  const locOptions = useMemo(() => {
+    if (!data) return [] as string[];
+    return Array.from(new Set(data.vobs.map((v) => v.vob_level_of_care).filter((x): x is string => !!x))).sort();
+  }, [data]);
+  const dispoOptions = useMemo(() => {
+    if (!data) return [] as string[];
+    return Array.from(new Set(data.vobs.map((v) => v.deal_stage).filter((x): x is string => !!x))).sort();
+  }, [data]);
+
+  const filteredVobs = useMemo(() => {
+    if (!data) return [] as VobRow[];
+    const minResp = fMinResp ? Number(fMinResp) : null;
+    return data.vobs.filter((v) => {
+      if (!matchesText(v.patient_name ?? v.deal_name, fPatient)) return false;
+      if (!matchesText(v.insurance_provider, fCarrier)) return false;
+      if (fPlan) {
+        const plan = v.network === "ppo" ? "PPO"
+          : v.network === "hmo" ? "HMO"
+          : v.network === "epo" ? "EPO"
+          : v.network === "pos" ? "POS"
+          : (v.policy_type ?? "");
+        if (plan !== fPlan) return false;
+      }
+      if (fLoc && v.vob_level_of_care !== fLoc) return false;
+      if (fDispo && v.deal_stage !== fDispo) return false;
+      if (minResp != null && !Number.isNaN(minResp)) {
+        if (v.total_patient_responsibility == null || v.total_patient_responsibility < minResp) return false;
+      }
+      if (fFlag) {
+        if (fFlag === "oon" && v.network !== "ppo" && v.network !== "pos") return false;
+        if (fFlag === "inn_only" && !v.flags.inn_only) return false;
+        if (fFlag === "pos_check" && !v.flags.pos_check) return false;
+        if (fFlag === "high_resp" && !v.flags.high_responsibility) return false;
+        if (fFlag === "none" && (v.flags.inn_only || v.flags.pos_check || v.flags.high_responsibility)) return false;
+      }
+      if (fDate && !matchesText(fmtDate(v.created_time), fDate)) return false;
+      return true;
+    });
+  }, [data, fPatient, fCarrier, fPlan, fLoc, fDispo, fMinResp, fFlag, fDate]);
+
+  const hasFilters = !!(fPatient || fCarrier || fPlan || fLoc || fDispo || fMinResp || fFlag || fDate);
+  const clearFilters = () => {
+    setFPatient(""); setFCarrier(""); setFPlan(""); setFLoc(""); setFDispo(""); setFMinResp(""); setFFlag(""); setFDate("");
   };
 
   return (
@@ -474,9 +665,17 @@ function VobIntelligenceCard({
               <Badge variant="outline" className="border-blue-500/30 text-blue-700 dark:text-blue-400">{data.totals.pos_check} POS verify</Badge>
               <Badge variant="outline" className="border-rose-500/30 text-rose-700 dark:text-rose-400">{data.totals.high_responsibility} {">$"}{(data.threshold.large_responsibility / 1000).toFixed(0)}k cost</Badge>
             </div>
+            {hasFilters && (
+              <div className="flex items-center justify-between mb-2 text-[11px]">
+                <span className="text-muted-foreground">
+                  Showing <span className="font-medium text-foreground">{filteredVobs.length}</span> of {data.vobs.length}
+                </span>
+                <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={clearFilters}>Clear filters</Button>
+              </div>
+            )}
             <div className="max-h-[600px] overflow-y-auto pr-1">
               <table className="w-full text-xs">
-                <thead className="text-[10px] uppercase tracking-wider text-muted-foreground sticky top-0 bg-background">
+                <thead className="text-[10px] uppercase tracking-wider text-muted-foreground sticky top-0 bg-background z-10">
                   <tr>
                     <th className="text-left py-1.5 pr-2">Patient</th>
                     <th className="text-left py-1.5 pr-2">Carrier</th>
@@ -487,9 +686,48 @@ function VobIntelligenceCard({
                     <th className="text-left py-1.5 pr-2">Flags</th>
                     <th className="text-right py-1.5">VOB date</th>
                   </tr>
+                  <tr className="border-b">
+                    <th className="pr-2 pb-1.5"><Input value={fPatient} onChange={(e) => setFPatient(e.target.value)} placeholder="Filter…" className={FILTER_INPUT_CLS} /></th>
+                    <th className="pr-2 pb-1.5"><Input value={fCarrier} onChange={(e) => setFCarrier(e.target.value)} placeholder="Filter…" className={FILTER_INPUT_CLS} /></th>
+                    <th className="pr-2 pb-1.5">
+                      <select value={fPlan} onChange={(e) => setFPlan(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                        <option value="">All</option>
+                        {planOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </th>
+                    <th className="pr-2 pb-1.5">
+                      <select value={fLoc} onChange={(e) => setFLoc(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                        <option value="">All</option>
+                        {locOptions.map((l) => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </th>
+                    <th className="pr-2 pb-1.5">
+                      <select value={fDispo} onChange={(e) => setFDispo(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                        <option value="">All</option>
+                        {dispoOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </th>
+                    <th className="pr-2 pb-1.5">
+                      <Input value={fMinResp} onChange={(e) => setFMinResp(e.target.value)} placeholder="≥ $" inputMode="numeric" className={FILTER_INPUT_CLS + " text-right"} />
+                    </th>
+                    <th className="pr-2 pb-1.5">
+                      <select value={fFlag} onChange={(e) => setFFlag(e.target.value)} className={FILTER_INPUT_CLS + " rounded-md border"}>
+                        <option value="">All</option>
+                        <option value="oon">PPO/OON</option>
+                        <option value="inn_only">INN-only</option>
+                        <option value="pos_check">POS verify</option>
+                        <option value="high_resp">High cost</option>
+                        <option value="none">No flags</option>
+                      </select>
+                    </th>
+                    <th className="pb-1.5"><Input value={fDate} onChange={(e) => setFDate(e.target.value)} placeholder="May" className={FILTER_INPUT_CLS + " text-right"} /></th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {data.vobs.map((v) => {
+                  {filteredVobs.length === 0 && (
+                    <tr><td colSpan={8} className="py-6 text-center text-muted-foreground text-[11px]">No rows match these filters.</td></tr>
+                  )}
+                  {filteredVobs.map((v) => {
                     const activeFlags: Array<{ key: string; label: string; tone: string }> = [];
                     if (v.flags.high_responsibility) activeFlags.push({ key: "cost", label: `${fmtMoney(v.total_patient_responsibility)}+ cost`, tone: "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/5" });
                     if (v.flags.inn_only) activeFlags.push({ key: "inn", label: "INN-only", tone: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/5" });

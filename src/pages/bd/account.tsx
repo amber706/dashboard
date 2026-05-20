@@ -10,7 +10,7 @@ import { Link, useSearch } from "wouter";
 import {
   Loader2, Search, ArrowLeft, ExternalLink, Building2, User,
   Calendar, TrendingUp, RefreshCw, ArrowRight, ArrowLeftRight,
-  Clock, Target, ClipboardCheck,
+  Clock, Target, ClipboardCheck, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -109,6 +109,11 @@ export default function BdAccountIntelligence() {
   // Default to Last 6 mo to match what this page used to send (180d).
   const [preset, setPreset] = useState<StandardWindowPreset>("last_6_months");
   const days = computeStandardWindow(preset).days;
+  // Zoho Account.Description is often a raw website-scrape blob — hide
+  // by default, expose under a toggle so BD can still read it if useful.
+  const [showDescription, setShowDescription] = useState(false);
+  // Reset the toggle when switching accounts so each lands collapsed.
+  useEffect(() => { setShowDescription(false); }, [selectedAccountId]);
   // Anchor on the tab strip so KPI-tile drill-downs scroll the matching
   // list into view after the tab switch.
   const tabsRef = useRef<HTMLDivElement | null>(null);
@@ -415,8 +420,21 @@ export default function BdAccountIntelligence() {
               <Stat label="Meetings" value={detail.summary.meetings_count} accent="cyan" onClick={() => drill("meetings")} />
             </CardContent>
             {detail.account.description && (
-              <CardContent className="pt-0 pb-4 text-xs text-muted-foreground italic border-t mt-2 pt-2">
-                {detail.account.description}
+              <CardContent className="pt-0 pb-3 border-t mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDescription((s) => !s)}
+                  className="flex items-center gap-1 pt-2 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  {showDescription ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                  {showDescription ? "Hide" : "Show"} Zoho description
+                  <span className="text-muted-foreground/60">({detail.account.description.length.toLocaleString()} chars)</span>
+                </button>
+                {showDescription && (
+                  <div className="mt-2 text-xs text-muted-foreground italic whitespace-pre-wrap max-h-64 overflow-y-auto pr-1 leading-relaxed">
+                    {detail.account.description}
+                  </div>
+                )}
               </CardContent>
             )}
           </Card>

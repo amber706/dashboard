@@ -9,6 +9,9 @@ import { Link } from "wouter";
 import {
   Loader2, ArrowLeft, RefreshCw, Flag, AlertTriangle, Building2, ArrowRight,
 } from "lucide-react";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +19,21 @@ import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { exportCsv, isoToday } from "@/lib/bd-csv";
 import { computeStandardWindow, STANDARD_PRESETS, type StandardWindowPreset } from "@/lib/bd-window-presets";
+
+// Pipeline groups — same shape as /bd/referrals so behavior stays
+// consistent (Commercial = Commercial-Cash, AHCCCS = AHCCCS, etc.).
+const PIPELINE_GROUPS = {
+  DUI: ["DUI", "DUI - Cash"],
+  DV: ["DV - Cash"],
+  Commercial: ["Commercial-Cash"],
+  AHCCCS: ["AHCCCS"],
+} as const;
+type PipelineGroup = keyof typeof PIPELINE_GROUPS;
+
+// Cornerstone-specific Level_of_Care_Requested values. Listed in the
+// order BD typically reads them: residential/PHP first, then IOPs,
+// then virtual IOPs.
+const LOC_OPTIONS = ["BHRF", "PHP", "IOP5", "IOP3", "VIOP Adult", "VIOP Adolescent", "DV"] as const;
 
 interface FlagState {
   state: "active" | "ok" | "no_data";
@@ -68,6 +86,7 @@ interface TopAccountsResponse {
   };
   query_errors: string[];
   accounts: TopAccount[];
+  monthly_trend?: Array<{ month: string; referrals_in: number; referrals_out: number }>;
 }
 
 // Window presets come from the shared standard set (This month, Last
@@ -99,9 +118,25 @@ export default function BdTopAccounts() {
   const days = computeStandardWindow(preset).days;
   const [minReferrals, setMinReferrals] = useState(1);
   const [direction, setDirection] = useState<Direction>("all");
+  // Default to Commercial + AHCCCS (the two treatment service lines)
+  // to match /bd/referrals. Empty Set means "all pipelines."
+  const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set(["Commercial", "AHCCCS"]));
+  const [locFilter, setLocFilter] = useState<string>("");
   const [data, setData] = useState<TopAccountsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Flatten the picked groups to the concrete Pipeline values the
+  // backend filter actually compares against.
+  const pipelinesForFetch = (() => {
+    if (pipelineGroups.size === 0) return [] as string[];
+    const out: string[] = [];
+    for (const g of pipelineGroups) out.push(...PIPELINE_GROUPS[g]);
+    return out;
+  })();
+  const togglePipeline = (g: PipelineGroup) => {
+    setPipelineGroups((prev) => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; });
+  };
 
   // Filter + resort accounts client-side based on the direction toggle.
   // "in"  → accounts that sent us referrals (sorted by referrals_in)
@@ -134,7 +169,12 @@ export default function BdTopAccounts() {
           "content-type": "application/json",
           ...(token ? { authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ days, min_referrals: minReferrals }),
+        body: JSON.stringify({
+          days,
+          min_referrals: minReferrals,
+          pipelines: pipelinesForFetch,
+          loc: locFilter || null,
+        }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "load failed");
@@ -144,7 +184,10 @@ export default function BdTopAccounts() {
     } finally {
       setLoading(false);
     }
-  }, [days, minReferrals]);
+  // Use a stable serialization for pipelinesForFetch so the dep array
+  // doesn't change identity on every render (which would refetch
+  // continuously). locFilter is already a string.
+  }, [days, minReferrals, pipelinesForFetch.join(","), locFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -242,6 +285,30 @@ export default function BdTopAccounts() {
           <option value="5">5+</option>
           <option value="10">10+</option>
         </select>
+        <span className="mx-3 h-4 w-px bg-border" />
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pipeline</span>
+        <Button size="sm" variant={pipelineGroups.size === 0 ? "default" : "outline"} onClick={() => setPipelineGroups(new Set())} className="h-8 text-xs">All</Button>
+        {(Object.keys(PIPELINE_GROUPS) as PipelineGroup[]).map((g) => (
+          <Button
+            key={g}
+            size="sm"
+            variant={pipelineGroups.has(g) ? "default" : "outline"}
+            onClick={() => togglePipeline(g)}
+            className="h-8 text-xs"
+          >
+            {g}
+          </Button>
+        ))}
+        <span className="mx-3 h-4 w-px bg-border" />
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">LOC</span>
+        <select
+          value={locFilter}
+          onChange={(e) => setLocFilter(e.target.value)}
+          className="h-8 text-xs px-2 rounded border bg-background"
+        >
+          <option value="">All LOCs</option>
+          {LOC_OPTIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+        </select>
       </div>
 
       {/* Query-level warnings (only show real Zoho errors now). */}
@@ -277,6 +344,41 @@ export default function BdTopAccounts() {
           <KpiCard label="Accounts flagged" value={data.totals.flagged} accent={data.totals.flagged > 0 ? "rose" : "default"} />
           <KpiCard label="Reciprocal" value={data.totals.reciprocal} />
         </div>
+      )}
+
+      {/* 12-month trend chart — fixed lookback regardless of the window
+          preset above, since the chart's job is the long view. Honors
+          the active pipeline + LOC filters. */}
+      {data?.monthly_trend && data.monthly_trend.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              Referrals in vs out — last 12 months
+              <Badge variant="outline" className="text-[10px]">
+                <span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ backgroundColor: "hsl(210, 80%, 55%)" }} />Referrals in
+              </Badge>
+              <Badge variant="outline" className="text-[10px]">
+                <span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ backgroundColor: "hsl(20, 80%, 55%)" }} />Referrals out
+              </Badge>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Monthly totals across all accounts, filtered by the pipeline and LOC selection above.
+            </p>
+          </CardHeader>
+          <CardContent className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data.monthly_trend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="referrals_in" name="Referrals in" stroke="hsl(210, 80%, 55%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+                <Line type="monotone" dataKey="referrals_out" name="Referrals out" stroke="hsl(20, 80%, 55%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       )}
 
       {/* Accounts table */}

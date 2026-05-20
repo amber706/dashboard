@@ -32,6 +32,10 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { exportCsv, isoToDay } from "@/lib/bd-csv";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LabelList,
+} from "recharts";
 
 interface ZohoEvent {
   id: string;
@@ -85,6 +89,16 @@ interface BdMeetingsResponse {
   recent: ZohoEvent[];
   users: Record<string, { full_name: string | null; email: string | null }>;
   window: { start: string; end: string; days_back: number; days_forward: number };
+  impact?: {
+    window: { start: string; end: string };
+    by_rep: Array<{
+      rep_id: string;
+      rep_name: string;
+      unique_accounts: number;
+      admits_with_meeting: number;
+    }>;
+    totals: { admits_in_window: number; contacts_loaded: number };
+  };
 }
 
 function fmtDateTime(iso: string | null): string {
@@ -639,6 +653,66 @@ export default function BdMeetings() {
           <CardContent className="pt-4 pb-4 text-sm text-red-600 dark:text-red-400">{error}</CardContent>
         </Card>
       )}
+
+      {/* Impact charts — per-rep bars for "unique companies met with"
+          and "BD admits with a meeting" over the past portion of the
+          selected window. Honors the rep filter chips above. */}
+      {data?.impact && data.impact.by_rep.length > 0 && (() => {
+        // Filter to the active rep selection if any. When no reps are
+        // selected we show every rep with non-zero activity in either
+        // metric so the chart doesn't disappear under "All".
+        const filtered = data.impact.by_rep
+          .filter((r) => (repIds.size === 0 ? (r.unique_accounts > 0 || r.admits_with_meeting > 0) : repIds.has(r.rep_id)))
+          .sort((a, b) => b.unique_accounts - a.unique_accounts);
+        if (filtered.length === 0) return null;
+        const chartHeight = Math.max(180, filtered.length * 30 + 50);
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Unique companies met with</CardTitle>
+                <p className="text-[11px] text-muted-foreground">
+                  Distinct accounts each rep had a meeting with during the past portion of the selected window. Resolved via What_Id (Account) or Who_Id (Contact → Account).
+                </p>
+              </CardHeader>
+              <CardContent style={{ height: chartHeight }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={filtered} layout="vertical" margin={{ left: 12, right: 28, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="rep_name" tick={{ fontSize: 11 }} width={120} />
+                    <Tooltip cursor={{ fill: "hsl(var(--accent) / 0.3)" }} />
+                    <Bar dataKey="unique_accounts" name="Unique companies" fill="hsl(210, 80%, 55%)" radius={[0, 3, 3, 0]}>
+                      <LabelList dataKey="unique_accounts" position="right" style={{ fontSize: 11, fill: "hsl(var(--foreground))" }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">BD admits where rep met the partner</CardTitle>
+                <p className="text-[11px] text-muted-foreground">
+                  BD-attributed admits in window whose Referring_Company is an account this rep also met with in the same window. {data.impact.totals.admits_in_window} BD admit{data.impact.totals.admits_in_window === 1 ? "" : "s"} total.
+                </p>
+              </CardHeader>
+              <CardContent style={{ height: chartHeight }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={filtered} layout="vertical" margin={{ left: 12, right: 28, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="rep_name" tick={{ fontSize: 11 }} width={120} />
+                    <Tooltip cursor={{ fill: "hsl(var(--accent) / 0.3)" }} />
+                    <Bar dataKey="admits_with_meeting" name="Admits with meeting" fill="hsl(160, 70%, 45%)" radius={[0, 3, 3, 0]}>
+                      <LabelList dataKey="admits_with_meeting" position="right" style={{ fontSize: 11, fill: "hsl(var(--foreground))" }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
 
       {/* Per-rep summary table — also acts as the rep selector. Click a
           row to toggle that rep into the filter; click the All chip to
