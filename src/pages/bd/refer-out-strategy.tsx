@@ -91,6 +91,7 @@ interface Suggestion {
   treats: string[];
   accepts_payer: boolean | null;
   network_relation: "oon_preferred" | "oon" | "inn" | "unknown";
+  reciprocity: "Reciprocal" | "Non-Reciprocal" | null;
   age_fit: boolean;
   clinical_fit: boolean;
   referrals_in: number;
@@ -224,7 +225,7 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
           <Badge variant="outline" className="ml-2 text-[10px]">{rows.length}</Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          {bucketLabel} deals created in window. Suggestions surface the highest-leverage reciprocal partners that take the requested LOC and match the network shape (OON-friendly for PPO/POS/Multiplan, in-network for HMO/EPO, in-plan for AHCCCS). Scored by referrals in − out over the same window.
+          {bucketLabel} deals created in window. Suggestions rank by the Account's Reciprocity picklist (Reciprocal first, then unverified, never Non-Reciprocal) plus LOC, network shape (OON-friendly for PPO/POS/Multiplan, in-network for HMO/EPO, in-plan for AHCCCS), age, and clinical primary. Window-scoped referrals_in × 2 − referrals_out breaks ties.
         </p>
       </CardHeader>
       <CardContent className="pt-0">
@@ -296,6 +297,16 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
                               <span className="truncate">{s.account_name}</span>
                             </span>
                             <span className="flex items-center gap-1.5 shrink-0 text-[10px] text-muted-foreground">
+                              {/* Reciprocity tier — BD-curated picklist on
+                                  the Account. "Reciprocal" is the strong
+                                  signal; null/unset gets a softer treatment
+                                  so the BD team sees who needs tagging. */}
+                              {s.reciprocity === "Reciprocal" && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-400" title="Reciprocity picklist set to Reciprocal in Zoho">reciprocal</Badge>
+                              )}
+                              {s.reciprocity === null && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 border-amber-500/30 text-amber-700 dark:text-amber-400" title="Reciprocity not set on this Account in Zoho — BD team should tag">unverified</Badge>
+                              )}
                               {/* Population + clinical fit indicators —
                                   match-checks done on the edge against
                                   the caller's Age_Group and MH/SUD
