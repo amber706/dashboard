@@ -9,6 +9,9 @@ import { Link } from "wouter";
 import {
   Loader2, ArrowLeft, RefreshCw, Flag, AlertTriangle, Building2, ArrowRight,
 } from "lucide-react";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -83,6 +86,7 @@ interface TopAccountsResponse {
   };
   query_errors: string[];
   accounts: TopAccount[];
+  monthly_trend?: Array<{ month: string; referrals_in: number; referrals_out: number }>;
 }
 
 // Window presets come from the shared standard set (This month, Last
@@ -340,6 +344,41 @@ export default function BdTopAccounts() {
           <KpiCard label="Accounts flagged" value={data.totals.flagged} accent={data.totals.flagged > 0 ? "rose" : "default"} />
           <KpiCard label="Reciprocal" value={data.totals.reciprocal} />
         </div>
+      )}
+
+      {/* 12-month trend chart — fixed lookback regardless of the window
+          preset above, since the chart's job is the long view. Honors
+          the active pipeline + LOC filters. */}
+      {data?.monthly_trend && data.monthly_trend.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              Referrals in vs out — last 12 months
+              <Badge variant="outline" className="text-[10px]">
+                <span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ backgroundColor: "hsl(210, 80%, 55%)" }} />Referrals in
+              </Badge>
+              <Badge variant="outline" className="text-[10px]">
+                <span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ backgroundColor: "hsl(20, 80%, 55%)" }} />Referrals out
+              </Badge>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Monthly totals across all accounts, filtered by the pipeline and LOC selection above.
+            </p>
+          </CardHeader>
+          <CardContent className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data.monthly_trend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="referrals_in" name="Referrals in" stroke="hsl(210, 80%, 55%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+                <Line type="monotone" dataKey="referrals_out" name="Referrals out" stroke="hsl(20, 80%, 55%)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       )}
 
       {/* Accounts table */}
