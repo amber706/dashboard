@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   PhoneOff, Loader2, Phone, Clock, CheckCircle2, X, Voicemail,
   AlertTriangle, ChevronDown, ChevronRight, Activity, MessageSquare, Download,
-  Calendar,
+  Calendar, User,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { downloadCsv } from "@/lib/csv-export";
@@ -56,8 +56,57 @@ interface CallbackRow {
   callback_status: CbStatus | null;
   callback_completed_at: string | null;
   callback_notes: string | null;
+  specialist_id: string | null;
+  specialist_disposition: string | null;
   lead: { id: string; outcome_category: string | null; first_name: string | null; last_name: string | null } | null;
   callback_completed_by_profile: { full_name: string | null; email: string | null } | null;
+  // Specialist who handled the original call (not the callback worker).
+  // Tells the rep working the queue who they're following up after.
+  specialist_profile: { full_name: string | null; email: string | null } | null;
+}
+
+// Map a tracking_label → IVR queue bucket. Cornerstone's CTM tracking
+// labels embed the routing target — "DUI - Main", "Google Ads (... DUI PPC)",
+// "Treatment - Main", "BD Inbound", etc. We pattern-match conservatively
+// (most-specific first) so e.g. "DUI Treatment" lands on DUI not Treatment.
+type IvrQueue = "DUI" | "Commercial" | "AHCCCS" | "BD" | "VOB" | "Alumni" | "Other";
+
+function deriveIvr(trackingLabel: string | null | undefined): IvrQueue {
+  const t = (trackingLabel ?? "").toLowerCase();
+  if (!t) return "Other";
+  if (t.includes("dui")) return "DUI";
+  if (t.includes("ahcccs")) return "AHCCCS";
+  if (t.includes("bd ") || t.includes("bd inbound") || t.includes("business development")) return "BD";
+  if (t.includes("vob")) return "VOB";
+  if (t.includes("alumni") || t.includes("readmit")) return "Alumni";
+  if (t.includes("treatment") || t.includes("admissions") || t.includes("commercial") ||
+      t.includes("organic") || t.includes("gmb") || t.includes("psychology today") ||
+      t.includes("addictioncenter") || t.includes("ppc")) return "Commercial";
+  return "Other";
+}
+
+const IVR_TONE: Record<IvrQueue, string> = {
+  DUI:        "border-violet-500/40 text-violet-700 dark:text-violet-400 bg-violet-500/10",
+  Commercial: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10",
+  AHCCCS:     "border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10",
+  BD:         "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10",
+  VOB:        "border-cyan-500/40 text-cyan-700 dark:text-cyan-400 bg-cyan-500/10",
+  Alumni:     "border-pink-500/40 text-pink-700 dark:text-pink-400 bg-pink-500/10",
+  Other:      "border-zinc-500/30 text-zinc-500 bg-zinc-500/5",
+};
+
+// One-line "why is this here?" so a rep doesn't have to expand each card
+// to know what action triggered the queue entry.
+function deriveReason(row: { status: string; specialist_disposition: string | null }): { label: string; tone: string } {
+  if (row.specialist_disposition === "needs_callback") {
+    return { label: "Rep flagged: needs callback", tone: "border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10" };
+  }
+  switch (row.status) {
+    case "missed":    return { label: "Missed call (we didn't pick up)", tone: "border-rose-500/40 text-rose-700 dark:text-rose-400 bg-rose-500/10" };
+    case "abandoned": return { label: "Caller abandoned (hung up before pickup)", tone: "border-slate-500/40 text-slate-600 dark:text-slate-400 bg-slate-500/10" };
+    case "voicemail": return { label: "Left voicemail", tone: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10" };
+    default:          return { label: row.status, tone: "border-zinc-500/30 text-zinc-500 bg-zinc-500/5" };
+  }
 }
 
 const STATUS_LABEL: Record<CbStatus, string> = {
@@ -137,8 +186,10 @@ export default function OpsCallbacks() {
         id, ctm_call_id, status, caller_phone_normalized, caller_name,
         started_at, ring_seconds, ctm_raw_payload,
         callback_status, callback_completed_at, callback_notes,
+        specialist_id, specialist_disposition,
         lead:leads!call_sessions_lead_id_fkey(id, outcome_category, first_name, last_name),
-        callback_completed_by_profile:profiles!call_sessions_callback_completed_by_fkey(full_name, email)
+        callback_completed_by_profile:profiles!call_sessions_callback_completed_by_fkey(full_name, email),
+        specialist_profile:profiles!call_sessions_specialist_id_fkey(full_name, email)
       `)
       // Include both:
       //  - missed/abandoned/voicemail calls (auto-flagged for callback)
@@ -161,8 +212,36 @@ export default function OpsCallbacks() {
     }
 
     const { data, error: err } = await q;
-    if (err) setError(err.message);
-    else setRows((data ?? []) as unknown as CallbackRow[]);
+    if (err) { setError(err.message); setLoading(false); return; }
+    const loaded = (data ?? []) as unknown as CallbackRow[];
+
+    // First-time-caller detection: for every phone number in the visible
+    // rows, count how many call_sessions exist BEFORE this one. If 0 it
+    // really is a first-time caller. Done in a single batched query
+    // grouped client-side to avoid N+1 round-trips.
+    const phones = Array.from(new Set(loaded.map((r) => r.caller_phone_normalized).filter((p): p is string => !!p)));
+    const priorByPhone = new Map<string, number>();
+    if (phones.length > 0) {
+      const earliestIso = new Date(Math.min(...loaded.map((r) => r.started_at ? new Date(r.started_at).getTime() : Date.now()))).toISOString();
+      const { data: priors } = await supabase
+        .from("call_sessions")
+        .select("caller_phone_normalized, started_at")
+        .in("caller_phone_normalized", phones)
+        .lt("started_at", earliestIso)
+        .limit(5000);
+      for (const p of (priors ?? []) as any[]) {
+        const k = p.caller_phone_normalized as string;
+        priorByPhone.set(k, (priorByPhone.get(k) ?? 0) + 1);
+      }
+    }
+    // Attach prior count to each row (stored on the row object — typed
+    // loosely so we don't need to thread it through CallbackRow).
+    for (const r of loaded) {
+      (r as any).prior_calls = r.caller_phone_normalized
+        ? (priorByPhone.get(r.caller_phone_normalized) ?? 0)
+        : 0;
+    }
+    setRows(loaded);
     setLoading(false);
   }, [filter, specialistFilter, ageWindow.gteIso, ageWindow.ltIso]);
 
@@ -382,40 +461,82 @@ export default function OpsCallbacks() {
           return (
             <Card key={r.id} className={breached ? "border-l-4 border-l-rose-500" : ""}>
               <CardHeader className="cursor-pointer pb-3" onClick={() => setExpandedId(isOpen ? null : r.id)}>
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {isOpen ? <ChevronDown className="w-4 h-4 shrink-0" /> : <ChevronRight className="w-4 h-4 shrink-0" />}
-                      {isVoicemail
-                        ? <Voicemail className="w-4 h-4 text-blue-500 shrink-0" />
-                        : <PhoneOff className="w-4 h-4 text-rose-500 shrink-0" />}
-                      <span className="font-medium text-sm">{callerName}</span>
-                      <Badge className={`${STATUS_CLASS[cb]} text-[10px]`} variant="secondary">{STATUS_LABEL[cb]}</Badge>
-                      {breached && (
-                        <Badge variant="outline" className="text-[10px] border-rose-500/40 text-rose-700 dark:text-rose-400 gap-1">
-                          <AlertTriangle className="w-3 h-3" /> SLA breached
-                        </Badge>
-                      )}
-                      {r.lead?.outcome_category && r.lead.outcome_category !== "in_progress" && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {r.lead.outcome_category === "won" ? "previously admitted" : "previously closed lost"}
-                        </Badge>
-                      )}
+                {(() => {
+                  const reason = deriveReason(r);
+                  const trackingLabel = (r.ctm_raw_payload?.tracking_label as string | null) ?? null;
+                  const ivr = deriveIvr(trackingLabel);
+                  const priorCalls = ((r as any).prior_calls as number | undefined) ?? 0;
+                  const isFirstTime = priorCalls === 0;
+                  const originalRep = r.specialist_profile?.full_name
+                    ?? r.specialist_profile?.email
+                    ?? null;
+                  const callbackRep = r.callback_completed_by_profile?.full_name
+                    ?? r.callback_completed_by_profile?.email
+                    ?? null;
+                  return (
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="space-y-1.5 flex-1 min-w-0">
+                        {/* Row 1: caller + status + SLA + lead history */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {isOpen ? <ChevronDown className="w-4 h-4 shrink-0" /> : <ChevronRight className="w-4 h-4 shrink-0" />}
+                          {isVoicemail
+                            ? <Voicemail className="w-4 h-4 text-blue-500 shrink-0" />
+                            : <PhoneOff className="w-4 h-4 text-rose-500 shrink-0" />}
+                          <span className="font-medium text-sm">{callerName}</span>
+                          <Badge className={`${STATUS_CLASS[cb]} text-[10px]`} variant="secondary">{STATUS_LABEL[cb]}</Badge>
+                          {breached && (
+                            <Badge variant="outline" className="text-[10px] border-rose-500/40 text-rose-700 dark:text-rose-400 gap-1">
+                              <AlertTriangle className="w-3 h-3" /> SLA breached
+                            </Badge>
+                          )}
+                          {r.lead?.outcome_category && r.lead.outcome_category !== "in_progress" && (
+                            <Badge variant="outline" className="text-[10px]">
+                              {r.lead.outcome_category === "won" ? "previously admitted" : "previously closed lost"}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Row 2: WHY queued + IVR queue + first-time flag */}
+                        <div className="flex items-center gap-2 flex-wrap pl-6">
+                          <Badge variant="outline" className={`text-[10px] ${reason.tone}`}>{reason.label}</Badge>
+                          <Badge variant="outline" className={`text-[10px] ${IVR_TONE[ivr]}`}>
+                            IVR: {ivr}
+                          </Badge>
+                          {isFirstTime ? (
+                            <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
+                              First-time caller
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] border-zinc-500/30 text-zinc-500" title={`${priorCalls} prior call${priorCalls === 1 ? "" : "s"} from this number`}>
+                              Returning ({priorCalls} prior)
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Row 3: phone, time, source, original rep, last toucher */}
+                        <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap pl-6">
+                          {r.caller_phone_normalized && (
+                            <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {r.caller_phone_normalized}</span>
+                          )}
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {fmtTime(r.started_at)} · {ageSince(r.started_at)}</span>
+                          {trackingLabel && (
+                            <span className="flex items-center gap-1"><Activity className="w-3 h-3" /> Source: {trackingLabel}</span>
+                          )}
+                          {originalRep && (
+                            <span className="flex items-center gap-1">
+                              <User className="w-3 h-3" /> Original rep: <span className="text-foreground font-medium">{originalRep}</span>
+                            </span>
+                          )}
+                          {callbackRep && r.callback_completed_at && (
+                            <span className="flex items-center gap-1">
+                              Last touched by <span className="text-foreground font-medium">{callbackRep}</span> · {fmtTime(r.callback_completed_at)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap pl-6">
-                      {r.caller_phone_normalized && (
-                        <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {r.caller_phone_normalized}</span>
-                      )}
-                      <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {fmtTime(r.started_at)} · {ageSince(r.started_at)}</span>
-                      {r.ctm_raw_payload?.tracking_label && (
-                        <span className="flex items-center gap-1"><Activity className="w-3 h-3" /> {r.ctm_raw_payload.tracking_label}</span>
-                      )}
-                      {r.callback_completed_at && (
-                        <span>Worked by {r.callback_completed_by_profile?.full_name ?? r.callback_completed_by_profile?.email ?? "?"} {fmtTime(r.callback_completed_at)}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </CardHeader>
 
               {isOpen && (

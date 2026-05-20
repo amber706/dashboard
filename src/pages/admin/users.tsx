@@ -42,6 +42,14 @@ interface ProfileRow {
   last_seen_at: string | null;
   created_at: string;
   is_ai_agent: boolean;
+  // When false the rep is hidden from analytics dashboards (Rep
+  // workload, Rep metrics, etc.) without losing auth access. Default
+  // true for humans; AI agents seeded to false by the migration.
+  show_in_dashboards: boolean;
+  // Functional-team flags (independent of role). Drive which staff
+  // count in BD vs Admissions dashboards.
+  is_bd_rep: boolean;
+  is_admissions_rep: boolean;
 }
 
 const ROLE_META: Record<Role, { label: string; tone: string; icon: React.ReactNode }> = {
@@ -79,7 +87,7 @@ export default function AdminUsers() {
     setLoading(true); setError(null);
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, full_name, role, is_active, last_seen_at, created_at, is_ai_agent")
+      .select("id, email, full_name, role, is_active, last_seen_at, created_at, is_ai_agent, show_in_dashboards, is_bd_rep, is_admissions_rep")
       .order("is_active", { ascending: false })
       .order("full_name", { ascending: true });
     if (error) setError(error.message);
@@ -96,7 +104,7 @@ export default function AdminUsers() {
     setProfiles((prev) => prev.map((p) => p.id === id ? { ...p, ...patch } : p));
   }
 
-  async function callUpdate(id: string, body: Partial<{ role: Role; is_active: boolean; full_name: string }>) {
+  async function callUpdate(id: string, body: Partial<{ role: Role; is_active: boolean; full_name: string; show_in_dashboards: boolean; is_bd_rep: boolean; is_admissions_rep: boolean }>) {
     setBusyId(id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -129,6 +137,21 @@ export default function AdminUsers() {
   async function toggleActive(id: string, next: boolean) {
     patchLocal(id, { is_active: next });
     await callUpdate(id, { is_active: next });
+  }
+
+  async function toggleDashboardVisibility(id: string, next: boolean) {
+    patchLocal(id, { show_in_dashboards: next });
+    await callUpdate(id, { show_in_dashboards: next });
+  }
+
+  async function toggleBdRep(id: string, next: boolean) {
+    patchLocal(id, { is_bd_rep: next });
+    await callUpdate(id, { is_bd_rep: next });
+  }
+
+  async function toggleAdmissionsRep(id: string, next: boolean) {
+    patchLocal(id, { is_admissions_rep: next });
+    await callUpdate(id, { is_admissions_rep: next });
   }
 
   // Sort: active humans first by name, then inactive, then AI agents.
@@ -202,6 +225,8 @@ export default function AdminUsers() {
                   <th className="text-left py-2 pr-3">Email</th>
                   <th className="text-left py-2 pr-3">Role</th>
                   <th className="text-left py-2 pr-3">Active</th>
+                  <th className="text-left py-2 pr-3" title="When off, this rep is hidden from analytics dashboards (Rep workload, Rep metrics, etc.) without losing auth access.">In dashboards</th>
+                  <th className="text-left py-2 pr-3" title="Functional team membership. Drives which staff count in BD vs Admissions dashboards. A user can be on both.">Team</th>
                   <th className="text-right py-2 pr-3">Last seen</th>
                   <th className="text-right py-2 pr-3">Created</th>
                 </tr>
@@ -254,6 +279,66 @@ export default function AdminUsers() {
                         >
                           {p.is_active ? (<><CheckCircle2 className="w-3 h-3" /> active</>) : (<><X className="w-3 h-3" /> inactive</>)}
                         </button>
+                      </td>
+                      <td className="py-2 pr-3">
+                        {/* Show-in-dashboards toggle. Independent of
+                            is_active — a deactivated rep stays out of
+                            dashboards regardless, but an active rep
+                            (e.g. Test Specialist, CRM Contractor) can
+                            be hidden from analytics views without
+                            losing their auth seat. */}
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => toggleDashboardVisibility(p.id, !p.show_in_dashboards)}
+                          title={p.show_in_dashboards
+                            ? "Hide this rep from analytics dashboards"
+                            : "Show this rep in analytics dashboards"}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors ${
+                            p.show_in_dashboards
+                              ? "border border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/5 hover:bg-blue-500/10"
+                              : "border border-zinc-500/40 text-zinc-500 hover:bg-zinc-500/10"
+                          } ${isBusy ? "cursor-not-allowed opacity-60" : ""}`}
+                        >
+                          {p.show_in_dashboards
+                            ? (<><CheckCircle2 className="w-3 h-3" /> shown</>)
+                            : (<><X className="w-3 h-3" /> hidden</>)}
+                        </button>
+                      </td>
+                      <td className="py-2 pr-3">
+                        {/* Two stacked toggles — Admissions on top, BD
+                            below. A user can be on neither, one, or
+                            both. Click to flip. These drive the BD
+                            Performance Dashboard's call/task/meeting
+                            scoping plus future Admissions-only views. */}
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={isBusy || p.is_ai_agent}
+                            onClick={() => toggleAdmissionsRep(p.id, !p.is_admissions_rep)}
+                            title={p.is_admissions_rep ? "Remove from Admissions team" : "Add to Admissions team"}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors ${
+                              p.is_admissions_rep
+                                ? "border border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20"
+                                : "border border-zinc-500/30 text-zinc-500 hover:bg-zinc-500/10"
+                            } ${(isBusy || p.is_ai_agent) ? "cursor-not-allowed opacity-60" : ""}`}
+                          >
+                            Adm
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy || p.is_ai_agent}
+                            onClick={() => toggleBdRep(p.id, !p.is_bd_rep)}
+                            title={p.is_bd_rep ? "Remove from BD team" : "Add to BD team"}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors ${
+                              p.is_bd_rep
+                                ? "border border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
+                                : "border border-zinc-500/30 text-zinc-500 hover:bg-zinc-500/10"
+                            } ${(isBusy || p.is_ai_agent) ? "cursor-not-allowed opacity-60" : ""}`}
+                          >
+                            BD
+                          </button>
+                        </div>
                       </td>
                       <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">
                         {fmtRelative(p.last_seen_at)}

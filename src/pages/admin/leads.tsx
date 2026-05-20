@@ -28,6 +28,16 @@ interface LeadRow {
   Mobile: string | null;
   Lead_Status: string | null;
   Lead_Source: string | null;
+  // Workflow-set canonical channel ("SEO", "PPC", "Paid Social", etc.).
+  // Cornerstone displays this as "Source" — the legacy Lead_Source
+  // field is null on most rows.
+  Source_Category: string | null;
+  Generated_By: string | null;
+  // Lead-scoring fields. Lead_Score_Rating is the star (e.g.
+  // "Excellent", "Good", "Poor"). Lead_Score_Explanation is the
+  // reason the rule fired.
+  Lead_Score_Rating: string | null;
+  Lead_Score_Explanation: string | null;
   Company: string | null;
   Created_Time: string | null;
   Modified_Time: string | null;
@@ -122,7 +132,13 @@ export default function AdminLeads() {
     });
     setKnownSources((prev) => {
       const next = new Set(prev);
-      for (const r of rows) if (r.Lead_Source) next.add(r.Lead_Source);
+      // Discover source-filter options from Source_Category (the
+      // canonical channel field). Fall back to Lead_Source for any
+      // legacy rows still using it.
+      for (const r of rows) {
+        if (r.Source_Category) next.add(r.Source_Category);
+        else if (r.Lead_Source) next.add(r.Lead_Source);
+      }
       return next;
     });
   }, [rows]);
@@ -237,6 +253,7 @@ export default function AdminLeads() {
                     <th className="text-left py-2 px-3">Contact</th>
                     <th className="text-left py-2 px-3">Status</th>
                     <th className="text-left py-2 px-3">Source</th>
+                    <th className="text-left py-2 px-3">Score</th>
                     <th className="text-left py-2 px-3">Owner</th>
                     <th className="text-left py-2 px-3">Modified</th>
                     <th className="w-10"></th>
@@ -262,7 +279,54 @@ export default function AdminLeads() {
                           <Badge variant="outline" className="text-[10px]">{r.Lead_Status}</Badge>
                         ) : <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="py-2 px-3 text-xs text-muted-foreground">{r.Lead_Source ?? "—"}</td>
+                      <td className="py-2 px-3 text-xs">
+                        {/* Workflow-canonical source (SEO / PPC /
+                            Paid Social / etc.). Show Generated_By as
+                            a secondary line so the BD-vs-Digital
+                            split is visible. */}
+                        {r.Source_Category ? (
+                          <div>
+                            <Badge variant="outline" className="text-[10px]">{r.Source_Category}</Badge>
+                            {r.Generated_By && (
+                              <div className="text-[10px] text-muted-foreground mt-0.5">{r.Generated_By}</div>
+                            )}
+                          </div>
+                        ) : r.Lead_Source ? (
+                          <span className="text-muted-foreground">{r.Lead_Source}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-xs">
+                        {/* Zoho lead-scoring rating + reason. Rating
+                            is a picklist (e.g. "Excellent" / "Good"
+                            / "Poor"); explanation tells the rep why
+                            the rule fired. */}
+                        {r.Lead_Score_Rating ? (
+                          <div>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${
+                                /excellent|hot|a/i.test(r.Lead_Score_Rating)
+                                  ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+                                  : /good|warm|b/i.test(r.Lead_Score_Rating)
+                                    ? "border-amber-500/40 text-amber-700 dark:text-amber-400"
+                                    : ""
+                              }`}
+                              title={r.Lead_Score_Explanation ?? undefined}
+                            >
+                              {r.Lead_Score_Rating}
+                            </Badge>
+                            {r.Lead_Score_Explanation && (
+                              <div className="text-[10px] text-muted-foreground mt-0.5 max-w-[200px] truncate" title={r.Lead_Score_Explanation}>
+                                {r.Lead_Score_Explanation}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="py-2 px-3 text-xs">{ownerName(r["Owner.id"])}</td>
                       <td className="py-2 px-3 text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.Modified_Time)}</td>
                       <td className="py-2 px-3 text-right">

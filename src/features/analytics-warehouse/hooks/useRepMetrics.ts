@@ -6,9 +6,22 @@ type PayerBucket = "AHCCCS" | "Commercial" | "Self-Pay" | "DUI" | "DV";
 
 const PAYER_BUCKETS: PayerBucket[] = ["AHCCCS", "Commercial", "Self-Pay", "DUI", "DV"];
 
-const bucketPayer = (group: string | null | undefined, raw: string | null | undefined): PayerBucket => {
-  // Prefer the warehouse-canonical payer_type_group (set by the ETL using
-  // DUI_or_Treatment + Insurance_Type). Fall back to raw insurance string.
+const bucketPayer = (
+  pipelineType: string | null | undefined,
+  group: string | null | undefined,
+  raw: string | null | undefined,
+): PayerBucket => {
+  // Pipeline IS the line-of-business. A deal that closes in the DUI
+  // pipeline is a DUI admit, period — payer_type_group sometimes lands
+  // as Unknown / Cash on those records because the ETL hasn't tagged
+  // every DUI variant ("Domestic Violence" raw text, etc.). Pipeline
+  // type is the cleanest signal, so we check it first.
+  const pt = (pipelineType ?? "").toLowerCase().trim();
+  if (pt === "dui" || pt.startsWith("dui")) return "DUI";
+  if (pt === "dv" || pt.startsWith("dv") || pt.includes("domestic violence")) return "DV";
+
+  // Fall through to the warehouse-canonical payer_type_group for the
+  // treatment service lines (Commercial / AHCCCS / Cash).
   if (group === "DUI") return "DUI";
   if (group === "DV")  return "DV";
   if (group === "AHCCCS") return "AHCCCS";
@@ -53,14 +66,21 @@ const newRow = (rep_key: string, display_name: string, role: string | null): Rep
 });
 
 async function fetchRepMetrics(range: DateRange): Promise<RepMetricsPayload> {
+  // Pull pipeline_type alongside payer fields so the DUI/DV bucketing
+  // can prefer the pipeline (which IS the line of business) over a
+  // possibly-Unknown payer_type_group. Also bump .range() ceilings to
+  // dodge the PostgREST 1000-row default on busier months.
   const [repsRes, pipeRes, vobRes, admitRes] = await Promise.all([
     dim().from("dim_rep").select("rep_key, rep_display_name, rep_role").eq("is_active", true),
-    fact().from("fact_pipeline").select("rep_key, bd_rep_key, payer_type_group, insurance_type_raw")
-      .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`),
-    fact().from("fact_vob").select("rep_key, bd_rep_key, payer_type_group, insurance_type_raw")
-      .gte("vob_submitted_date", range.from).lte("vob_submitted_date", `${range.to}T23:59:59`),
-    fact().from("fact_admit").select("rep_key, bd_rep_key, payer_type_group, insurance_type_raw")
-      .gte("admit_date", range.from).lte("admit_date", range.to),
+    fact().from("fact_pipeline").select("rep_key, bd_rep_key, pipeline_type, payer_type_group, insurance_type_raw")
+      .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
+      .range(0, 19999),
+    fact().from("fact_vob").select("rep_key, bd_rep_key, pipeline_type, payer_type_group, insurance_type_raw")
+      .gte("vob_submitted_date", range.from).lte("vob_submitted_date", `${range.to}T23:59:59`)
+      .range(0, 19999),
+    fact().from("fact_admit").select("rep_key, bd_rep_key, pipeline_type, payer_type_group, insurance_type_raw")
+      .gte("admit_date", range.from).lte("admit_date", range.to)
+      .range(0, 19999),
   ]);
 
   const board: Record<string, RepRow> = {};
@@ -79,7 +99,11 @@ async function fetchRepMetrics(range: DateRange): Promise<RepMetricsPayload> {
   };
 
   const credit = (metric: "leads" | "vobs" | "admits", rec: Record<string, unknown>) => {
-    const p = bucketPayer(rec.payer_type_group as string | null, rec.insurance_type_raw as string | null);
+    const p = bucketPayer(
+      rec.pipeline_type as string | null,
+      rec.payer_type_group as string | null,
+      rec.insurance_type_raw as string | null,
+    );
     funnel[p][metric] += 1;
     const ak = rec.rep_key as string | null;
     if (ak && board[ak]) {

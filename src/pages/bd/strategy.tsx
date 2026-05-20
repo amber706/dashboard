@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/dashboard/PageShell";
+import { presetToMonths, STANDARD_PRESETS, type StandardWindowPreset } from "@/lib/bd-window-presets";
 
 interface LagResult {
   lag_0: number; lag_30: number; lag_60: number; lag_90: number;
@@ -118,7 +119,11 @@ function fmtDate(iso: string | null): string {
 
 export default function BdStrategy() {
   const [goal, setGoal] = useState<GoalKey>("php");
-  const [months, setMonths] = useState<number>(18);
+  const [preset, setPreset] = useState<StandardWindowPreset>("last_year");
+  // Strategy engine wants a months count for the rolling-correlation
+  // window. We map the standard preset to a months value — "Last year"
+  // gives the engine 12 months of signal, which is the sweet spot.
+  const months = useMemo(() => presetToMonths(preset).months, [preset]);
   const [segmentFilter, setSegmentFilter] = useState<string>("all");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -193,15 +198,15 @@ export default function BdStrategy() {
             <Target className="w-4 h-4 text-emerald-500" /> Pick your goal
             <div className="ml-auto flex items-center gap-1">
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-1">Window</span>
-              {[6, 12, 18, 24].map((n) => (
+              {STANDARD_PRESETS.map((p) => (
                 <Button
-                  key={n} size="sm"
-                  variant={months === n ? "default" : "outline"}
-                  onClick={() => setMonths(n)}
+                  key={p.key} size="sm"
+                  variant={preset === p.key ? "default" : "outline"}
+                  onClick={() => setPreset(p.key)}
                   className="h-7 text-[10px] px-2"
                   disabled={loading}
                 >
-                  {n}mo
+                  {p.label}
                 </Button>
               ))}
             </div>

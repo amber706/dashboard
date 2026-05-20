@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { exportCsv, isoToday } from "@/lib/bd-csv";
+import { computeStandardWindow, STANDARD_PRESETS, type StandardWindowPreset } from "@/lib/bd-window-presets";
 
 interface FlagState { state: "active" | "ok" | "no_data"; severity?: "high" | "medium" | "low"; reason?: string }
 interface AccountFlags {
@@ -70,12 +71,8 @@ interface TopAccountsResponse {
 const REACTIVATION_FLAGS = ["high_value_dormant", "no_recent_contact", "no_recent_meeting"] as const;
 type ReactivationFlag = typeof REACTIVATION_FLAGS[number];
 
-const PRESETS = [
-  { label: "30 days", days: 30 },
-  { label: "90 days", days: 90 },
-  { label: "180 days", days: 180 },
-  { label: "Year", days: 365 },
-];
+// Window presets come from the shared standard set. See
+// src/lib/bd-window-presets.
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -159,7 +156,8 @@ const FLAG_LABEL: Record<ReactivationFlag, string> = {
 };
 
 export default function BdStuckAccounts() {
-  const [days, setDays] = useState(90);
+  const [preset, setPreset] = useState<StandardWindowPreset>("last_3_months");
+  const days = computeStandardWindow(preset).days;
   const [data, setData] = useState<TopAccountsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -268,8 +266,8 @@ export default function BdStuckAccounts() {
     >
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lookback</span>
-        {PRESETS.map((p) => (
-          <Button key={p.label} size="sm" variant={days === p.days ? "default" : "outline"} onClick={() => setDays(p.days)} className="h-8 text-xs">
+        {STANDARD_PRESETS.map((p) => (
+          <Button key={p.key} size="sm" variant={preset === p.key ? "default" : "outline"} onClick={() => setPreset(p.key)} className="h-8 text-xs">
             {p.label}
           </Button>
         ))}

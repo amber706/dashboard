@@ -2,14 +2,23 @@ import { useQuery } from "@tanstack/react-query";
 import { fact } from "../api/client";
 import type { DateRange } from "../api/types";
 
-const STAGES: { key: string; label: string }[] = [
-  { key: "lead_created",    label: "Lead Created" },
-  { key: "connected_ftc",   label: "Connected / FTC" },
-  { key: "qualified",       label: "Qualified" },
-  { key: "vob_in_progress", label: "VOB In Progress" },
-  { key: "vob_approved",    label: "VOB Approved" },
-  { key: "admit_scheduled", label: "Admit Scheduled" },
-  { key: "closed_admitted", label: "Closed Admitted" },
+// Each stage maps to the fact_pipeline timestamp column that, when
+// populated, indicates the deal REACHED that stage at some point. A
+// true cohort funnel = count of leads created in window whose stage
+// timestamp is non-null. This monotonically decreases through the
+// pipeline, so conversion ratios always read like a real funnel.
+//
+// Old logic compared CURRENT stage_key counts (one stage per row),
+// which produced impossible ratios like 480% when there were more
+// VOB Approved rows currently than VOB In Progress rows.
+const STAGES: { key: string; label: string; reachedCol: string | null }[] = [
+  { key: "lead_created",    label: "Lead Created",     reachedCol: null /* always the denominator */ },
+  { key: "connected_ftc",   label: "Connected / FTC",  reachedCol: "first_contact_time" },
+  { key: "qualified",       label: "Qualified",        reachedCol: "qualified_time" },
+  { key: "vob_in_progress", label: "VOB In Progress",  reachedCol: "vob_submitted_time" },
+  { key: "vob_approved",    label: "VOB Approved",     reachedCol: "vob_approved_time" },
+  { key: "admit_scheduled", label: "Admit Scheduled",  reachedCol: "admit_scheduled_time" },
+  { key: "closed_admitted", label: "Closed Admitted",  reachedCol: "admit_date" },
 ];
 
 export interface StuckRow {
@@ -38,14 +47,17 @@ export interface FunnelAnalysis {
   counts: { missingInsurance: number; stuckTotal: number };
 }
 
-// Lightweight HEAD counter — used in parallel for each stage instead of
-// pulling every fact_pipeline row in the window (a 20k-row select would
-// drop columns into our 8s statement_timeout window when YTD is selected).
-function countInRange(range: DateRange, stageKey: string) {
-  return fact().from("fact_pipeline").select("*", { count: "exact", head: true })
-    .eq("stage_key", stageKey)
+// Lightweight HEAD counter — used in parallel for each stage. Counts
+// leads whose lead_created_time falls in the cohort window AND who
+// REACHED the given stage (timestamp column on the row is non-null).
+// For lead_created itself, reachedCol is null and we just count the
+// cohort — i.e. how many leads were created in the window.
+function countReached(range: DateRange, reachedCol: string | null) {
+  let q = fact().from("fact_pipeline").select("*", { count: "exact", head: true })
     .gte("lead_created_time", range.from)
     .lte("lead_created_time", `${range.to}T23:59:59`);
+  if (reachedCol) q = q.not(reachedCol, "is", null);
+  return q;
 }
 
 async function fetchFunnel(range: DateRange): Promise<FunnelAnalysis> {
@@ -62,7 +74,7 @@ async function fetchFunnel(range: DateRange): Promise<FunnelAnalysis> {
     stuckRes,
     agingRes,
   ] = await Promise.all([
-    Promise.all(STAGES.map((s) => countInRange(range, s.key))),
+    Promise.all(STAGES.map((s) => countReached(range, s.reachedCol))),
     fact().from("fact_pipeline").select("*", { count: "exact", head: true })
       .gte("lead_created_time", range.from).lte("lead_created_time", `${range.to}T23:59:59`)
       .eq("is_stuck", true),

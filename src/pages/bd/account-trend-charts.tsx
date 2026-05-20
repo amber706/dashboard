@@ -15,6 +15,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { supabase } from "@/lib/supabase";
+import { presetToMonths, STANDARD_PRESETS, type StandardWindowPreset } from "@/lib/bd-window-presets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -74,7 +75,8 @@ function fmtMonth(mk: string): string {
 }
 
 export function AccountTrendCharts({ accountId, accountName }: { accountId: string; accountName: string }) {
-  const [months, setMonths] = useState(12);
+  const [preset, setPreset] = useState<StandardWindowPreset>("last_year");
+  const months = useMemo(() => presetToMonths(preset).months, [preset]);
   const [locRequested, setLocRequested] = useState<string>("all");
   const [locAdmitted, setLocAdmitted] = useState<string>("all");
   const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set());
@@ -169,8 +171,8 @@ export function AccountTrendCharts({ accountId, accountName }: { accountId: stri
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Window</span>
-            {[6, 12, 18, 24].map((n) => (
-              <Button key={n} size="sm" variant={months === n ? "default" : "outline"} onClick={() => setMonths(n)} className="h-7 text-xs">{n}mo</Button>
+            {STANDARD_PRESETS.map((p) => (
+              <Button key={p.key} size="sm" variant={preset === p.key ? "default" : "outline"} onClick={() => setPreset(p.key)} className="h-7 text-xs">{p.label}</Button>
             ))}
             <span className="mx-2 h-4 w-px bg-border" />
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pipeline</span>

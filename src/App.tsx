@@ -89,6 +89,7 @@ import WarehouseExecutive from "@/pages/analytics/executive";
 import WarehouseFunnel from "@/pages/analytics/funnel";
 import WarehouseRepMetrics from "@/pages/analytics/rep-metrics";
 import WarehouseChannel from "@/pages/analytics/channel";
+import AnalyticsChartView from "@/pages/analytics/chart-view";
 import WarehousePayer from "@/pages/analytics/payer";
 import WarehouseTeam from "@/pages/analytics/team";
 import WarehouseCensus from "@/pages/analytics/census";
@@ -178,6 +179,7 @@ function AppRoutes() {
         <Route path="/analytics/funnel"        component={MgrMod("page_warehouse_funnel",      WarehouseFunnel)} />
         <Route path="/analytics/rep-metrics"   component={MgrMod("page_warehouse_rep_metrics", WarehouseRepMetrics)} />
         <Route path="/analytics/channel"       component={MgrMod("page_warehouse_channel",     WarehouseChannel)} />
+        <Route path="/analytics/chart-view"    component={MgrMod("page_warehouse_chart_view",  AnalyticsChartView)} />
         <Route path="/analytics/payer"         component={MgrMod("page_warehouse_payer",       WarehousePayer)} />
         <Route path="/analytics/team"          component={MgrMod("page_warehouse_team",        WarehouseTeam)} />
         <Route path="/analytics/census"        component={MgrMod("page_warehouse_census",      WarehouseCensus)} />

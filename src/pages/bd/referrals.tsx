@@ -38,34 +38,24 @@ const PIPELINE_GROUPS = {
 type PipelineGroup = keyof typeof PIPELINE_GROUPS;
 
 type WindowPreset =
-  | "today" | "last_24h" | "wtd" | "mtd"
-  | "last_7" | "last_30" | "last_90" | "ytd" | "custom";
+  | "mtd" | "last_month" | "last_3_months" | "last_6_months" | "last_12_months"
+  | "custom";
 
 function computeWindow(preset: WindowPreset, customStart?: string, customEnd?: string): { startIso: string; endIso: string; label: string } {
   const now = new Date();
   const isoUtc = (d: Date) => d.toISOString().slice(0, 19) + "+00:00";
-  const startOfToday = () => new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
   const endOfToday = () => new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-  const startOfWeek = () => {
-    const t = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const dow = t.getDay();
-    const diff = dow === 0 ? -6 : 1 - dow;
-    t.setDate(t.getDate() + diff);
-    return t;
-  };
   const startOfMonth = () => new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
-  const startOfYear = () => new Date(now.getFullYear(), 0, 1, 0, 0, 0);
+  const startOfMonthsBack = (n: number) => new Date(now.getFullYear(), now.getMonth() - n, 1, 0, 0, 0);
+  const endOfLastMonth = () => new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
   const subDays = (n: number) => new Date(now.getTime() - n * 86400_000);
 
   switch (preset) {
-    case "today":    return { startIso: isoUtc(startOfToday()), endIso: isoUtc(endOfToday()), label: "Today" };
-    case "last_24h": return { startIso: isoUtc(subDays(1)), endIso: isoUtc(now), label: "Last 24h" };
-    case "wtd":      return { startIso: isoUtc(startOfWeek()), endIso: isoUtc(endOfToday()), label: "Week to date" };
-    case "mtd":      return { startIso: isoUtc(startOfMonth()), endIso: isoUtc(endOfToday()), label: "Month to date" };
-    case "last_7":   return { startIso: isoUtc(subDays(7)), endIso: isoUtc(now), label: "Last 7 days" };
-    case "last_30":  return { startIso: isoUtc(subDays(30)), endIso: isoUtc(now), label: "Last 30 days" };
-    case "last_90":  return { startIso: isoUtc(subDays(90)), endIso: isoUtc(now), label: "Last 90 days" };
-    case "ytd":      return { startIso: isoUtc(startOfYear()), endIso: isoUtc(endOfToday()), label: "Year to date" };
+    case "mtd":             return { startIso: isoUtc(startOfMonth()), endIso: isoUtc(endOfToday()), label: "This month" };
+    case "last_month":      return { startIso: isoUtc(startOfMonthsBack(1)), endIso: isoUtc(endOfLastMonth()), label: "Last month" };
+    case "last_3_months":   return { startIso: isoUtc(startOfMonthsBack(2)), endIso: isoUtc(endOfToday()), label: "Last 3 months" };
+    case "last_6_months":   return { startIso: isoUtc(startOfMonthsBack(5)), endIso: isoUtc(endOfToday()), label: "Last 6 months" };
+    case "last_12_months":  return { startIso: isoUtc(startOfMonthsBack(11)), endIso: isoUtc(endOfToday()), label: "Last year" };
     case "custom": {
       const s = customStart ? new Date(customStart + "T00:00:00") : subDays(7);
       const e = customEnd ? new Date(customEnd + "T23:59:59") : now;
@@ -74,15 +64,13 @@ function computeWindow(preset: WindowPreset, customStart?: string, customEnd?: s
   }
 }
 
+// Standard window presets — same five everywhere in the BD module.
 const PRESETS: Array<{ key: WindowPreset; label: string }> = [
-  { key: "today", label: "Today" },
-  { key: "last_24h", label: "Last 24h" },
-  { key: "wtd", label: "WTD" },
-  { key: "mtd", label: "MTD" },
-  { key: "last_7", label: "7d" },
-  { key: "last_30", label: "30d" },
-  { key: "last_90", label: "90d" },
-  { key: "ytd", label: "YTD" },
+  { key: "mtd", label: "This month" },
+  { key: "last_month", label: "Last month" },
+  { key: "last_3_months", label: "Last 3 months" },
+  { key: "last_6_months", label: "Last 6 months" },
+  { key: "last_12_months", label: "Last 12 months" },
 ];
 
 interface RefRow {

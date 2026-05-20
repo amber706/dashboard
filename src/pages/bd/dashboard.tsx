@@ -96,19 +96,16 @@ function computeWindow(preset: WindowPreset, customStart?: string, customEnd?: s
   }
 }
 
+// Standard window presets — same five everywhere in the BD module. See
+// src/lib/bd-window-presets.ts for the canonical set. Kept inline here
+// (rather than imported) because this page's WindowPreset enum supports
+// a richer underlying type for its custom-range escape hatch.
 const PRESETS: Array<{ key: WindowPreset; label: string }> = [
-  { key: "today", label: "Today" },
-  { key: "last_24h", label: "Last 24h" },
-  { key: "wtd", label: "WTD" },
   { key: "mtd", label: "This month" },
   { key: "last_month", label: "Last month" },
-  { key: "last_3_months", label: "Last 3 mo" },
-  { key: "last_6_months", label: "Last 6 mo" },
-  { key: "last_12_months", label: "Last 12 mo" },
-  { key: "last_7", label: "7d" },
-  { key: "last_30", label: "30d" },
-  { key: "last_90", label: "90d" },
-  { key: "ytd", label: "YTD" },
+  { key: "last_3_months", label: "Last 3 months" },
+  { key: "last_6_months", label: "Last 6 months" },
+  { key: "last_12_months", label: "Last 12 months" },
 ];
 
 // Maps a WindowPreset to the number of complete months to fetch for
@@ -190,6 +187,20 @@ interface BdSummary {
     net_balance: number; conversion_rate: number | null; meetings_completed: number;
     by_loc: Array<{ loc: string; referrals_in: number; vobs: number; admits: number }>;
   }>;
+  /** Refer-out pivot — Refer_Out_Type (rows) × Pipeline bucket (columns).
+   *  Added by bd-summary v21. Optional so the UI degrades against older
+   *  payloads. Pipeline bucket: Commercial / AHCCCS / DUI / DV / Other. */
+  refer_out_breakdown?: {
+    rows: Array<{
+      refer_out_type: string;
+      commercial: number; ahcccs: number; dui: number; dv: number; other: number;
+      total: number;
+    }>;
+    totals: {
+      commercial: number; ahcccs: number; dui: number; dv: number; other: number;
+      total: number;
+    };
+  };
 }
 
 interface RepProfile { id: string; full_name: string | null; email: string | null; zoho_user_id: string | null; }
@@ -894,6 +905,93 @@ export default function BdDashboard() {
               ) : <p className="text-sm text-muted-foreground">No rep activity in this window.</p>}
             </CardContent>
           </Card>
+
+          {/* Refer-out breakdown — Refer_Out_Type rows × Pipeline columns.
+              Powered by bd-summary v21's refer_out_breakdown. Columns
+              follow the active pipeline filter: when "All" is selected
+              (pipelineGroups.size === 0) we show all four (Commercial,
+              AHCCCS, DUI, DV); otherwise we show only the buckets the
+              user has toggled on. Total column always shows. */}
+          {data?.refer_out_breakdown && data.refer_out_breakdown.rows.length > 0 && (() => {
+            const breakdown = data.refer_out_breakdown!;
+            const showAll = pipelineGroups.size === 0;
+            const showCommercial = showAll || pipelineGroups.has("Commercial");
+            const showAhcccs = showAll || pipelineGroups.has("AHCCCS");
+            const showDui = showAll || pipelineGroups.has("DUI");
+            const showDv = showAll || pipelineGroups.has("DV");
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center justify-between gap-2">
+                    <span
+                      className="flex items-center gap-2"
+                      title="Refer-outs in this window pivoted by Refer_Out_Type (row) and Pipeline (column). Pipeline columns follow the page-level Pipeline filter — toggle a pipeline to add or remove its column. Built from the same 3-signal union as the headline Refer-outs KPI."
+                    >
+                      Refer-out breakdown
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[11px] px-2"
+                      onClick={() => {
+                        const cols: Array<{ header: string; value: (r: typeof breakdown.rows[number]) => string | number }> = [
+                          { header: "Refer Out Type", value: (r) => r.refer_out_type },
+                        ];
+                        if (showCommercial) cols.push({ header: "Commercial", value: (r) => r.commercial });
+                        if (showAhcccs) cols.push({ header: "AHCCCS", value: (r) => r.ahcccs });
+                        if (showDui) cols.push({ header: "DUI", value: (r) => r.dui });
+                        if (showDv) cols.push({ header: "DV", value: (r) => r.dv });
+                        cols.push({ header: "Total", value: (r) => r.total });
+                        exportCsv<typeof breakdown.rows[number]>(
+                          `bd-refer-out-breakdown-${isoToDay(win.startIso)}-to-${isoToDay(win.endIso)}.csv`,
+                          cols,
+                          breakdown.rows,
+                        );
+                      }}
+                    >
+                      CSV
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-xs text-muted-foreground uppercase tracking-wide">
+                        <tr>
+                          <th className="text-left py-2 pr-3">Refer Out Type</th>
+                          {showCommercial && <th className="text-right py-2 pr-3">Commercial</th>}
+                          {showAhcccs && <th className="text-right py-2 pr-3">AHCCCS</th>}
+                          {showDui && <th className="text-right py-2 pr-3">DUI</th>}
+                          {showDv && <th className="text-right py-2 pr-3">DV</th>}
+                          <th className="text-right py-2 pr-3">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {breakdown.rows.map((r) => (
+                          <tr key={r.refer_out_type} className="border-t">
+                            <td className="py-2 pr-3 font-medium">{r.refer_out_type}</td>
+                            {showCommercial && <td className="py-2 pr-3 text-right tabular-nums">{r.commercial || <span className="text-muted-foreground">0</span>}</td>}
+                            {showAhcccs && <td className="py-2 pr-3 text-right tabular-nums">{r.ahcccs || <span className="text-muted-foreground">0</span>}</td>}
+                            {showDui && <td className="py-2 pr-3 text-right tabular-nums">{r.dui || <span className="text-muted-foreground">0</span>}</td>}
+                            {showDv && <td className="py-2 pr-3 text-right tabular-nums">{r.dv || <span className="text-muted-foreground">0</span>}</td>}
+                            <td className="py-2 pr-3 text-right tabular-nums font-semibold">{r.total}</td>
+                          </tr>
+                        ))}
+                        <tr className="border-t border-t-2 bg-muted/30">
+                          <td className="py-2 pr-3 font-semibold uppercase text-xs tracking-wide">Total</td>
+                          {showCommercial && <td className="py-2 pr-3 text-right tabular-nums font-semibold">{breakdown.totals.commercial}</td>}
+                          {showAhcccs && <td className="py-2 pr-3 text-right tabular-nums font-semibold">{breakdown.totals.ahcccs}</td>}
+                          {showDui && <td className="py-2 pr-3 text-right tabular-nums font-semibold">{breakdown.totals.dui}</td>}
+                          {showDv && <td className="py-2 pr-3 text-right tabular-nums font-semibold">{breakdown.totals.dv}</td>}
+                          <td className="py-2 pr-3 text-right tabular-nums font-semibold">{breakdown.totals.total}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* Today's meetings — at the bottom of the page so it doesn't
               dominate the metrics view. Grouped by BD rep, collapsible. */}
