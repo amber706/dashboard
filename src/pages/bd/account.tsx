@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { PageShell } from "@/components/dashboard/PageShell";
 import { exportCsv, isoToday } from "@/lib/bd-csv";
 import { AccountTrendCharts } from "./account-trend-charts";
+import { computeStandardWindow, STANDARD_PRESETS, type StandardWindowPreset } from "@/lib/bd-window-presets";
 
 interface AccountSearchResult {
   id: string;
@@ -104,6 +105,10 @@ export default function BdAccountIntelligence() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("timeline");
   const [profiles, setProfiles] = useState<Array<{ id: string; full_name: string | null; email: string | null; zoho_user_id: string | null }>>([]);
+  // Standard window preset — same five options as every other BD page.
+  // Default to Last 6 mo to match what this page used to send (180d).
+  const [preset, setPreset] = useState<StandardWindowPreset>("last_6_months");
+  const days = computeStandardWindow(preset).days;
   // Anchor on the tab strip so KPI-tile drill-downs scroll the matching
   // list into view after the tab switch.
   const tabsRef = useRef<HTMLDivElement | null>(null);
@@ -182,7 +187,7 @@ export default function BdAccountIntelligence() {
           "content-type": "application/json",
           ...(token ? { authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ account_id: selectedAccountId, days: 180 }),
+        body: JSON.stringify({ account_id: selectedAccountId, days }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "load failed");
@@ -192,12 +197,12 @@ export default function BdAccountIntelligence() {
     } finally {
       setDetailLoading(false);
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, days]);
 
   useEffect(() => {
     if (selectedAccountId) loadDetail();
     else setDetail(null);
-  }, [selectedAccountId, loadDetail]);
+  }, [selectedAccountId, loadDetail, days]);
 
   // Export the rows in the currently-active tab as CSV. Each tab has
   // its own column set, so we branch on `tab`. Filename includes the
@@ -415,6 +420,24 @@ export default function BdAccountIntelligence() {
               </CardContent>
             )}
           </Card>
+
+          {/* Window picker — same five standard presets as every other
+              BD page. Drives the lookback for the KPI tiles above AND
+              the tab counts below. */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Window</span>
+            {STANDARD_PRESETS.map((p) => (
+              <Button
+                key={p.key}
+                size="sm"
+                variant={preset === p.key ? "default" : "outline"}
+                onClick={() => setPreset(p.key)}
+                className="h-8 text-xs"
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
 
           {/* Monthly trend charts — three line graphs with their own
               LOC + pipeline filter row, and per-month drill-down sheet. */}
@@ -690,7 +713,15 @@ function DealsOutTable({ rows, repName }: { rows: any[]; repName: (z: string | n
                       : <span className="text-muted-foreground">—</span>}
                   </td>
                   <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">
-                    {fmtDate(r.Refer_Out_Date)}
+                    {r.Refer_Out_Date ? (
+                      fmtDate(r.Refer_Out_Date)
+                    ) : r.Created_Time ? (
+                      <span className="italic opacity-70" title="Refer_Out_Date is empty in Zoho — showing deal Created_Time as a proxy">
+                        ~{fmtDate(r.Created_Time)}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="py-2 pr-3">
                     <a
