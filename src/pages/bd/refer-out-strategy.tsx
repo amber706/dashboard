@@ -110,6 +110,7 @@ interface NewPolicy {
   insurance_provider: string | null;
   age_group: string | null;
   mh_sud_primary: string | null;
+  has_multiplan: boolean;
   suggestions: Suggestion[];
 }
 interface ReferredOut {
@@ -127,7 +128,12 @@ interface ReferredOut {
 interface StrategyResponse {
   ok: boolean;
   window: { start_iso: string; end_iso: string };
+  // OON-eligible commercial: PPO + POS + Multiplan-tagged deals.
   commercial: { new_policies: NewPolicy[]; referred_out: ReferredOut[] };
+  // INN-only commercial: HMO + EPO. No referred_out tab — INN partners
+  // who took the patient typically don't show up as a refer-out in our
+  // outbound stream.
+  commercial_inn: { new_policies: NewPolicy[] };
   ahcccs:     { new_policies: NewPolicy[]; referred_out: ReferredOut[] };
   partners_considered: number;
   error?: string;
@@ -218,7 +224,7 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
           <Badge variant="outline" className="ml-2 text-[10px]">{rows.length}</Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          {bucketLabel} deals created in window. For PPO callers we surface the highest-leverage reciprocal accounts that are OON-friendly for the carrier and accept the LOC. AHCCCS prefers in-network plan matches. Partners are scored by referrals in − out over the same window.
+          {bucketLabel} deals created in window. Suggestions surface the highest-leverage reciprocal partners that take the requested LOC and match the network shape (OON-friendly for PPO/POS/Multiplan, in-network for HMO/EPO, in-plan for AHCCCS). Scored by referrals in − out over the same window.
         </p>
       </CardHeader>
       <CardContent className="pt-0">
@@ -233,10 +239,17 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
                     <ZohoDealLink id={r.deal_id}>
                       <span className="font-medium text-sm">{r.deal_name ?? "(no name)"}</span>
                     </ZohoDealLink>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                      {fmtDate(r.created_time)}
-                      {r.insurance_provider ? ` · ${r.insurance_provider}` : ""}
-                      {r.policy_type && r.policy_type !== "Not Applicable" ? ` · ${r.policy_type}` : ""}
+                    <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1 flex-wrap">
+                      <span>{fmtDate(r.created_time)}</span>
+                      {r.insurance_provider && <span>· {r.insurance_provider}</span>}
+                      {r.policy_type && r.policy_type !== "Not Applicable" && <span>· {r.policy_type}</span>}
+                      {/* Multiplan = third-party OON wrap network. Detected
+                          via substring match on VOB notes. Visible signal
+                          that this caller has OON access even if Policy_Type
+                          isn't tagged PPO/POS. */}
+                      {r.has_multiplan && (
+                        <Badge variant="outline" className="text-[9px] h-4 px-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-400">Multiplan</Badge>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
@@ -640,12 +653,20 @@ export default function BdReferOutStrategy() {
 
       {data && (
         <div className="space-y-6">
-          {/* Commercial row */}
+          {/* Commercial OON row — PPO + POS + Multiplan. Two cards. */}
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Commercial PPO</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Commercial · OON-eligible (PPO, POS, Multiplan)</h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <NewPoliciesCard title="New commercial PPO policies" rows={data.commercial.new_policies} bucketLabel="Commercial PPO" />
+              <NewPoliciesCard title="New OON-eligible policies" rows={data.commercial.new_policies} bucketLabel="Commercial OON" />
               <ReferredOutCard title="Commercial referrals sent out" rows={data.commercial.referred_out} bucketLabel="Commercial" />
+            </div>
+          </div>
+          {/* Commercial INN row — HMO + EPO. Single card; INN partners
+              taken in-network typically don't surface as refer-outs. */}
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Commercial · In-network only (HMO, EPO)</h2>
+            <div className="grid grid-cols-1 gap-4">
+              <NewPoliciesCard title="New in-network-only policies" rows={data.commercial_inn.new_policies} bucketLabel="Commercial INN" />
             </div>
           </div>
           {/* AHCCCS row */}
