@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, MessageSquare, ArrowLeftRight, Target,
+  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, MessageSquare, ArrowLeftRight, Target, ArrowRight,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -177,6 +177,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/bd/top-accounts", label: "Top Referring Accounts", icon: <Trophy className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/account-trends", label: "Account Trends", icon: <BarChart3 className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/strategy", label: "Strategy Command Center", icon: <Target className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
+    { href: "/bd/refer-out-strategy", label: "Refer Out Strategy", icon: <ArrowRight className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/account", label: "Account Intelligence", icon: <Search className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
     { href: "/bd/meetings", label: "Meetings", icon: <Calendar className="w-4 h-4" />, section: "BD", roles: ["manager", "admin"] as const },
   ];
@@ -226,6 +227,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href === "/bd/top-accounts") return "page_bd_top_accounts";
     if (href === "/bd/account-trends") return "page_bd_account_trends";
     if (href === "/bd/strategy") return "page_bd_strategy";
+    if (href === "/bd/refer-out-strategy") return "page_bd_refer_out";
     if (href === "/bd/account") return "page_bd_account_intel";
     if (href === "/bd/meetings") return "page_bd_meetings";
     // Module-level fallthrough.
