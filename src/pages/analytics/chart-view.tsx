@@ -34,8 +34,8 @@ import { useReferOutBreakdowns } from "@/features/analytics-warehouse/hooks/useR
 import type { DatePreset } from "@/features/analytics-warehouse/api/types";
 import { resolveDateRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 
-// Color palette — 8 distinct, accessible hues. Cycled when there are
-// more slices than colors.
+// Color palette — 8 distinct, accessible hues. Adjacent colors contrast
+// so a stacked bar segment never blends into its neighbor.
 const PALETTE = [
   "#3b82f6", // blue-500
   "#10b981", // emerald-500
@@ -46,12 +46,48 @@ const PALETTE = [
   "#ec4899", // pink-500
   "#84cc16", // lime-500
 ];
-const color = (i: number) => PALETTE[i % PALETTE.length];
+
+// Stable color mapping for known dimension values — Commercial is
+// always blue, AHCCCS is always emerald, etc. — so the eye learns
+// the mapping across charts. Falls back to positional palette lookup
+// for unknown labels (e.g. partner companies in the refer-out chart).
+const KNOWN_COLORS: Record<string, string> = {
+  // Payer buckets
+  "Commercial": "#3b82f6",
+  "AHCCCS":     "#10b981",
+  "Cash":       "#8b5cf6",
+  "DUI":        "#f59e0b",
+  "DV":         "#ef4444",
+  "Unknown":    "#94a3b8", // slate-400 — visually de-emphasized
+  // Source categories
+  "SEO":          "#3b82f6",
+  "BD Referral":  "#10b981",
+  "PPC":          "#f59e0b",
+  "Directory":    "#8b5cf6",
+  "Unattributed": "#94a3b8",
+  // LOC fallback
+  "(no LOC)":   "#94a3b8",
+};
+const colorFor = (label: string, i: number): string =>
+  KNOWN_COLORS[label] ?? PALETTE[i % PALETTE.length];
+
+// Deterministic ordering for known dimensions so the legend always
+// reads Commercial → AHCCCS → ... regardless of which appears first
+// alphabetically. Unknown stays last (de-emphasized).
+const PAYER_ORDER = ["Commercial", "AHCCCS", "Cash", "DUI", "DV", "Unknown"];
+const SOURCE_ORDER = ["SEO", "BD Referral", "PPC", "Directory", "Unattributed"];
+function orderKeys(keys: string[], preferred: string[]): string[] {
+  const known = preferred.filter((k) => keys.includes(k));
+  const rest = keys.filter((k) => !preferred.includes(k)).sort();
+  return [...known, ...rest];
+}
 
 const fmtNumber = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-US"));
 
 // Single-dimension pie chart with legend. Used for the 5 simple
-// breakdowns (leads/vobs/admits/lost/refer-out by source or reason).
+// breakdowns. Percentage labels render inside slices >= 6% so the
+// chart is self-documenting; smaller slices get their share via the
+// tooltip + legend table below.
 function PieCard({ title, slices, loading }: { title: string; slices: Slice[] | undefined; loading: boolean }) {
   const total = (slices ?? []).reduce((s, x) => s + x.count, 0);
   return (
@@ -63,38 +99,77 @@ function PieCard({ title, slices, loading }: { title: string; slices: Slice[] | 
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        {loading ? <Skeleton className="h-56 w-full" /> :
+        {loading ? <Skeleton className="h-72 w-full" /> :
           !slices || slices.length === 0 ? (
             <p className="text-xs text-muted-foreground py-12 text-center">No data in this window.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie data={slices} dataKey="count" nameKey="label" cx="50%" cy="50%" outerRadius={70} innerRadius={32}>
-                  {slices.map((_, i) => <Cell key={i} fill={color(i)} />)}
-                </Pie>
-                <Tooltip formatter={(v: number, n: string) => [fmtNumber(v), n]} />
-                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie
+                    data={slices} dataKey="count" nameKey="label"
+                    cx="50%" cy="50%" outerRadius={88} innerRadius={40}
+                    label={(p: any) => {
+                      const pct = total > 0 ? (p.count / total) * 100 : 0;
+                      return pct >= 6 ? `${pct.toFixed(0)}%` : "";
+                    }}
+                    labelLine={false}
+                  >
+                    {slices.map((s, i) => <Cell key={i} fill={colorFor(s.label, i)} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number, n: string) => [`${fmtNumber(v)} (${total > 0 ? ((v / total) * 100).toFixed(1) : "0"}%)`, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+              {/* Compact legend table below the chart — readable and
+                  click-free; shows count + percent for each slice. */}
+              <div className="text-[11px] mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                {slices.map((s, i) => (
+                  <div key={s.label} className="flex items-center justify-between gap-2 min-w-0">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: colorFor(s.label, i) }} />
+                      <span className="truncate">{s.label}</span>
+                    </span>
+                    <span className="tabular-nums text-muted-foreground shrink-0">
+                      {fmtNumber(s.count)} · {total > 0 ? ((s.count / total) * 100).toFixed(0) : "0"}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
       </CardContent>
     </Card>
   );
 }
 
-// Stacked bar chart for the nested breakdowns (source × payer, source
-// × LOC). Each bar is a source category; segments within the bar are
-// the inner dimension (payer or LOC).
+// Horizontal stacked bar for the nested breakdowns (source × payer,
+// source × LOC). Source labels live on the Y axis where they're
+// always horizontal and never get squeezed; counts run left to right.
+// Stack order honors PAYER_ORDER / SOURCE_ORDER so Commercial is
+// always the leftmost segment.
 function StackedBarCard({
-  title, rows, keys, loading,
+  title, rows, keys, loading, innerDim,
 }: {
   title: string;
   rows: NestedRow[] | undefined;
   keys: string[] | undefined;
   loading: boolean;
+  innerDim: "payer" | "loc";
 }) {
-  const data = (rows ?? []).map((r) => ({ source: r.source, ...r.byKey }));
-  const total = (rows ?? []).reduce((s, r) => s + r.total, 0);
+  const orderedKeys = keys ? orderKeys(keys, innerDim === "payer" ? PAYER_ORDER : []) : [];
+  // Sort rows by source preference (SEO first, etc.) then by total.
+  const sortedRows = (rows ?? []).slice().sort((a, b) => {
+    const ia = SOURCE_ORDER.indexOf(a.source);
+    const ib = SOURCE_ORDER.indexOf(b.source);
+    const ra = ia === -1 ? 99 : ia;
+    const rb = ib === -1 ? 99 : ib;
+    if (ra !== rb) return ra - rb;
+    return b.total - a.total;
+  });
+  const data = sortedRows.map((r) => ({ source: r.source, ...r.byKey, _total: r.total }));
+  const total = sortedRows.reduce((s, r) => s + r.total, 0);
+  const chartHeight = Math.max(160, sortedRows.length * 44);
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -108,14 +183,16 @@ function StackedBarCard({
           !rows || rows.length === 0 || !keys || keys.length === 0 ? (
             <p className="text-xs text-muted-foreground py-12 text-center">No data in this window.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: -16 }}>
-                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
-                <XAxis dataKey="source" tick={{ fontSize: 10 }} interval={0} angle={-15} textAnchor="end" height={50} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 10 }} />
-                {keys.map((k, i) => <Bar key={k} dataKey={k} stackId="a" fill={color(i)} />)}
+            <ResponsiveContainer width="100%" height={chartHeight}>
+              <BarChart layout="vertical" data={data} margin={{ top: 4, right: 12, bottom: 4, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10 }} />
+                <YAxis type="category" dataKey="source" tick={{ fontSize: 11 }} width={88} />
+                <Tooltip formatter={(v: number, n: string) => [fmtNumber(v), n]} />
+                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
+                {orderedKeys.map((k, i) => (
+                  <Bar key={k} dataKey={k} stackId="a" fill={colorFor(k, i)} />
+                ))}
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -218,6 +295,42 @@ export default function AnalyticsChartView() {
         </CardContent>
       </Card>
 
+      {/* Data quality banner — surfaces the share of records that
+          come back tagged Unattributed. Anything above 5% is worth
+          flagging because attribution drives every chart on this
+          page. Pulled from the same buckets the pies render, so the
+          numbers always match what's on screen below. */}
+      {data && (() => {
+        const unattLeads  = data.leadsBySource.find((s) => s.label === "Unattributed")?.count  ?? 0;
+        const unattVobs   = data.vobsBySource.find((s) => s.label === "Unattributed")?.count   ?? 0;
+        const unattAdmits = data.admitsBySource.find((s) => s.label === "Unattributed")?.count ?? 0;
+        const lP = data.totals.leads  > 0 ? (unattLeads  / data.totals.leads)  * 100 : 0;
+        const vP = data.totals.vobs   > 0 ? (unattVobs   / data.totals.vobs)   * 100 : 0;
+        const aP = data.totals.admits > 0 ? (unattAdmits / data.totals.admits) * 100 : 0;
+        const worst = Math.max(lP, vP, aP);
+        if (worst < 5) return null;
+        return (
+          <Card className="border-amber-500/40 bg-amber-500/5">
+            <CardContent className="p-4 text-sm flex items-start gap-3">
+              <span className="mt-0.5 inline-block w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+              <div className="space-y-1">
+                <div>
+                  <span className="font-semibold">Attribution gap.</span>{" "}
+                  Unattributed share is high in this window —
+                  Leads <span className="tabular-nums">{lP.toFixed(0)}%</span> ({fmtNumber(unattLeads)}),
+                  VOBs <span className="tabular-nums">{vP.toFixed(0)}%</span> ({fmtNumber(unattVobs)}),
+                  Admits <span className="tabular-nums">{aP.toFixed(0)}%</span> ({fmtNumber(unattAdmits)}).
+                  Target is under 5%.
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Most common causes: Source field blank on Lead in Zoho, GCLID dropped before form submit, or a partner Source value not in the dim_source map yet. Channel attribution feeds every chart below — the higher this banner reads, the less trust the splits warrant.
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* Top-line totals */}
       {data && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -233,24 +346,24 @@ export default function AnalyticsChartView() {
       <SectionHeader title="Leads" />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <PieCard       title="Leads by Source"        slices={data?.leadsBySource} loading={isLoading} />
-        <StackedBarCard title="Leads by Source × Payer" rows={data?.leadsBySourceByPayer} keys={data?.payerKeys} loading={isLoading} />
-        <StackedBarCard title="Leads by Source × LOC"   rows={data?.leadsBySourceByLoc}   keys={data?.locKeys}   loading={isLoading} />
+        <StackedBarCard title="Leads by Source × Payer" rows={data?.leadsBySourceByPayer} keys={data?.payerKeys} loading={isLoading} innerDim="payer" />
+        <StackedBarCard title="Leads by Source × LOC"   rows={data?.leadsBySourceByLoc}   keys={data?.locKeys}   loading={isLoading} innerDim="loc" />
       </div>
 
       {/* VOBs row */}
       <SectionHeader title="VOBs" />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <PieCard       title="VOBs by Source"         slices={data?.vobsBySource} loading={isLoading} />
-        <StackedBarCard title="VOBs by Source × Payer" rows={data?.vobsBySourceByPayer} keys={data?.payerKeys} loading={isLoading} />
-        <StackedBarCard title="VOBs by Source × LOC"   rows={data?.vobsBySourceByLoc}   keys={data?.locKeys}   loading={isLoading} />
+        <StackedBarCard title="VOBs by Source × Payer" rows={data?.vobsBySourceByPayer} keys={data?.payerKeys} loading={isLoading} innerDim="payer" />
+        <StackedBarCard title="VOBs by Source × LOC"   rows={data?.vobsBySourceByLoc}   keys={data?.locKeys}   loading={isLoading} innerDim="loc" />
       </div>
 
       {/* Admits row */}
       <SectionHeader title="Admits" />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <PieCard       title="Admits by Source"         slices={data?.admitsBySource} loading={isLoading} />
-        <StackedBarCard title="Admits by Source × Payer" rows={data?.admitsBySourceByPayer} keys={data?.payerKeys} loading={isLoading} />
-        <StackedBarCard title="Admits by Source × LOC"   rows={data?.admitsBySourceByLoc}   keys={data?.locKeys}   loading={isLoading} />
+        <StackedBarCard title="Admits by Source × Payer" rows={data?.admitsBySourceByPayer} keys={data?.payerKeys} loading={isLoading} innerDim="payer" />
+        <StackedBarCard title="Admits by Source × LOC"   rows={data?.admitsBySourceByLoc}   keys={data?.locKeys}   loading={isLoading} innerDim="loc" />
       </div>
 
       {/* Reason / company row */}
