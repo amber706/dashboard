@@ -90,6 +90,7 @@ interface Suggestion {
   loc_outbound: string[];
   treats: string[];
   accepts_payer: boolean | null;
+  network_relation: "oon_preferred" | "oon" | "inn" | "unknown";
   age_fit: boolean;
   clinical_fit: boolean;
   referrals_in: number;
@@ -217,7 +218,7 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
           <Badge variant="outline" className="ml-2 text-[10px]">{rows.length}</Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          {bucketLabel} deals created in window. Suggested partners match the LOC requested, accept the policy, and are scored on reciprocity (in − out) over the same window.
+          {bucketLabel} deals created in window. For PPO callers we surface the highest-leverage reciprocal accounts that are OON-friendly for the carrier and accept the LOC. AHCCCS prefers in-network plan matches. Partners are scored by referrals in − out over the same window.
         </p>
       </CardHeader>
       <CardContent className="pt-0">
@@ -297,7 +298,15 @@ function NewPoliciesCard({ title, rows, bucketLabel }: { title: string; rows: Ne
                                   {r.mh_sud_primary.includes("SUD") ? "SUD" : "MH"}
                                 </Badge>
                               )}
-                              {s.accepts_payer === true && <Badge variant="outline" className="text-[9px] h-4 px-1 border-emerald-500/30 text-emerald-700 dark:text-emerald-400">in-net</Badge>}
+                              {s.network_relation === "oon_preferred" && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 border-emerald-500/30 text-emerald-700 dark:text-emerald-400" title="Partner has this carrier on their OON Preferred Policies list">OON pref</Badge>
+                              )}
+                              {s.network_relation === "oon" && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 border-blue-500/30 text-blue-700 dark:text-blue-400" title="Partner is out-of-network for this carrier">OON</Badge>
+                              )}
+                              {s.network_relation === "inn" && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 border-amber-500/30 text-amber-700 dark:text-amber-400" title="Partner is in-network for this carrier">INN</Badge>
+                              )}
                               <span>in {s.referrals_in} · out {s.referrals_out}</span>
                             </span>
                           </a>
