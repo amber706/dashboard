@@ -67,6 +67,7 @@ export type PageKey =
   | "page_warehouse_funnel"
   | "page_warehouse_rep_metrics"
   | "page_warehouse_channel"
+  | "page_warehouse_chart_view"
   | "page_warehouse_payer"
   | "page_warehouse_team"
   | "page_warehouse_census"

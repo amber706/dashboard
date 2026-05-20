@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, MessageSquare, ArrowLeftRight, Target, ArrowRight,
+  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, MessageSquare, ArrowLeftRight, Target, ArrowRight, PieChart,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -126,6 +126,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/analytics/funnel",      label: "Funnel Analysis",     icon: <TrendingDown className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/rep-metrics", label: "Rep Metrics",         icon: <Trophy className="w-4 h-4" />,       section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/channel",     label: "Channel & Source",    icon: <Activity className="w-4 h-4" />,     section: "Analytics", roles: ["manager", "admin"] as const },
+    { href: "/analytics/chart-view",  label: "Chart View",          icon: <PieChart className="w-4 h-4" />,     section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/payer",       label: "Payer Mix",           icon: <Gauge className="w-4 h-4" />,        section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/team",        label: "Team Performance",    icon: <Users className="w-4 h-4" />,        section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/census",      label: "Census & Capacity",   icon: <Hourglass className="w-4 h-4" />,    section: "Analytics", roles: ["manager", "admin"] as const },
@@ -244,6 +245,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href === "/analytics/funnel")        return "page_warehouse_funnel";
     if (href === "/analytics/rep-metrics")   return "page_warehouse_rep_metrics";
     if (href === "/analytics/channel")       return "page_warehouse_channel";
+    if (href === "/analytics/chart-view")    return "page_warehouse_chart_view";
     if (href === "/analytics/payer")         return "page_warehouse_payer";
     if (href === "/analytics/team")          return "page_warehouse_team";
     if (href === "/analytics/census")        return "page_warehouse_census";
