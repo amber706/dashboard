@@ -414,11 +414,10 @@ export default function BdAccountIntelligence() {
               />
               <Stat label="Meetings" value={detail.summary.meetings_count} accent="cyan" onClick={() => drill("meetings")} />
             </CardContent>
-            {detail.account.description && (
-              <CardContent className="pt-0 pb-4 text-xs text-muted-foreground italic border-t mt-2 pt-2">
-                {detail.account.description}
-              </CardContent>
-            )}
+            {/* Account.Description from Zoho is often a raw website-scrape
+                blob (Sequoia BH etc.) — hidden from the page. If we
+                ever want a "View Zoho description" toggle, re-render
+                detail.account.description here behind a collapsible. */}
           </Card>
 
           {/* Window picker — same five standard presets as every other
