@@ -122,6 +122,7 @@ interface ReferredOut {
   loc_requested: string | null;
   stage: string | null;
   insurance_provider: string | null;
+  policy_type: string | null;
   bd_rep: string | null;
   referred_out_id: string | null;
   referred_out_name: string | null;
@@ -376,6 +377,7 @@ function ReferredOutCard({ title, rows, bucketLabel }: { title: string; rows: Re
                 <tr>
                   <th className="text-left py-1.5 pr-2">Deal</th>
                   <th className="text-left py-1.5 pr-2">Sent to</th>
+                  <th className="text-left py-1.5 pr-2">Payer</th>
                   <th className="text-left py-1.5 pr-2">LOC</th>
                   <th className="text-left py-1.5 pr-2">Refer-out reason</th>
                   <th className="text-left py-1.5 pr-2">BD rep</th>
@@ -394,6 +396,27 @@ function ReferredOutCard({ title, rows, bucketLabel }: { title: string; rows: Re
                           <a className="text-primary hover:underline">{r.referred_out_name}</a>
                         </Link>
                       ) : (r.referred_out_name ?? "—")}
+                    </td>
+                    <td className="py-1.5 pr-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-muted-foreground">{r.insurance_provider ?? "—"}</span>
+                        {r.policy_type && r.policy_type !== "Not Applicable" && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] h-4 px-1 ${
+                              r.policy_type === "PPO"
+                                ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+                                : r.policy_type === "POS"
+                                ? "border-blue-500/40 text-blue-700 dark:text-blue-400"
+                                : r.policy_type === "HMO" || r.policy_type === "EPO"
+                                ? "border-amber-500/40 text-amber-700 dark:text-amber-400"
+                                : "border-muted text-muted-foreground"
+                            }`}
+                          >
+                            {r.policy_type}
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="py-1.5 pr-2">{r.loc_requested ?? "—"}</td>
                     <td className="py-1.5 pr-2">{r.refer_out_type ?? "—"}</td>
