@@ -137,65 +137,71 @@ type Preset = {
   range: () => { startIso: string; endIso: string };
 };
 
+// All windows end "now" (no future dates) so the impact charts only
+// reflect completed meetings. Month-based windows are calendar-aligned:
+// "Last month" = full previous calendar month; "Last 3/6/12 months"
+// = the N full calendar months immediately preceding the current one,
+// PLUS the current month-to-date, so the chart always includes today's
+// activity.
 const PRESETS: Preset[] = [
-  {
-    key: "past_7",
-    label: "Past 7 days",
-    range: () => ({
-      startIso: new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 19) + "+00:00",
-      endIso: new Date().toISOString().slice(0, 19) + "+00:00",
-    }),
-  },
-  {
-    key: "past_30",
-    label: "Past 30 days",
-    range: () => ({
-      startIso: new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 19) + "+00:00",
-      endIso: new Date().toISOString().slice(0, 19) + "+00:00",
-    }),
-  },
-  {
-    key: "next_7",
-    label: "Next 7 days",
-    range: () => ({
-      startIso: new Date().toISOString().slice(0, 19) + "+00:00",
-      endIso: new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 19) + "+00:00",
-    }),
-  },
-  {
-    key: "next_30",
-    label: "Next 30 days",
-    range: () => ({
-      startIso: new Date().toISOString().slice(0, 19) + "+00:00",
-      endIso: new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 19) + "+00:00",
-    }),
-  },
-  {
-    key: "next_90",
-    label: "Next 90 days",
-    range: () => ({
-      startIso: new Date().toISOString().slice(0, 19) + "+00:00",
-      endIso: new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 19) + "+00:00",
-    }),
-  },
-  {
-    key: "spread",
-    label: "−14 / +30",
-    range: () => ({
-      startIso: new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 19) + "+00:00",
-      endIso: new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 19) + "+00:00",
-    }),
-  },
   {
     key: "this_month",
     label: "This month",
     range: () => {
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59);
+      return {
+        startIso: start.toISOString().slice(0, 19) + "+00:00",
+        endIso: now.toISOString().slice(0, 19) + "+00:00",
+      };
+    },
+  },
+  {
+    key: "last_month",
+    label: "Last month",
+    range: () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
       return {
         startIso: start.toISOString().slice(0, 19) + "+00:00",
         endIso: end.toISOString().slice(0, 19) + "+00:00",
+      };
+    },
+  },
+  {
+    key: "last_3_months",
+    label: "Last 3 months",
+    range: () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      return {
+        startIso: start.toISOString().slice(0, 19) + "+00:00",
+        endIso: now.toISOString().slice(0, 19) + "+00:00",
+      };
+    },
+  },
+  {
+    key: "last_6_months",
+    label: "Last 6 months",
+    range: () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+      return {
+        startIso: start.toISOString().slice(0, 19) + "+00:00",
+        endIso: now.toISOString().slice(0, 19) + "+00:00",
+      };
+    },
+  },
+  {
+    key: "last_12_months",
+    label: "Last 12 months",
+    range: () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+      return {
+        startIso: start.toISOString().slice(0, 19) + "+00:00",
+        endIso: now.toISOString().slice(0, 19) + "+00:00",
       };
     },
   },
@@ -275,9 +281,11 @@ export default function BdMeetings() {
   }, [localRecords]);
 
   // Filters
-  const [presetKey, setPresetKey] = useState<string>("spread"); // default −14 / +30
-  const [customStart, setCustomStart] = useState<string>(isoDay(new Date(Date.now() - 14 * 86400_000)));
-  const [customEnd, setCustomEnd] = useState<string>(isoDay(new Date(Date.now() + 30 * 86400_000)));
+  const [presetKey, setPresetKey] = useState<string>("this_month");
+  const [customStart, setCustomStart] = useState<string>(
+    isoDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+  );
+  const [customEnd, setCustomEnd] = useState<string>(isoDay(new Date()));
   const [repIds, setRepIds] = useState<Set<string>>(new Set());
 
   const range = useMemo(() => {
@@ -285,7 +293,7 @@ export default function BdMeetings() {
       return { startIso: dayToZohoIso(customStart, false), endIso: dayToZohoIso(customEnd, true) };
     }
     const p = PRESETS.find((p) => p.key === presetKey);
-    return p ? p.range() : PRESETS[5].range();
+    return p ? p.range() : PRESETS[0].range();
   }, [presetKey, customStart, customEnd]);
 
   const load = useCallback(async () => {
