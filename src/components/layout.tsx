@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, MessageSquare, ArrowLeftRight, Target, ArrowRight, PieChart,
+  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, MessageSquare, ArrowLeftRight, Target, ArrowRight, PieChart, FileSearch,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -92,6 +92,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // Leads — moved here from Admin so every specialist can see the
     // unified lead list, mapped 1:1 to Zoho Leads module.
     { href: "/admin/leads", label: "Leads", icon: <Users className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
+    { href: "/vobs", label: "All VOBs", icon: <FileSearch className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/kb", label: "Knowledge Base", icon: <Search className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     { href: "/training", label: "Practice", icon: <GraduationCap className="w-4 h-4" />, section: "Workflow", roles: ["rep", "manager", "admin"] as const },
     // AI Suggestions — surfaced here for specialists too. Manager view
@@ -207,6 +208,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // Sub-page flags (most specific first).
     if (href === "/me") return "page_my_coaching";
     if (href === "/queue") return "page_queue";
+    if (href === "/vobs") return "page_all_vobs";
     if (href === "/ops/alerts") return "page_high_priority_alerts";
     if (href === "/ops/overview") return "page_ops_overview";
     if (href === "/ops/supervisor-review") return "page_supervisor_review";
