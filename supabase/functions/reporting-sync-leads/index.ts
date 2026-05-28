@@ -32,6 +32,42 @@ const WORKSPACE_ID = Deno.env.get("ZOHO_ANALYTICS_WORKSPACE_ID") ?? "25738830000
 const VIEW_ID = Deno.env.get("ZOHO_ANALYTICS_LEADS_VIEW_ID") ?? "2573883000000035215";
 const ORG_ID = Deno.env.get("ZOHO_ANALYTICS_ORG_ID");
 
+// Postgres insurance_type enum values (migration 100). Anything outside this
+// set — "Unknown", "PPO", etc. — gets nulled out at normalize time so the
+// upsert RPC doesn't blow up. OPEN_QUESTIONS #30 tracks the unmapped values
+// we observe.
+const INSURANCE_TYPE_ENUM: ReadonlySet<string> = new Set([
+  "AHCCCS",
+  "Private Insurance",
+  "Cash Pay",
+  "Medicare",
+  "No Insurance",
+  "Out of State Medicaid",
+]);
+
+// Fields we keep in raw_zoho_analytics_leads.raw_payload. Persisting the
+// full ~100-column Analytics row pushes the edge runtime past
+// WORKER_RESOURCE_LIMIT (256MB) at ~16k rows. The slim payload retains
+// every column the data-quality views + unmapped-value diagnostics need.
+const RAW_PAYLOAD_FIELDS: readonly string[] = [
+  "Id", "Lead Id", "Created_Time", "Created Time", "Modified_Time", "Modified Time",
+  "Interaction Owner",
+  "Source_Category", "Source Category",
+  "Level_of_Care_Requested", "Level of Care Requested",
+  "Insurance_Type", "Insurance Type",
+  "Lead_Score_Rating", "Lead Score Rating",
+  "BD_Rep", "BD Rep",
+] as const;
+
+function slimRawPayload(r: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of RAW_PAYLOAD_FIELDS) {
+    const v = r[k];
+    if (v != null && v !== "") out[k] = v;
+  }
+  return out;
+}
+
 type Row = Record<string, string>;
 
 interface BulkJobResponse {
@@ -198,7 +234,8 @@ Deno.serve(async (req) => {
     }
 
     // Stream rows through batched upserts so peak memory stays bounded.
-    const BATCH = 500;
+    // 200 keeps each upsert payload under 1MB even with slim raw_payloads.
+    const BATCH = 200;
     let rawBuf: Array<{ source_id: string; source_modified_at: string | null; raw_payload: unknown }> = [];
     let normBuf: Array<{
       source_lead_id: string;
@@ -232,7 +269,8 @@ Deno.serve(async (req) => {
 
       const sourceCategoryRaw = (r["Source_Category"] ?? r["Source Category"] ?? "").trim() || null;
       const locRaw = (r["Level_of_Care_Requested"] ?? r["Level of Care Requested"] ?? "").trim() || null;
-      const insurance = (r["Insurance_Type"] ?? r["Insurance Type"] ?? "").trim() || null;
+      const insuranceRaw = (r["Insurance_Type"] ?? r["Insurance Type"] ?? "").trim() || null;
+      const insurance = insuranceRaw && INSURANCE_TYPE_ENUM.has(insuranceRaw) ? insuranceRaw : null;
       const scoreRating = (r["Lead_Score_Rating"] ?? r["Lead Score Rating"] ?? "").trim() || null;
       const bdRep = (r["BD_Rep"] ?? r["BD Rep"] ?? "").trim() || null;
       const createdAt = (r["Created_Time"] ?? r["Created Time"] ?? "").trim() || new Date().toISOString();
@@ -246,7 +284,7 @@ Deno.serve(async (req) => {
       rawBuf.push({
         source_id: sourceId,
         source_modified_at: modifiedAt,
-        raw_payload: r,
+        raw_payload: slimRawPayload(r),
       });
       normBuf.push({
         source_lead_id: sourceId,
