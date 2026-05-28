@@ -318,12 +318,12 @@ const RAW_UPSERT_RPC: Record<RawTable, string> = {
 export async function upsertRaw(
   table: RawTable,
   rows: Array<{ source_id: string; source_modified_at: string | null; raw_payload: unknown }>,
+  chunkSize = 500,
 ): Promise<void> {
   if (rows.length === 0) return;
-  const CHUNK = 500;
   const fn = RAW_UPSERT_RPC[table];
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const slice = rows.slice(i, i + CHUNK);
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const slice = rows.slice(i, i + chunkSize);
     const { error } = await supa().rpc(fn, { p_rows: slice });
     if (error) throw new Error(`upsertRaw(${table}) chunk ${i} failed: ${error.message}`);
   }

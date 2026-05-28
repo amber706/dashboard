@@ -5,12 +5,15 @@
 //   1. reporting.raw_ctm_calls  (raw payload)
 //   2. reporting.calls          (normalized)
 //
+// CTM payloads are large (transcripts, etc.), so we stream page-by-page:
+// fetch a page, upsert raw + normalized, drop the page, fetch next.
+// Accumulating thousands of payloads in memory hits the Supabase edge
+// runtime's WORKER_RESOURCE_LIMIT.
+//
 // Env required:
 //   - CTM_ACCOUNT_ID
 //   - CTM_ACCESS_KEY  (Basic auth username)
 //   - CTM_SECRET_KEY  (Basic auth password)
-//
-// Status: scaffold deployed; smoke-test against CTM creds in next session.
 
 import {
   finishSyncRun,
@@ -22,6 +25,12 @@ import {
 } from "./_shared/reporting-sync.ts";
 
 const CTM_API_BASE = "https://api.calltrackingmetrics.com/api/v1";
+
+// PostgreSQL JSONB rejects   in strings (even though JSON allows it).
+// Strip NULL byte escapes from raw payloads before persisting.
+function scrubJsonbNulls<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj).replace(/\\u0000/g, "")) as T;
+}
 
 interface CtmCall {
   id: number | string;
@@ -42,7 +51,7 @@ async function fetchCtmCallsPage(
 ): Promise<{ calls: CtmCall[]; total_pages: number }> {
   const params = new URLSearchParams({
     page: String(page),
-    per_page: "200",
+    per_page: "150", // CTM enforces a max of 150 per page
   });
   if (since) params.set("start_date", since.toISOString().slice(0, 10));
   const url = `${CTM_API_BASE}/accounts/${accountId}/calls.json?${params}`;
@@ -91,39 +100,59 @@ Deno.serve(async (req) => {
   const run = await startSyncRun("reporting-sync-calls", "ctm.calls");
 
   try {
-    const allCalls: CtmCall[] = [];
+    // Default first-backfill window: 90 days. Incremental runs use the
+    // sync_runs watermark.
+    const since = run.watermarkUsed ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+    const seen = new Set<string>(); // dedupe across pages (CTM pagination can shift)
+    let totalPulled = 0;
+    let totalUnique = 0;
+    let totalUpserted = 0;
+
     let page = 1;
     let totalPages = 1;
     do {
-      const r = await fetchCtmCallsPage(accountId, basicAuth, page, run.watermarkUsed);
-      allCalls.push(...r.calls);
+      const r = await fetchCtmCallsPage(accountId, basicAuth, page, since);
+      totalPulled += r.calls.length;
       totalPages = r.total_pages;
-      page++;
-    } while (page <= totalPages && page <= 100); // safety cap
 
-    const rawRows = allCalls.map((c) => ({
-      source_id: String(c.id),
-      source_modified_at: c.called_at ?? null,
-      raw_payload: c,
-    }));
-    await upsertRaw("raw_ctm_calls", rawRows);
+      // Per-page dedupe + scrub + upsert.
+      const fresh = r.calls.filter((c) => {
+        const id = String(c.id);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      totalUnique += fresh.length;
 
-    const normalized = allCalls.map(normalizeCall);
+      if (fresh.length > 0) {
+        const rawRows = fresh.map((c) => ({
+          source_id: String(c.id),
+          source_modified_at: c.called_at ?? null,
+          raw_payload: scrubJsonbNulls(c),
+        }));
+        await upsertRaw("raw_ctm_calls", rawRows, 50);
 
-    let upserted = 0;
-    if (normalized.length > 0) {
-      const CHUNK = 500;
-      for (let i = 0; i < normalized.length; i += CHUNK) {
-        const slice = normalized.slice(i, i + CHUNK);
-        const { data, error } = await supa().rpc("reporting_upsert_calls", { p_rows: slice });
-        if (error) throw new Error(`reporting_upsert_calls failed: ${error.message}`);
-        upserted += Number(data ?? slice.length);
+        const normalized = fresh.map(normalizeCall);
+        const { data, error } = await supa().rpc("reporting_upsert_calls", { p_rows: normalized });
+        if (error) throw new Error(`reporting_upsert_calls failed (page ${page}): ${error.message}`);
+        totalUpserted += Number(data ?? normalized.length);
       }
-    }
 
-    await finishSyncRun(run, { status: "success", rowsProcessed: upserted });
+      page++;
+    } while (page <= totalPages && page <= 200); // safety cap
 
-    return jsonResponse({ ok: true, run_id: run.id, calls_pulled: allCalls.length, calls_upserted: upserted });
+    await finishSyncRun(run, { status: "success", rowsProcessed: totalUpserted });
+
+    return jsonResponse({
+      ok: true,
+      run_id: run.id,
+      pages_fetched: page - 1,
+      calls_pulled: totalPulled,
+      calls_unique: totalUnique,
+      calls_upserted: totalUpserted,
+      since: since.toISOString().slice(0, 10),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await finishSyncRun(run, { status: "failure", rowsProcessed: 0, errorMessage: msg });
