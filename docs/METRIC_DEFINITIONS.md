@@ -1,6 +1,6 @@
 # Metric Definitions
 
-**Status:** Phase 1A draft, revision 2 — pending Amber sign-off in `CONFIRMED.md`.
+**Status:** Phase 1A draft, revision 3 — pending Amber sign-off in `CONFIRMED.md`.
 **Owner:** Reporting foundation working group.
 **Phoenix is the operating timezone for every date boundary in this document.** Arizona does not observe DST; Phoenix midnight = 07:00 UTC year-round.
 
@@ -192,11 +192,31 @@ LOC describes the clinical level of care being requested or admitted to. **The s
 | VOB | Zoho Deals → **"Level of Care Requested"** |
 | Admit | Zoho Deals → **"Level of Care Admitted"** |
 | Placement / Closed Lost | Zoho Deals → **"Level of Care Requested"** |
-| DUI Completion | N/A — DUI doesn't use LOC; see `OPEN_QUESTION #25` for whether DUI has its own dimension |
+| DUI Completion | N/A on the Deal side — the DUI - Cash pipeline doesn't carry an Admitted LOC. The Lead's LOC = `DUI` is what routed it into the DUI pipeline. |
 
 **Rule of thumb:** any pre-Admit metric uses *Requested*. The Admit metric — and only the Admit metric — uses *Admitted*. Requested ≠ Admitted is common (a Lead might request Detox and admit to PHP).
 
-LOC enum values are normalized via the Phase 1B `loc_mapping` table. The canonical normalized set is still in `OPEN_QUESTION #11`. Likely candidates based on ASAM levels of care: Detox, Residential, PHP, IOP, OP, Sober Living. Spelling variants in raw Zoho data (e.g., "Detox"/"Detoxification", "IOP"/"Intensive Outpatient") map to a single normalized value.
+### Canonical LOC enum (CONFIRMED.md #11)
+
+The Lead picklist confirmed from Zoho:
+
+| Normalized | Raw Zoho | Group |
+|---|---|---|
+| `bhrf` | `BHRF` | Treatment |
+| `detox` | `Detox` | Treatment |
+| `php` | `PHP` | Treatment |
+| `iop5` | `IOP5` | Treatment |
+| `iop3` | `IOP3` | Treatment |
+| `viop_adult` | `VIOP Adult` | Treatment |
+| `viop_adolescent` | `VIOP Adolescent` | Treatment |
+| `op` | `OP` | Treatment |
+| `vop` | `VOP` | Treatment |
+| `vop_adult` | `VOP Adult` | Treatment |
+| `vop_adolescent` | `VOP Adolescent` | Treatment |
+| `dui` | `DUI` | Program (routes to DUI - Cash pipeline) |
+| `dv` | `DV` | Program (routes to DV - Cash pipeline) |
+
+Notably absent from the brief's draft: Residential (Cornerstone uses BHRF — Arizona's Behavioral Health Residential Facility designation), Sober Living, and any generic "IOP"/"OP" without frequency/format suffix. The TS constant `TREATMENT_LOC_VALUES` excludes DUI and DV; treatment-funnel classifiers (AHCCCS Lead, Commercial Lead, Other Payer Lead) are gated on a lead's LOC being in this set.
 
 ---
 
@@ -235,27 +255,74 @@ Where `lead.created_at` is the **Zoho Lead's** original `Created Time` (from Zoh
 
 ---
 
-## 16. AHCCCS Lead
+## 16. Lead Score Rating (the "star rating")
 
-A Lead is an **AHCCCS Lead** if it satisfies **either**:
-- `Lead.Star_Rating = 3`, OR
-- `Lead.Insurance_Type = "AHCCCS"`.
+Cornerstone's Lead "star rating" is a single Zoho picklist field — **`Lead Score Rating`** — whose label encodes the star count as leading ⭐ characters. There is no separate numeric field. Phase 1B's normalization derives `star_rating: 0-5` by counting leading ⭐ characters in the picklist value via `leadScoreRatingToStarCount`.
 
-Star rating field name and insurance type enum values: `OPEN_QUESTION #5`, `OPEN_QUESTION #4`.
+Confirmed picklist values (CONFIRMED.md #10):
+
+| Stars | Label | Implies |
+|---|---|---|
+| 0 | `Unable To Score/Never Made Contact` | Not classified |
+| 1 | `⭐ Junk/Spam` | Excluded from active funnel |
+| 2 | `⭐⭐ HR/Client Care/Family/Care Coordination...` | Not seeking treatment directly |
+| 3 | `⭐⭐⭐ Seeking Treatment: Medicaid` | AHCCCS-eligible (star path) |
+| 4 | `⭐⭐⭐⭐ Seeking Treatment: Commercial, ...` | Commercial-eligible (star path) |
+| 5 | `⭐⭐⭐⭐⭐ Seeking Treatment: Commercial, ...` | Commercial-eligible (star path) |
+
+Full 4- and 5-star label text still truncated in screenshots — see `OPEN_QUESTION #27` to lock the strings.
 
 ---
 
-## 17. Commercial Lead
+## 17. AHCCCS Lead
 
-A Lead is a **Commercial Lead** if it satisfies **either**:
-- `Lead.Star_Rating ∈ {4, 5}`, OR
-- `Lead.Insurance_Type ∈ {"Commercial Insurance", "Private Pay"}`.
+A Lead is an **AHCCCS Lead** if **all** of the following hold:
+
+1. The Lead is a Treatment Lead (LOC ∉ {DUI, DV}). See CONFIRMED.md #12.
+2. The Lead satisfies **either**:
+   - `star_rating = 3`, OR
+   - `insurance_type = "AHCCCS"`.
+
+The LOC gate excludes DUI and DV leads even if their insurance happens to be AHCCCS — those leads route to the DUI - Cash and DV - Cash pipelines and are reported as DUI / DV leads, not AHCCCS.
+
+---
+
+## 18. Commercial Lead
+
+A Lead is a **Commercial Lead** if **all** of the following hold:
+
+1. The Lead is a Treatment Lead.
+2. The Lead satisfies **either**:
+   - `star_rating ∈ {4, 5}`, OR
+   - `insurance_type ∈ {"Commercial Insurance", "Cash"}`.
+
+"Cash" replaces the original brief's "Private Pay" — Cornerstone's picklist uses Cash. See CONFIRMED.md #8.
 
 - **Overlap with AHCCCS Lead** is possible. See `OPEN_QUESTION #9`.
 
 ---
 
-## 18. AHCCCS Admit / Commercial Admit / ZocDoc Admit / DV Admit / DUI Completion
+## 19. Other Payer Lead
+
+A Lead is an **Other Payer Lead** if **all** of the following hold:
+
+1. The Lead is a Treatment Lead.
+2. `insurance_type ∈ {"Medicare", "No Insurance", "Out of State Medicaid"}`.
+
+Per CONFIRMED.md #9, these three insurance types are surfaced as their own reporting bucket — not folded into AHCCCS, not folded into Commercial. Useful for executive reporting on payer mix and for spotting Medicare uptake. Reported alongside AHCCCS Lead and Commercial Lead in the headline payer-split chart.
+
+---
+
+## 20. DUI Lead / DV Lead
+
+A **DUI Lead** is a Lead with `level_of_care_requested = "DUI"`.
+A **DV Lead** is a Lead with `level_of_care_requested = "DV"`.
+
+These leads convert into the DUI - Cash and DV - Cash pipelines respectively and are reported as their own dimensions. They do not feed the AHCCCS / Commercial / Other Payer Lead counts.
+
+---
+
+## 21. AHCCCS Admit / Commercial Admit / ZocDoc Admit / DV Admit / DUI Completion
 
 Each is an `isAdmit` (treatment captures) or `isDuiCompletion` deal filtered by pipeline:
 
@@ -271,7 +338,7 @@ Each is an `isAdmit` (treatment captures) or `isDuiCompletion` deal filtered by 
 
 ---
 
-## 19. Admissions Rep
+## 22. Admissions Rep
 
 An **Admissions Rep** is a Zoho User who is currently active AND whose Profile is one of:
 
@@ -282,7 +349,7 @@ An **Admissions Rep** is a Zoho User who is currently active AND whose Profile i
 
 ---
 
-## 20. BD Rep
+## 23. BD Rep
 
 A **BD Rep** is a Zoho User who is currently active AND whose Profile = `Business Development`.
 
@@ -290,7 +357,7 @@ A **BD Rep** is a Zoho User who is currently active AND whose Profile = `Busines
 
 ---
 
-## 21. Orthogonality matrix
+## 24. Orthogonality matrix
 
 A single Deal can be classified along multiple orthogonal dimensions simultaneously:
 
@@ -308,13 +375,13 @@ The AHCCCS Lead / Commercial Lead overlap at the Lead level (§17) is the one pl
 
 ---
 
-## 22. Test data exclusion
+## 25. Test data exclusion
 
 Test Leads, test Deals, and internal test users must be excluded from every metric. `OPEN_QUESTION #18`.
 
 ---
 
-## 23. Filter contract preview
+## 26. Filter contract preview
 
 Every dashboard page in Phase 1C and beyond accepts the same filter set:
 
@@ -332,3 +399,4 @@ The Zod `FilterContractSchema` in `src/lib/metrics/schemas.ts` is the runtime co
 
 - **2026-05-27 (rev 1)** — Initial draft. Drafted by Claude for Amber's review.
 - **2026-05-27 (rev 2)** — Revised against Zoho CRM Pipelines screenshots + Zoho Analytics Leads view. Pipelines: 4 → 5 (added `dv_cash`; renamed `dui` → `dui_cash`). Stage categories: 6 → 9 (introduced `vob_qualifying`, `vob_approved`, `pre_admit`, `referred_out_coming_back`, `closed_won_admitted`, `closed_won_referred_out_unattached`, `closed_won_dui_completion`; dropped `mql`, `vob_submitted`, `closed_won`, `closed_lost_referred_out`, `closed_lost_other`). VOB redefined as stage-based, not custom-field-based. `Closed - Referred Out Unattached` reclassified as Placement (a Win) rather than Closed Lost. Top-line Admit set defined: {Commercial-Cash, AHCCCS, ZocDoc}. New DUI Completion and Placement primitives. Zoho Analytics workspace + view IDs locked.
+- **2026-05-27 (rev 3)** — Revised against Zoho Lead detail screenshots. Insurance Type expanded to the 6-value Cornerstone picklist; "Private Pay" renamed to "Cash". LOC enum rewritten to the 13 Cornerstone-specific values (BHRF instead of Residential; IOP5/IOP3 instead of generic IOP; VIOP/VOP virtual variants; DUI and DV as Lead-level LOC values). New Lead Score Rating field (string picklist) with star-count derivation. New Other Payer Lead primitive for Medicare / No Insurance / Out of State Medicaid. Lead classifiers gated on `isTreatmentLead` so DUI/DV leads do not bleed into AHCCCS/Commercial counts. Source Category confirmed as the canonical attribution field (Generated By / Tracking Source / Source Medium are observable but secondary).

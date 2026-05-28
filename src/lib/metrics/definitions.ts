@@ -193,56 +193,144 @@ export const RAW_SOURCE_BUSINESS_DEVELOPMENT = "Business Development";
 export const RAW_SOURCE_ZOCDOC = "ZocDoc";
 
 // ────────────────────────────────────────────────────────────────────────────
-// Insurance types (raw Zoho strings — OPEN_QUESTION #4)
+// Insurance types (raw Zoho Lead picklist values; see CONFIRMED.md #8)
 // ────────────────────────────────────────────────────────────────────────────
+// Picklist confirmed from Zoho Lead detail screen. "Private Pay" from the
+// original brief was wrong — Cornerstone uses "Cash". Medicare, No Insurance,
+// and Out of State Medicaid added per CONFIRMED.md #9.
 
 export const INSURANCE_TYPE = {
-  CommercialInsurance: "Commercial Insurance",
-  PrivatePay: "Private Pay",
   Ahcccs: "AHCCCS",
+  CommercialInsurance: "Commercial Insurance",
+  Cash: "Cash",
+  Medicare: "Medicare",
+  NoInsurance: "No Insurance",
+  OutOfStateMedicaid: "Out of State Medicaid",
 } as const;
 
 export type InsuranceType = (typeof INSURANCE_TYPE)[keyof typeof INSURANCE_TYPE];
 
+/** Insurance types that classify a Treatment Lead as Commercial. */
 export const COMMERCIAL_INSURANCE_TYPES: readonly InsuranceType[] = Object.freeze([
   INSURANCE_TYPE.CommercialInsurance,
-  INSURANCE_TYPE.PrivatePay,
+  INSURANCE_TYPE.Cash,
 ]);
 
+/** Insurance types that classify a Treatment Lead as AHCCCS. */
 export const AHCCCS_INSURANCE_TYPES: readonly InsuranceType[] = Object.freeze([
   INSURANCE_TYPE.Ahcccs,
 ]);
 
+/**
+ * Insurance types that classify a Treatment Lead as Other Payer (own bucket,
+ * not AHCCCS, not Commercial). Per CONFIRMED.md #9, Medicare, No Insurance,
+ * and Out of State Medicaid each surface as separate reporting buckets and
+ * are not folded into AHCCCS or Commercial.
+ */
+export const OTHER_PAYER_INSURANCE_TYPES: readonly InsuranceType[] = Object.freeze([
+  INSURANCE_TYPE.Medicare,
+  INSURANCE_TYPE.NoInsurance,
+  INSURANCE_TYPE.OutOfStateMedicaid,
+]);
+
 // ────────────────────────────────────────────────────────────────────────────
-// Star rating thresholds (OPEN_QUESTION #5 — field name still TBD)
+// Lead Score Rating — raw Zoho picklist; star count is encoded in the label.
+// See CONFIRMED.md #10.
 // ────────────────────────────────────────────────────────────────────────────
+// The field is `Lead Score Rating` (a single picklist column, not a separate
+// numeric column). Star count = number of leading ⭐ characters in the label.
+// Cornerstone-specific values seen in production:
+//   0 stars: "Unable To Score/Never Made Contact"
+//   1 star : "⭐ Junk/Spam"
+//   2 stars: "⭐⭐ HR/Client Care/Family/Care Coordination..."
+//   3 stars: "⭐⭐⭐ Seeking Treatment: Medicaid"             → AHCCCS-eligible
+//   4 stars: "⭐⭐⭐⭐ Seeking Treatment: Commercial, ..."     → Commercial-eligible
+//   5 stars: "⭐⭐⭐⭐⭐ Seeking Treatment: Commercial, ..."   → Commercial-eligible
+// Full 4-star and 5-star strings still pending — see OPEN_QUESTION #27.
 
 export const AHCCCS_STAR_RATINGS: readonly number[] = Object.freeze([3]);
 export const COMMERCIAL_STAR_RATINGS: readonly number[] = Object.freeze([4, 5]);
 
+/** Count of leading ⭐ characters in a Lead Score Rating picklist value. */
+export function leadScoreRatingToStarCount(rating: string | null | undefined): number {
+  if (!rating) return 0;
+  const matches = rating.match(/⭐/g);
+  return matches ? matches.length : 0;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
-// Level of Care — pending OPEN_QUESTION #11
+// Level of Care — Cornerstone-specific picklist confirmed from Zoho Lead
+// detail. See CONFIRMED.md #11. DUI and DV appear as LOC values at the
+// Lead level — leads with those LOCs convert into the DUI - Cash / DV - Cash
+// pipelines and are excluded from AHCCCS Lead and Commercial Lead
+// classifications (see `isTreatmentLead`).
 // ────────────────────────────────────────────────────────────────────────────
 
 export const LEVEL_OF_CARE = {
+  Bhrf: "bhrf",
   Detox: "detox",
-  Residential: "residential",
   Php: "php",
-  Iop: "iop",
+  Iop5: "iop5",
+  Iop3: "iop3",
+  ViopAdult: "viop_adult",
+  ViopAdolescent: "viop_adolescent",
   Op: "op",
-  SoberLiving: "sober_living",
+  Vop: "vop",
+  VopAdult: "vop_adult",
+  VopAdolescent: "vop_adolescent",
+  Dui: "dui",
+  Dv: "dv",
 } as const;
 
 export type LevelOfCare = (typeof LEVEL_OF_CARE)[keyof typeof LEVEL_OF_CARE];
 
 export const LEVEL_OF_CARE_VALUES: readonly LevelOfCare[] = Object.freeze([
+  LEVEL_OF_CARE.Bhrf,
   LEVEL_OF_CARE.Detox,
-  LEVEL_OF_CARE.Residential,
   LEVEL_OF_CARE.Php,
-  LEVEL_OF_CARE.Iop,
+  LEVEL_OF_CARE.Iop5,
+  LEVEL_OF_CARE.Iop3,
+  LEVEL_OF_CARE.ViopAdult,
+  LEVEL_OF_CARE.ViopAdolescent,
   LEVEL_OF_CARE.Op,
-  LEVEL_OF_CARE.SoberLiving,
+  LEVEL_OF_CARE.Vop,
+  LEVEL_OF_CARE.VopAdult,
+  LEVEL_OF_CARE.VopAdolescent,
+  LEVEL_OF_CARE.Dui,
+  LEVEL_OF_CARE.Dv,
 ]);
+
+/** LOC values that indicate a Treatment lead (not DUI program, not DV program). */
+export const TREATMENT_LOC_VALUES: readonly LevelOfCare[] = Object.freeze([
+  LEVEL_OF_CARE.Bhrf,
+  LEVEL_OF_CARE.Detox,
+  LEVEL_OF_CARE.Php,
+  LEVEL_OF_CARE.Iop5,
+  LEVEL_OF_CARE.Iop3,
+  LEVEL_OF_CARE.ViopAdult,
+  LEVEL_OF_CARE.ViopAdolescent,
+  LEVEL_OF_CARE.Op,
+  LEVEL_OF_CARE.Vop,
+  LEVEL_OF_CARE.VopAdult,
+  LEVEL_OF_CARE.VopAdolescent,
+]);
+
+/** Raw Zoho LOC strings (as they appear in the Lead picklist). */
+export const RAW_LOC_STRINGS = Object.freeze({
+  [LEVEL_OF_CARE.Bhrf]: "BHRF",
+  [LEVEL_OF_CARE.Detox]: "Detox",
+  [LEVEL_OF_CARE.Php]: "PHP",
+  [LEVEL_OF_CARE.Iop5]: "IOP5",
+  [LEVEL_OF_CARE.Iop3]: "IOP3",
+  [LEVEL_OF_CARE.ViopAdult]: "VIOP Adult",
+  [LEVEL_OF_CARE.ViopAdolescent]: "VIOP Adolescent",
+  [LEVEL_OF_CARE.Op]: "OP",
+  [LEVEL_OF_CARE.Vop]: "VOP",
+  [LEVEL_OF_CARE.VopAdult]: "VOP Adult",
+  [LEVEL_OF_CARE.VopAdolescent]: "VOP Adolescent",
+  [LEVEL_OF_CARE.Dui]: "DUI",
+  [LEVEL_OF_CARE.Dv]: "DV",
+}) satisfies Record<LevelOfCare, string>;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Rep roles (derived from Zoho Profile — OPEN_QUESTION #6)
@@ -342,8 +430,10 @@ export const DEFAULT_TIME_RANGE_PRESET: TimeRangePreset = TIME_RANGE_PRESET.This
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface LeadShape {
+  /** Derived star count (0-5) parsed from the Lead Score Rating picklist via `leadScoreRatingToStarCount`. */
   star_rating: number | null;
   insurance_type: InsuranceType | null;
+  level_of_care_requested: LevelOfCare | null;
 }
 
 export interface DealShape {
@@ -354,8 +444,35 @@ export interface DealShape {
 
 // ── Lead-level predicates ──────────────────────────────────────────────────
 
-/** §16 — AHCCCS Lead: star=3 OR insurance=AHCCCS */
+/**
+ * Treatment lead — LOC indicates treatment (not DUI program, not DV program).
+ * Per CONFIRMED.md #12, leads with LOC = DUI or DV convert into the
+ * DUI - Cash / DV - Cash pipelines and are excluded from the AHCCCS Lead /
+ * Commercial Lead classifications. Treatment leads are the only ones that
+ * feed the headline funnel.
+ */
+export function isTreatmentLead(lead: LeadShape): boolean {
+  if (lead.level_of_care_requested === null) return true; // missing LOC → assume treatment (default)
+  return (TREATMENT_LOC_VALUES as readonly LevelOfCare[]).includes(lead.level_of_care_requested);
+}
+
+/** DUI Lead — LOC = DUI. */
+export function isDuiLead(lead: LeadShape): boolean {
+  return lead.level_of_care_requested === LEVEL_OF_CARE.Dui;
+}
+
+/** DV Lead — LOC = DV. */
+export function isDvLead(lead: LeadShape): boolean {
+  return lead.level_of_care_requested === LEVEL_OF_CARE.Dv;
+}
+
+/**
+ * AHCCCS Lead: treatment lead AND (3 stars OR insurance=AHCCCS).
+ * The treatment-lead gate excludes DUI/DV leads even if they somehow have an
+ * AHCCCS insurance value — per CONFIRMED.md #12, LOC drives program routing.
+ */
 export function isAhcccsLead(lead: LeadShape): boolean {
+  if (!isTreatmentLead(lead)) return false;
   const starMatch = lead.star_rating !== null && AHCCCS_STAR_RATINGS.includes(lead.star_rating);
   const insuranceMatch =
     lead.insurance_type !== null &&
@@ -363,13 +480,30 @@ export function isAhcccsLead(lead: LeadShape): boolean {
   return starMatch || insuranceMatch;
 }
 
-/** §17 — Commercial Lead: star∈{4,5} OR insurance∈{Commercial Insurance, Private Pay} */
+/**
+ * Commercial Lead: treatment lead AND (4-5 stars OR insurance ∈ {Commercial Insurance, Cash}).
+ * Note: "Cash" replaces the brief's "Private Pay" — Cornerstone's picklist uses Cash.
+ */
 export function isCommercialLead(lead: LeadShape): boolean {
-  const starMatch = lead.star_rating !== null && COMMERCIAL_STAR_RATINGS.includes(lead.star_rating);
+  if (!isTreatmentLead(lead)) return false;
+  const starMatch =
+    lead.star_rating !== null && COMMERCIAL_STAR_RATINGS.includes(lead.star_rating);
   const insuranceMatch =
     lead.insurance_type !== null &&
     (COMMERCIAL_INSURANCE_TYPES as readonly InsuranceType[]).includes(lead.insurance_type);
   return starMatch || insuranceMatch;
+}
+
+/**
+ * Other Payer Lead: treatment lead whose insurance is Medicare / No Insurance /
+ * Out of State Medicaid. Per CONFIRMED.md #9, these are reported as their own
+ * bucket — neither AHCCCS nor Commercial. Star-based classification is ignored
+ * here because the payer signal is the primary driver.
+ */
+export function isOtherPayerLead(lead: LeadShape): boolean {
+  if (!isTreatmentLead(lead)) return false;
+  if (lead.insurance_type === null) return false;
+  return (OTHER_PAYER_INSURANCE_TYPES as readonly InsuranceType[]).includes(lead.insurance_type);
 }
 
 // ── Deal-level predicates ──────────────────────────────────────────────────

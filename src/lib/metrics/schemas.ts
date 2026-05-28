@@ -56,9 +56,12 @@ export const MarketingChannelEnum = z.enum(
 export type MarketingChannelZ = z.infer<typeof MarketingChannelEnum>;
 
 export const InsuranceTypeEnum = z.enum([
-  INSURANCE_TYPE.CommercialInsurance,
-  INSURANCE_TYPE.PrivatePay,
   INSURANCE_TYPE.Ahcccs,
+  INSURANCE_TYPE.CommercialInsurance,
+  INSURANCE_TYPE.Cash,
+  INSURANCE_TYPE.Medicare,
+  INSURANCE_TYPE.NoInsurance,
+  INSURANCE_TYPE.OutOfStateMedicaid,
 ] as const);
 export type InsuranceTypeZ = z.infer<typeof InsuranceTypeEnum>;
 
@@ -77,7 +80,10 @@ export const LeadRowSchema = z.object({
   source_category: SourceCategoryEnum,
   level_of_care_requested: LevelOfCareEnum.nullable(),
   insurance_type: InsuranceTypeEnum.nullable(),
-  star_rating: z.number().int().min(1).max(5).nullable(),
+  /** Raw Zoho `Lead Score Rating` picklist value (e.g. "⭐⭐⭐ Seeking Treatment: Medicaid"). */
+  lead_score_rating: z.string().nullable(),
+  /** Derived star count (0-5), parsed from `lead_score_rating` via `leadScoreRatingToStarCount`. */
+  star_rating: z.number().int().min(0).max(5).nullable(),
   created_at: z.string().datetime({ offset: true }),
 });
 export type LeadRow = z.infer<typeof LeadRowSchema>;

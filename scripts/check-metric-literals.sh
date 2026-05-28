@@ -85,9 +85,30 @@ FORBIDDEN=(
   # Raw source category strings
   '"Business Development"'
 
-  # Insurance type strings
+  # Insurance type strings (Cornerstone picklist; CONFIRMED.md #8)
   '"Commercial Insurance"'
-  '"Private Pay"'
+  '"Cash"'
+  '"Medicare"'
+  '"No Insurance"'
+  '"Out of State Medicaid"'
+
+  # Level of Care raw strings (Cornerstone picklist; CONFIRMED.md #11)
+  '"BHRF"'
+  '"IOP5"'
+  '"IOP3"'
+  '"VIOP Adult"'
+  '"VIOP Adolescent"'
+  '"VOP Adult"'
+  '"VOP Adolescent"'
+
+  # Normalized LOC values
+  '"bhrf"'
+  '"iop5"'
+  '"iop3"'
+  '"viop_adult"'
+  '"viop_adolescent"'
+  '"vop_adult"'
+  '"vop_adolescent"'
 
   # Rep profile strings
   '"Treatment Standard"'

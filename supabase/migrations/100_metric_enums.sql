@@ -64,18 +64,26 @@ BEGIN
   END IF;
 END$$;
 
--- ── level_of_care ──────────────────────────────────────────────────────────
--- Draft set; full list pending OPEN_QUESTION #11.
+-- ── level_of_care (Cornerstone Lead picklist; see CONFIRMED.md #11) ───────
+-- DUI and DV appear here because they are valid LOC values at the Lead level.
+-- Treatment leads are LOCs other than DUI/DV (see TREATMENT_LOC_VALUES in TS).
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'level_of_care') THEN
     CREATE TYPE level_of_care AS ENUM (
+      'bhrf',
       'detox',
-      'residential',
       'php',
-      'iop',
+      'iop5',
+      'iop3',
+      'viop_adult',
+      'viop_adolescent',
       'op',
-      'sober_living'
+      'vop',
+      'vop_adult',
+      'vop_adolescent',
+      'dui',
+      'dv'
     );
   END IF;
 END$$;
@@ -123,14 +131,18 @@ BEGIN
   END IF;
 END$$;
 
--- ── insurance_type (pending OPEN_QUESTION #4) ──────────────────────────────
+-- ── insurance_type (Cornerstone Lead picklist; CONFIRMED.md #8) ────────────
+-- "Cash" replaces the brief's wrong "Private Pay".
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'insurance_type') THEN
     CREATE TYPE insurance_type AS ENUM (
+      'AHCCCS',
       'Commercial Insurance',
-      'Private Pay',
-      'AHCCCS'
+      'Cash',
+      'Medicare',
+      'No Insurance',
+      'Out of State Medicaid'
     );
   END IF;
 END$$;

@@ -26,30 +26,15 @@ Moved to `CONFIRMED.md` #4. There is no `VOB Submitted` field — VOB is stage-d
 
 ---
 
-## #4 — Insurance type enum values
+## ~~#4 — Insurance type enum values~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §17.
-**Question:** Confirm the exact literal strings used for `Insurance_Type` on Zoho Leads:
-- "Commercial Insurance" — literal?
-- "Private Pay" — literal?
-- "AHCCCS" — literal?
-
-Are there other values (Medicare? Medicaid non-AHCCCS? Unknown?) we need to handle?
-
-**How to resolve:** in Zoho CRM Setup → Customization → Leads → Insurance Type field, copy the picklist values verbatim. Or in the Analytics Leads view, distinct() the Insurance Type column.
+Moved to `CONFIRMED.md` #8 and #9. Six values: AHCCCS, Commercial Insurance, Cash, Medicare, No Insurance, Out of State Medicaid. "Cash" replaces brief's "Private Pay"; Medicare/No Insurance/Out of State Medicaid form the new Other Payer Lead bucket.
 
 ---
 
-## #5 — Star rating field name
+## ~~#5 — Star rating field name~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §16, §17.
-**Question:** What is the actual Zoho field name for the star rating on Leads? Candidates:
-- `Rating`
-- `Stars`
-- `Lead_Score`
-- `Star_Rating`
-
-**How to resolve:** confirm the field's API name in Zoho CRM Setup → Customization → Leads. (The Analytics Leads view we saw didn't show this column in the visible columns — it's there, just need to scroll or check column list.)
+Moved to `CONFIRMED.md` #10. Field is `Lead Score Rating` (a single picklist column). Star count is parsed from leading ⭐ characters in the label via `leadScoreRatingToStarCount`.
 
 ---
 
@@ -106,20 +91,9 @@ This is the current default and matches the orthogonality matrix. Confirming exp
 
 ---
 
-## #11 — Level of Care enum values
+## ~~#11 — Level of Care enum values~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §13.
-**Question:** What is the complete normalized LOC enum? Likely candidates (ASAM-aligned):
-- Detox
-- Residential (RTC)
-- PHP (Partial Hospitalization)
-- IOP (Intensive Outpatient)
-- OP (Outpatient)
-- Sober Living
-
-Plus any Cornerstone-specific values (e.g., "Aftercare", "MAT-only", "Evaluation").
-
-**How to resolve:** list every LOC that should exist as a normalized value, then raw Zoho strings map to them in Phase 1B's `loc_mapping`.
+Moved to `CONFIRMED.md` #11. 13 Cornerstone-specific values: BHRF, Detox, PHP, IOP5, IOP3, VIOP Adult, VIOP Adolescent, OP, VOP, VOP Adult, VOP Adolescent, DUI, DV.
 
 ---
 
@@ -168,12 +142,13 @@ The original "Referral Out" primitive is replaced by **Placement** (`closed_won_
 
 ---
 
-## #17 — Source Category raw field name and full picklist
+## #17 — Source Category full picklist (residual; field name confirmed)
 
-**Where:** `METRIC_DEFINITIONS.md` §14.
-**Question:** What is the Zoho field for Source Category on Leads? The Analytics Leads view we screenshot-ed showed an `Interaction Source` column — is that the field, or is there a separate `Lead_Source` / `Source_Category` field?
+**Status:** Field-name partially resolved in `CONFIRMED.md` #13 — the canonical field is `Source Category`. The example lead shows `Source Category = SEO`, correctly captured by the Digital Marketing catch-all.
 
-Provide the full list of raw values currently in production so we can build `source_category_mapping` in Phase 1B.
+**Still pending:** the complete list of `Source Category` raw values currently in production. Phase 1B needs this to seed the `source_category_mapping` table without leaving values in `v_unmapped_sources`.
+
+**How to resolve:** in Zoho CRM Setup → Customization → Leads → Source Category field, copy the full picklist. Or run a `DISTINCT Source_Category` query against the Zoho Analytics Leads view.
 
 ---
 
@@ -260,6 +235,33 @@ If LOC doesn't apply to DUI: the LOC filter on a top-line dashboard implicitly e
 
 ---
 
+## #27 — Lead Score Rating: full 4-star and 5-star label strings (NEW)
+
+**Where:** `METRIC_DEFINITIONS.md` §16, CONFIRMED.md #10.
+**Question:** the screenshot truncated the 4-star and 5-star Lead Score Rating labels:
+- 4: `⭐⭐⭐⭐ Seeking Treatment: Commercial, N...`
+- 5: `⭐⭐⭐⭐⭐ Seeking Treatment: Commercial,...`
+
+Star-count parsing works on truncated strings since we count ⭐ characters. But for surfacing in dashboards (e.g., "Lead Score Distribution" chart), we want the full labels.
+
+**How to resolve:** in Zoho CRM, hover or open the Lead Score Rating field's picklist and copy the full text. Also the 2-star label (`HR/Client Care/Family/Care Coordination...`) is truncated.
+
+---
+
+## #28 — `Treatment or Court Services` field semantics (NEW)
+
+**Where:** observed in Zoho Lead detail.
+**Question:** Cornerstone Leads have a `Treatment or Court Services` field (under Service Information). What does this distinguish? Is it:
+- A simple "is this a treatment lead vs court-mandated lead" boolean?
+- A picklist that's a more granular alternative to inferring program from LOC?
+- A vestigial field no longer in active use?
+
+If this field is authoritative for treatment-vs-court routing, it might be a better gate for `isTreatmentLead` than checking LOC ∉ {DUI, DV}.
+
+**How to resolve:** check the field's picklist values and how reliably it's populated in production.
+
+---
+
 ## #26 — Placement cycle metric (NEW)
 
 **Where:** `METRIC_DEFINITIONS.md` §15.
@@ -273,3 +275,4 @@ If LOC doesn't apply to DUI: the LOC filter on a top-line dashboard implicitly e
 
 - **2026-05-27 (rev 1)** — Initial draft alongside METRIC_DEFINITIONS.md rev 1. 21 open questions raised.
 - **2026-05-27 (rev 2)** — Revised alongside METRIC_DEFINITIONS.md rev 2. Resolved (moved to CONFIRMED.md): #1, #2, #3, #8, #19. Retired (no longer applicable): #16. Transformed: #20 (the underlying assumption changed). Partially resolved: #7 (IDs locked, OAuth still pending). Added: #22, #23, #24, #25, #26.
+- **2026-05-27 (rev 3)** — Revised alongside METRIC_DEFINITIONS.md rev 3 + Lead detail screenshots. Resolved (moved to CONFIRMED.md): #4, #5, #11. Partially resolved: #17 (field name confirmed; full picklist still pending). Added: #27 (full 4/5-star labels), #28 (Treatment or Court Services field).

@@ -13,8 +13,10 @@ import {
   AHCCCS_STAR_RATINGS,
   COMMERCIAL_STAR_RATINGS,
   INSURANCE_TYPE,
+  LEVEL_OF_CARE,
   LEVEL_OF_CARE_VALUES,
   MARKETING_CHANNEL,
+  OTHER_PAYER_INSURANCE_TYPES,
   PIPELINE,
   PIPELINE_VALUES,
   RAW_PIPELINE_STRINGS,
@@ -27,6 +29,7 @@ import {
   STAGE_CATEGORIES_AT_OR_PAST_VOB,
   STAGE_CATEGORIES_CLOSED,
   TOP_LINE_ADMIT_PIPELINES,
+  TREATMENT_LOC_VALUES,
   isAdmit,
   isAhcccsAdmit,
   isAhcccsLead,
@@ -35,16 +38,21 @@ import {
   isCommercialAdmit,
   isCommercialLead,
   isDuiCompletion,
+  isDuiLead,
   isDvAdmit,
+  isDvLead,
   isMql,
+  isOtherPayerLead,
   isPlacement,
   isTopLineAdmit,
   isTopLineMql,
   isTopLinePipeline,
   isTopLineVobReached,
+  isTreatmentLead,
   isVobReached,
   isWin,
   isZocdocAdmit,
+  leadScoreRatingToStarCount,
   profileToRepRole,
   rawPipelineToPipeline,
   rawSourceToSourceCategory,
@@ -66,6 +74,7 @@ import {
 const lead = (overrides: Partial<LeadShape> = {}): LeadShape => ({
   star_rating: null,
   insurance_type: null,
+  level_of_care_requested: null,
   ...overrides,
 });
 
@@ -95,8 +104,22 @@ describe("enum cardinality", () => {
     expect(REP_ROLE_VALUES).toHaveLength(3);
   });
 
-  it("LevelOfCare has 6 draft values (subject to OPEN_QUESTION #11)", () => {
-    expect(LEVEL_OF_CARE_VALUES).toHaveLength(6);
+  it("LevelOfCare has 13 Cornerstone-specific values (CONFIRMED.md #11)", () => {
+    expect(LEVEL_OF_CARE_VALUES).toHaveLength(13);
+  });
+
+  it("TREATMENT_LOC_VALUES excludes DUI and DV (the two program LOCs)", () => {
+    expect(TREATMENT_LOC_VALUES).toHaveLength(11);
+    expect(TREATMENT_LOC_VALUES).not.toContain(LEVEL_OF_CARE.Dui);
+    expect(TREATMENT_LOC_VALUES).not.toContain(LEVEL_OF_CARE.Dv);
+  });
+
+  it("OTHER_PAYER_INSURANCE_TYPES holds Medicare, No Insurance, Out of State Medicaid", () => {
+    expect(OTHER_PAYER_INSURANCE_TYPES).toEqual([
+      INSURANCE_TYPE.Medicare,
+      INSURANCE_TYPE.NoInsurance,
+      INSURANCE_TYPE.OutOfStateMedicaid,
+    ]);
   });
 
   it("TOP_LINE_ADMIT_PIPELINES is exactly {Commercial-Cash, AHCCCS, ZocDoc}", () => {
@@ -129,10 +152,71 @@ describe("enum cardinality", () => {
   });
 });
 
-// ── Lead classifiers ───────────────────────────────────────────────────────
+// ── Lead Score Rating parsing ──────────────────────────────────────────────
+
+describe("leadScoreRatingToStarCount", () => {
+  it.each([
+    ["Unable To Score/Never Made Contact", 0],
+    ["⭐ Junk/Spam", 1],
+    ["⭐⭐ HR/Client Care/Family/Care Coordination", 2],
+    ["⭐⭐⭐ Seeking Treatment: Medicaid", 3],
+    ["⭐⭐⭐⭐ Seeking Treatment: Commercial, N...", 4],
+    ["⭐⭐⭐⭐⭐ Seeking Treatment: Commercial, ...", 5],
+  ])("parses %s as %i stars", (rating, expected) => {
+    expect(leadScoreRatingToStarCount(rating)).toBe(expected);
+  });
+
+  it("returns 0 for null/undefined/empty", () => {
+    expect(leadScoreRatingToStarCount(null)).toBe(0);
+    expect(leadScoreRatingToStarCount(undefined)).toBe(0);
+    expect(leadScoreRatingToStarCount("")).toBe(0);
+  });
+});
+
+// ── Lead-level LOC classifiers ─────────────────────────────────────────────
+
+describe("isTreatmentLead / isDuiLead / isDvLead", () => {
+  it("treats null LOC as treatment lead (default; LOC missing means not flagged as DUI/DV)", () => {
+    expect(isTreatmentLead(lead())).toBe(true);
+    expect(isDuiLead(lead())).toBe(false);
+    expect(isDvLead(lead())).toBe(false);
+  });
+
+  it("LOC=DUI → DUI Lead, not treatment", () => {
+    const l = lead({ level_of_care_requested: LEVEL_OF_CARE.Dui });
+    expect(isDuiLead(l)).toBe(true);
+    expect(isTreatmentLead(l)).toBe(false);
+    expect(isDvLead(l)).toBe(false);
+  });
+
+  it("LOC=DV → DV Lead, not treatment", () => {
+    const l = lead({ level_of_care_requested: LEVEL_OF_CARE.Dv });
+    expect(isDvLead(l)).toBe(true);
+    expect(isTreatmentLead(l)).toBe(false);
+    expect(isDuiLead(l)).toBe(false);
+  });
+
+  it.each([
+    LEVEL_OF_CARE.Bhrf,
+    LEVEL_OF_CARE.Detox,
+    LEVEL_OF_CARE.Php,
+    LEVEL_OF_CARE.Iop5,
+    LEVEL_OF_CARE.Iop3,
+    LEVEL_OF_CARE.ViopAdult,
+    LEVEL_OF_CARE.ViopAdolescent,
+    LEVEL_OF_CARE.Op,
+    LEVEL_OF_CARE.Vop,
+    LEVEL_OF_CARE.VopAdult,
+    LEVEL_OF_CARE.VopAdolescent,
+  ])("treatment LOC %s → Treatment Lead", (loc) => {
+    expect(isTreatmentLead(lead({ level_of_care_requested: loc }))).toBe(true);
+  });
+});
+
+// ── AHCCCS / Commercial / Other Payer Lead classifiers ─────────────────────
 
 describe("isAhcccsLead", () => {
-  it("classifies star_rating=3 as AHCCCS", () => {
+  it("classifies star_rating=3 as AHCCCS (default treatment lead)", () => {
     expect(isAhcccsLead(lead({ star_rating: 3 }))).toBe(true);
   });
 
@@ -146,8 +230,23 @@ describe("isAhcccsLead", () => {
     expect(isAhcccsLead(lead({ star_rating: 4 }))).toBe(false);
   });
 
-  it("does not classify a null lead as AHCCCS", () => {
-    expect(isAhcccsLead(lead())).toBe(false);
+  it("DUI lead with star_rating=3 is NOT AHCCCS (LOC gates out)", () => {
+    expect(
+      isAhcccsLead(
+        lead({ star_rating: 3, level_of_care_requested: LEVEL_OF_CARE.Dui }),
+      ),
+    ).toBe(false);
+  });
+
+  it("DV lead with insurance=AHCCCS is NOT AHCCCS Lead (LOC gates out)", () => {
+    expect(
+      isAhcccsLead(
+        lead({
+          insurance_type: INSURANCE_TYPE.Ahcccs,
+          level_of_care_requested: LEVEL_OF_CARE.Dv,
+        }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -162,12 +261,42 @@ describe("isCommercialLead", () => {
     );
   });
 
-  it("classifies insurance_type=Private Pay as Commercial", () => {
-    expect(isCommercialLead(lead({ insurance_type: INSURANCE_TYPE.PrivatePay }))).toBe(true);
+  it("classifies insurance_type=Cash as Commercial (Cornerstone uses Cash not Private Pay)", () => {
+    expect(isCommercialLead(lead({ insurance_type: INSURANCE_TYPE.Cash }))).toBe(true);
   });
 
   it("does not classify star_rating=3 alone as Commercial", () => {
     expect(isCommercialLead(lead({ star_rating: 3 }))).toBe(false);
+  });
+
+  it("DUI lead with star_rating=5 is NOT Commercial Lead (LOC gates out)", () => {
+    expect(
+      isCommercialLead(
+        lead({ star_rating: 5, level_of_care_requested: LEVEL_OF_CARE.Dui }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("isOtherPayerLead", () => {
+  it.each([INSURANCE_TYPE.Medicare, INSURANCE_TYPE.NoInsurance, INSURANCE_TYPE.OutOfStateMedicaid])(
+    "treats insurance=%s as Other Payer",
+    (ins) => {
+      expect(isOtherPayerLead(lead({ insurance_type: ins }))).toBe(true);
+      expect(isAhcccsLead(lead({ insurance_type: ins }))).toBe(false);
+      expect(isCommercialLead(lead({ insurance_type: ins }))).toBe(false);
+    },
+  );
+
+  it("DUI lead with Medicare is NOT Other Payer (LOC gates out)", () => {
+    expect(
+      isOtherPayerLead(
+        lead({
+          insurance_type: INSURANCE_TYPE.Medicare,
+          level_of_care_requested: LEVEL_OF_CARE.Dui,
+        }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -585,26 +714,42 @@ describe("profileToRepRole", () => {
 // ── Zod schema sanity ──────────────────────────────────────────────────────
 
 describe("LeadRowSchema", () => {
-  it("accepts a well-formed row", () => {
+  it("accepts a well-formed row with the new lead_score_rating field", () => {
     const ok = LeadRowSchema.safeParse({
       source_lead_id: "zoho-lead-1",
       owner_user_id: "00000000-0000-0000-0000-000000000000",
       source_category: SOURCE_CATEGORY.DigitalMarketing,
-      level_of_care_requested: "detox",
+      level_of_care_requested: "iop3",
       insurance_type: INSURANCE_TYPE.CommercialInsurance,
+      lead_score_rating: "⭐⭐⭐⭐ Seeking Treatment: Commercial, N",
       star_rating: 4,
       created_at: "2026-05-01T07:00:00Z",
     });
     expect(ok.success).toBe(true);
   });
 
-  it("rejects an invalid star rating", () => {
+  it("accepts star_rating=0 (the new minimum, representing 'Unable To Score')", () => {
+    const ok = LeadRowSchema.safeParse({
+      source_lead_id: "zoho-lead-2",
+      owner_user_id: null,
+      source_category: SOURCE_CATEGORY.DigitalMarketing,
+      level_of_care_requested: null,
+      insurance_type: null,
+      lead_score_rating: "Unable To Score/Never Made Contact",
+      star_rating: 0,
+      created_at: "2026-05-01T07:00:00Z",
+    });
+    expect(ok.success).toBe(true);
+  });
+
+  it("rejects an invalid star rating (>5)", () => {
     const bad = LeadRowSchema.safeParse({
       source_lead_id: "x",
       owner_user_id: null,
       source_category: SOURCE_CATEGORY.DigitalMarketing,
       level_of_care_requested: null,
       insurance_type: null,
+      lead_score_rating: null,
       star_rating: 6,
       created_at: "2026-05-01T07:00:00Z",
     });
@@ -618,10 +763,34 @@ describe("LeadRowSchema", () => {
       source_category: SOURCE_CATEGORY.DigitalMarketing,
       level_of_care_requested: "bogus",
       insurance_type: null,
+      lead_score_rating: null,
       star_rating: 3,
       created_at: "2026-05-01T07:00:00Z",
     });
     expect(bad.success).toBe(false);
+  });
+
+  it("accepts every Cornerstone insurance type", () => {
+    for (const ins of [
+      INSURANCE_TYPE.Ahcccs,
+      INSURANCE_TYPE.CommercialInsurance,
+      INSURANCE_TYPE.Cash,
+      INSURANCE_TYPE.Medicare,
+      INSURANCE_TYPE.NoInsurance,
+      INSURANCE_TYPE.OutOfStateMedicaid,
+    ]) {
+      const ok = LeadRowSchema.safeParse({
+        source_lead_id: "x",
+        owner_user_id: null,
+        source_category: SOURCE_CATEGORY.DigitalMarketing,
+        level_of_care_requested: null,
+        insurance_type: ins,
+        lead_score_rating: null,
+        star_rating: null,
+        created_at: "2026-05-01T07:00:00Z",
+      });
+      expect(ok.success).toBe(true);
+    }
   });
 });
 
@@ -686,7 +855,7 @@ describe("FilterContractSchema", () => {
   it("accepts a valid custom range with all 5 pipelines", () => {
     const r = FilterContractSchema.safeParse({
       time: { preset: "custom", start: "2026-05-01", end: "2026-05-31" },
-      level_of_care: ["php", "iop"],
+      level_of_care: ["php", "iop3", "iop5", "viop_adult"],
       pipeline: ["commercial_cash", "ahcccs", "zocdoc", "dui_cash", "dv_cash"],
       marketing_channel: ["digital"],
       sales_rep: ["00000000-0000-0000-0000-000000000000"],
