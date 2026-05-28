@@ -44,17 +44,9 @@ Moved to `CONFIRMED.md` #15 + #16. Four profiles in production: `TREATMENT Stand
 
 ---
 
-## #7 — Zoho Analytics OAuth credentials (residual)
+## ~~#7 — Zoho Analytics OAuth credentials~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §0.
-**Status:** Partially resolved. Workspace ID and view ID are locked in `CONFIRMED.md` #7. Still need to build the sync.
-
-**Question:** for the `sync_zoho_analytics_leads` edge function in Phase 1B:
-- Zoho Analytics OAuth client ID + client secret + refresh token (or service account credentials)
-- Scope required (likely `ZohoAnalytics.data.READ`)
-- Whether the `Leads (Zoho CRM)` report supports incremental pull by Modified Time, or only full-refresh
-
-**How to resolve:** generate OAuth credentials in the Zoho API Console (https://api-console.zoho.com), grant the read scope, and store the refresh token in Supabase Edge Function secrets. The incremental vs full-refresh question can be answered by checking whether the report has a `Modified Time` column we can filter on.
+Moved to `CONFIRMED.md` #18. Existing Zoho CRM secrets in Supabase reused for CRM-side sync. For Analytics, Amber re-authorizes the existing Self Client with combined `ZohoCRM.modules.ALL,ZohoCRM.users.READ,ZohoAnalytics.data.READ,ZohoAnalytics.metadata.READ` scope; the new refresh token replaces `ZOHO_REFRESH_TOKEN`.
 
 ---
 
@@ -104,15 +96,9 @@ Moved to `CONFIRMED.md` #11. 13 Cornerstone-specific values: BHRF, Detox, PHP, I
 
 ---
 
-## #14 — Field for the "Closing Date" of an Admit
+## ~~#14 — Field for the "Closing Date" of an Admit~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §6.
-**Question:** When a Deal moves to `Closed - Admitted`, which timestamp do we use as the Admit date?
-- Zoho `Closing_Date` (manually set by the rep)?
-- Zoho `Modified_Time` at the moment of the stage transition?
-- A custom "Admit Date" field?
-
-These can differ by days. Pick one canonically.
+Moved to `CONFIRMED.md` #20. Custom `Admit_Date` field is canonical; deals without it are excluded from headline Admit KPI and surfaced in data-quality view.
 
 ---
 
@@ -160,16 +146,9 @@ Moved to `CONFIRMED.md` #5. Five pipelines locked.
 
 ---
 
-## #20 — VOB Submitted: timestamp of flag flip
+## ~~#20 — VOB Submitted timestamp~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §5.
-**Status:** transformed by #4's resolution.
-
-**Question:** now that VOB is stage-driven (`CONFIRMED.md` #4), the question becomes: when a deal advances into `VOB - Qualifying`, is that transition timestamped in Zoho's stage history? Phase 1B's `sync_zoho_crm_deals` needs to capture that transition time to date-attribute VOBs correctly.
-
-If stage transitions are timestamped, we read them. If not, the fallback is `Modified_Time` on the next edit after the deal entered `VOB - Qualifying`, which is noisy.
-
-**How to resolve:** Zoho CRM API → check whether the Stage_History or Deal_History endpoint includes transition timestamps.
+Moved to `CONFIRMED.md` #19. The `VOB_Submitted_Date` custom field provides the date attribution directly; no stage-history capture needed.
 
 ---
 
@@ -192,17 +171,9 @@ Current draft: top-line MQL = MQL AND `pipeline ∈ TOP_LINE_ADMIT_PIPELINES`, m
 
 ---
 
-## #23 — Stage history snapshotting in Phase 1B (NEW)
+## ~~#23 — Stage history snapshotting in Phase 1B~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §5.
-**Question:** VOB is now defined as "deal has ever reached `VOB - Qualifying` or a later stage." This requires Phase 1B's deal sync to capture stage transition history, not just current stage.
-
-Concretely:
-- Does Zoho CRM's API expose deal stage history (`Stage_History` related list)?
-- If yes, we sync it into a `deal_stage_transitions` table and `vob_reached_at` is derived from it.
-- If no, the only proxy is current stage: a deal currently at `vob_qualifying` or later is a VOB. This misses deals that VOBed and were reset to Stuck Lead, but is otherwise close — Zoho's pipeline progression is typically monotonic.
-
-**Recommended default:** sync stage history if the API exposes it; fall back to current-stage proxy with a documented blind spot otherwise.
+Moved to `CONFIRMED.md` #19. The `VOB_Submitted` boolean + `VOB_Submitted_Date` custom fields provide direct date attribution; stage-history capture is no longer needed.
 
 ---
 
@@ -215,7 +186,13 @@ If granularity is needed, we add a `dui_completion_type` derived field on the de
 
 ---
 
-## #25 — Does DUI carry Level of Care? (NEW)
+## ~~#25 — Does DUI carry Level of Care?~~ — RESOLVED
+
+Moved to `CONFIRMED.md` #21. Both `Level_of_Care_Requested` and `Admitted_Level_of_Care` exist as Deal fields. `Admitted_Level_of_Care` is a 9-value subset of the Lead picklist; DUI deals have `DUI` as the LOC. The brief's stage-dependent LOC rule is correct.
+
+---
+
+## ~~#25 (original) — Does DUI carry Level of Care? (NEW)~~
 
 **Where:** `METRIC_DEFINITIONS.md` §13.
 **Question:** The DUI - Cash pipeline doesn't have an Admit stage. Do DUI deals carry an LOC field, or is "level of care" simply not a dimension for DUI?
@@ -261,7 +238,13 @@ For Phase 1A we deferred this dimension per Amber's direction: ignore both the o
 
 ---
 
-## #28 — `Treatment or Court Services` field semantics (NEW)
+## ~~#28 — `Treatment or Court Services` field semantics~~ — RESOLVED
+
+Moved to `CONFIRMED.md` #22. API name = `DUI_or_Treatment`, picklist values = `Treatment`, `DUI`, `Domestic Violence`, `N/A or Other`. Canonical pipeline router on the Deals side.
+
+---
+
+## ~~#28 (original) — `Treatment or Court Services` field semantics (NEW)~~
 
 **Where:** observed in Zoho Lead detail.
 **Question:** Cornerstone Leads have a `Treatment or Court Services` field (under Service Information). What does this distinguish? Is it:
@@ -290,3 +273,4 @@ If this field is authoritative for treatment-vs-court routing, it might be a bet
 - **2026-05-27 (rev 2)** — Revised alongside METRIC_DEFINITIONS.md rev 2. Resolved (moved to CONFIRMED.md): #1, #2, #3, #8, #19. Retired (no longer applicable): #16. Transformed: #20 (the underlying assumption changed). Partially resolved: #7 (IDs locked, OAuth still pending). Added: #22, #23, #24, #25, #26.
 - **2026-05-27 (rev 3)** — Revised alongside METRIC_DEFINITIONS.md rev 3 + Lead detail screenshots. Resolved (moved to CONFIRMED.md): #4, #5, #11. Partially resolved: #17 (field name confirmed; full picklist still pending). Added: #27 (full 4/5-star labels), #28 (Treatment or Court Services field).
 - **2026-05-27 (rev 4)** — Live Zoho API queries (getFields + getUsers). Resolved: #6, #17 (full picklist). Added: #29 (Insurance_Policy_Type dimension), #30 (PPO/Unknown anomaly).
+- **2026-05-27 (rev 5)** — Zoho Deals `getFields` + Supabase Edge Function inspection. Resolved: #7 (OAuth path locked), #14 (Admit_Date strict), #20 (VOB_Submitted_Date provides timestamp), #23 (no stage-history needed), #25 (both LOC fields exist), #28 (DUI_or_Treatment field confirmed). Revises CONFIRMED.md #4 — VOB now uses both boolean field and stage.

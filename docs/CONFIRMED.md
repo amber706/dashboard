@@ -276,8 +276,110 @@ Amber confirmed the catch-all classification rule stands as written: **everythin
 
 ---
 
+## #18 — Zoho CRM credentials reused; Analytics scope added via re-auth (resolves OPEN_QUESTION #7)
+
+**Source:** existing Supabase Edge Function secrets surfaced via `mcp__supabase__get_edge_function` on `zoho-pull`, `etl-warehouse-zoho`, and a dozen other functions already in production.
+
+**Resolution:** Phase 1B's Deals/Users/Meetings sync reuses these existing CRM secrets in Supabase Edge Function env:
+- `ZOHO_CLIENT_ID`
+- `ZOHO_CLIENT_SECRET`
+- `ZOHO_REFRESH_TOKEN`
+- `ZOHO_API_DOMAIN` (defaults to `https://www.zohoapis.com`)
+- `ZOHO_ACCOUNTS_DOMAIN` (defaults to `https://accounts.zoho.com`)
+
+For Zoho Analytics access (Phase 1B Leads sync), Amber re-authorizes the existing Self Client at `api-console.zoho.com` with the combined scope:
+`ZohoCRM.modules.ALL,ZohoCRM.users.READ,ZohoAnalytics.data.READ,ZohoAnalytics.metadata.READ`
+The new refresh token replaces the existing `ZOHO_REFRESH_TOKEN` secret. Same client ID/secret, single token covering both APIs.
+
+---
+
+## #19 — VOB uses BOTH the boolean field and stage (revises CONFIRMED.md #4)
+
+**Source:** `getFields` on the Deals module surfaced custom fields `VOB_Submitted` (boolean), `VOB_Submitted_By` (text), `VOB_Submitted_Date` (date). The existing `etl-warehouse-zoho` function uses both the boolean and the stage.
+
+**Resolution:** VOB has two signals:
+- **`vob_submitted` boolean field** answers "has a VOB ever been submitted?" — used as the metric trigger, with `vob_submitted_date` as the date attribution.
+- **`stage_category in {vob_qualifying, vob_approved}`** answers "what is the current VOB status?" — used for "VOB Approved" as a distinct metric.
+
+This **revises CONFIRMED.md #4**, which previously said VOB was stage-only with no custom field. The boolean field does exist; Amber's earlier answer is amended.
+
+**Consequences:**
+- `DealShape` has `vob_submitted: boolean` again (the rev 3 removal was a mistake).
+- `isVobSubmitted(deal)` = boolean is true.
+- `isVobApproved(deal)` = `stage_category = vob_approved`.
+- `VobDefinitionSchema` uses `vob_submitted: true` rule and `vob_submitted_date` as date_field.
+- The "current-stage proxy for VOB" caveat from OPEN_QUESTION #23 is removed — we have the boolean.
+
+---
+
+## #20 — Admit metric counts on `Admit_Date` strictly (resolves OPEN_QUESTION #14)
+
+**Source:** `getFields` on Deals confirmed `Admit_Date` (custom date field, distinct from the standard `Closing_Date`).
+
+**Resolution:** the Admit metric counts on `Admit_Date` only. Deals where `stage_category = closed_won_admitted` but `admit_date IS NULL` are **excluded** from the headline Admit KPI. They surface in a data-quality view in Phase 1B (`v_admits_missing_date`) for specialist follow-up.
+
+**Consequences:**
+- `DealShape.admit_date: string | null`.
+- `isAdmit(deal)` stays stage-based (`stage_category = closed_won_admitted`) — the classifier matches what the deal IS.
+- `isCountableAdmit(deal)` = `isAdmit(deal) AND admit_date !== null` — what the metric counts.
+- `AdmitDefinitionSchema` adds `admit_date_not_null: true` rule and `admit_date` as date_field.
+- `closing_date` becomes informational only for admits; still used for `closed_lost`, `closed_won_referred_out_unattached`, and DUI completions where no `admit_date` makes sense.
+
+---
+
+## #21 — Both LOC fields exist; original brief's rule is implementable (revises OPEN_QUESTION #25)
+
+**Source:** `getFields` on Deals shows both `Level_of_Care_Requested` AND `Admitted_Level_of_Care` exist as custom picklist fields.
+
+**Resolution:** the brief's stage-dependent LOC rule is correct:
+
+| Funnel stage | LOC source field |
+|---|---|
+| Lead | Leads → `Level_of_Care_Requested` (13-value picklist) |
+| MQL / VOB / Placement / Closed Lost | Deals → `Level_of_Care_Requested` (13-value picklist, mirror of Leads) |
+| **Admit** | Deals → **`Admitted_Level_of_Care`** (9-value picklist, more restrictive) |
+
+`Admitted_Level_of_Care` is a *subset* of the Lead-side LOC enum. Its picklist contains only `BHRF, PHP, IOP5, IOP3, VIOP Adult, VIOP Adolescent, DUI, DV` — notably excluding `Detox, OP, VOP, VOP Adult, VOP Adolescent`. Treatment admits typically land at BHRF/PHP/IOP5/IOP3/VIOP; DUI/DV are program admits (with the DUI Completion / DV Admit metrics handling them).
+
+**Consequences:**
+- `DealRowSchema` keeps both `level_of_care_requested` and `admitted_level_of_care`.
+- The Phase 1B normalization writes both columns from the corresponding Zoho fields.
+- The single `LEVEL_OF_CARE` enum is reused for both fields; downstream code that expects a tighter "admitted LOC" set can filter to the 9-value subset.
+
+---
+
+## #22 — `DUI_or_Treatment` field confirmed (display label: `Treatment or Court Services`) — resolves OPEN_QUESTION #28
+
+**Source:** `getFields` on Deals; api_name = `DUI_or_Treatment`, display_label = `Treatment or Court Services`.
+
+**Resolution:** the picklist has 4 values: `Treatment`, `DUI`, `Domestic Violence`, `N/A or Other`. This is the canonical Deal-side routing signal:
+- `Treatment` → routes to Commercial-Cash / AHCCCS / ZocDoc pipelines
+- `DUI` → routes to DUI - Cash pipeline
+- `Domestic Violence` → routes to DV - Cash pipeline
+- `N/A or Other` → fallback bucket
+
+For Phase 1A this confirms that the Lead-side LOC = DUI/DV → pipeline routing (CONFIRMED.md #12) has a Deal-side counterpart. Phase 1B can use `DUI_or_Treatment` as the authoritative pipeline router; LOC is a secondary signal.
+
+---
+
+## #23 — Stage canonical = display labels (resolves CONFIRMED.md #5 ambiguity)
+
+**Source:** `getFields` on Deals revealed that stored actual_value differs from display_value for many stages (e.g., `Closed - Admitted` display → `Closed Won` actual; `Stuck Lead - Commercial/Cash` display → `Stuck Lead` actual).
+
+**Resolution:** the canonical raw string in `RAW_STAGE_TO_CATEGORY` is the **display label**, not the stored actual_value. Phase 1B's sync layer is responsible for translating Zoho's stored actual_value → display label before classification.
+
+This matches how a rep sees the field in the CRM and matches the screenshots Amber used to build the original taxonomy. It does mean the sync has an additional translation step (built from `getFields`' picklist metadata).
+
+**Consequences:**
+- `RAW_STAGE_TO_CATEGORY` keys stay as display labels.
+- Phase 1B's `sync_zoho_crm_deals` calls `getFields` once at sync start to build the actual→display translation table.
+- A defensive fallback in Phase 1B logs unmapped values to `v_unmapped_stages` for triage.
+
+---
+
 ## Document changelog
 
 - **2026-05-27** — Created alongside METRIC_DEFINITIONS.md rev 2. Seven resolutions recorded (#1–#7).
 - **2026-05-27 (rev 2)** — Added six resolutions (#8–#13) alongside METRIC_DEFINITIONS.md rev 3. Closes OPEN_QUESTIONS #4, #5, #11; partially closes #17.
 - **2026-05-27 (rev 3)** — Added four resolutions (#14–#17) from live Zoho CRM API queries. Closes OPEN_QUESTIONS #6 and the residual of #17. Adds new OPEN_QUESTION #29 (Insurance_Policy_Type dimension deferred) and #30 (PPO/Unknown data anomaly).
+- **2026-05-27 (rev 4)** — Added six resolutions (#18–#23) from Supabase Edge Function inspection + Zoho Deals `getFields` + Amber's rev 5 answers. Closes OPEN_QUESTIONS #7, #14, #20 (transformed; the stage-history requirement is gone now that we have a boolean field), #25, #28. Revises CONFIRMED.md #4 (VOB now uses both signals).

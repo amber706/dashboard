@@ -49,7 +49,10 @@ import {
   isTopLinePipeline,
   isTopLineVobReached,
   isTreatmentLead,
+  isCountableAdmit,
+  isVobApproved,
   isVobReached,
+  isVobSubmitted,
   isWin,
   isZocdocAdmit,
   leadScoreRatingToStarCount,
@@ -82,6 +85,8 @@ const deal = (overrides: Partial<DealShape> = {}): DealShape => ({
   pipeline: PIPELINE.CommercialCash,
   stage_category: STAGE_CATEGORY.InProgress,
   source_category: SOURCE_CATEGORY.DigitalMarketing,
+  vob_submitted: false,
+  admit_date: null,
   ...overrides,
 });
 
@@ -364,6 +369,37 @@ describe("isVobReached", () => {
   });
 });
 
+// ── VOB signals (CONFIRMED.md #19 — both boolean field and stage are used) ─
+
+describe("isVobSubmitted", () => {
+  it("returns true when vob_submitted boolean is true", () => {
+    expect(isVobSubmitted(deal({ vob_submitted: true }))).toBe(true);
+  });
+
+  it("returns false when vob_submitted boolean is false", () => {
+    expect(isVobSubmitted(deal({ vob_submitted: false }))).toBe(false);
+  });
+
+  it("is independent of stage_category (boolean is the authoritative signal)", () => {
+    // Stage says in_progress but boolean says submitted → counts as submitted.
+    expect(
+      isVobSubmitted(
+        deal({ vob_submitted: true, stage_category: STAGE_CATEGORY.InProgress }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isVobApproved", () => {
+  it("returns true only when stage_category = vob_approved", () => {
+    expect(isVobApproved(deal({ stage_category: STAGE_CATEGORY.VobApproved }))).toBe(true);
+    expect(isVobApproved(deal({ stage_category: STAGE_CATEGORY.VobQualifying }))).toBe(false);
+    expect(isVobApproved(deal({ stage_category: STAGE_CATEGORY.PreAdmit }))).toBe(false);
+  });
+});
+
+// ── Admit (stage-classified) + Countable Admit (has Admit_Date) ────────────
+
 describe("isAdmit", () => {
   it("requires stage_category = closed_won_admitted", () => {
     expect(isAdmit(deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted }))).toBe(true);
@@ -382,6 +418,43 @@ describe("isAdmit", () => {
         deal({ pipeline: PIPELINE.DvCash, stage_category: STAGE_CATEGORY.ClosedWonAdmitted }),
       ),
     ).toBe(true);
+  });
+
+  it("does NOT require admit_date to be set (the classifier is stage-driven)", () => {
+    expect(
+      isAdmit(
+        deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted, admit_date: null }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isCountableAdmit (Admit + Admit_Date set; the headline KPI input)", () => {
+  it("requires both stage_category=closed_won_admitted AND a non-null admit_date", () => {
+    expect(
+      isCountableAdmit(
+        deal({
+          stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
+          admit_date: "2026-05-15",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("excludes Closed-Admitted deals where admit_date is missing (Phase 1B surfaces these in data quality)", () => {
+    expect(
+      isCountableAdmit(
+        deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted, admit_date: null }),
+      ),
+    ).toBe(false);
+  });
+
+  it("excludes deals where admit_date is set but stage isn't closed_won_admitted", () => {
+    expect(
+      isCountableAdmit(
+        deal({ stage_category: STAGE_CATEGORY.PreAdmit, admit_date: "2026-05-15" }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -807,12 +880,15 @@ describe("LeadRowSchema", () => {
 });
 
 describe("PrimitiveDefinitionSchema", () => {
-  it("parses an Admit definition (stage_category = closed_won_admitted)", () => {
+  it("parses an Admit definition (stage_category + admit_date required; counted on admit_date)", () => {
     const parsed = PrimitiveDefinitionSchema.parse({
       primitive: "admit",
       source: "zoho_crm.deals",
-      rule: { stage_category: STAGE_CATEGORY.ClosedWonAdmitted },
-      date_field: "closing_date",
+      rule: {
+        stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
+        admit_date_not_null: true,
+      },
+      date_field: "admit_date",
     });
     expect(parsed.primitive).toBe("admit");
   });

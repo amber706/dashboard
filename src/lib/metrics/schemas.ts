@@ -89,11 +89,21 @@ export const LeadRowSchema = z.object({
 export type LeadRow = z.infer<typeof LeadRowSchema>;
 
 /**
- * Deal row as it lands in the normalized `deals` table. Note that
- * `vob_submitted` is NOT a separate boolean — VOB is derived from
- * `stage_category` (or, ideally, stage history). See METRIC_DEFINITIONS.md §5.
- * `vob_reached_at` is populated by Phase 1B from stage transition history;
- * when null, the deal never reached VOB.
+ * Deal row as it lands in the normalized `deals` table.
+ *
+ * Per CONFIRMED.md #19, VOB has two signals captured here:
+ *   - `vob_submitted` (Zoho custom boolean `VOB_Submitted`)
+ *   - `vob_submitted_date` (Zoho custom date `VOB_Submitted_Date`)
+ * Plus current stage_category in {vob_qualifying, vob_approved} reflects
+ * the current VOB status. The boolean answers "ever submitted?"; the
+ * stage answers "current status?".
+ *
+ * Per CONFIRMED.md #20, the Admit metric counts on `admit_date` strictly.
+ * `closing_date` is informational for non-admit closings.
+ *
+ * Per CONFIRMED.md #21, both `level_of_care_requested` and
+ * `admitted_level_of_care` exist as Deal fields. The Admit metric uses
+ * the latter; pre-admit metrics use the former.
  */
 export const DealRowSchema = z.object({
   source_deal_id: z.string().min(1),
@@ -102,12 +112,14 @@ export const DealRowSchema = z.object({
   pipeline: PipelineEnum,
   stage_raw: z.string().min(1),
   stage_category: StageCategoryEnum,
-  vob_reached_at: z.string().datetime({ offset: true }).nullable(),
+  vob_submitted: z.boolean(),
+  vob_submitted_date: z.string().date().nullable(),
   level_of_care_requested: LevelOfCareEnum.nullable(),
-  level_of_care_admitted: LevelOfCareEnum.nullable(),
+  admitted_level_of_care: LevelOfCareEnum.nullable(),
   source_category: SourceCategoryEnum,
   created_at: z.string().datetime({ offset: true }),
   closing_date: z.string().date().nullable(),
+  admit_date: z.string().date().nullable(),
 });
 export type DealRow = z.infer<typeof DealRowSchema>;
 
@@ -133,9 +145,9 @@ export const VobDefinitionSchema = z.object({
   primitive: z.literal("vob"),
   source: z.literal("zoho_crm.deals"),
   rule: z.object({
-    stage_category_at_or_past: z.literal(STAGE_CATEGORY.VobQualifying),
+    vob_submitted: z.literal(true),
   }),
-  date_field: z.literal("vob_reached_at"),
+  date_field: z.literal("vob_submitted_date"),
 });
 
 export const AdmitDefinitionSchema = z.object({
@@ -143,8 +155,9 @@ export const AdmitDefinitionSchema = z.object({
   source: z.literal("zoho_crm.deals"),
   rule: z.object({
     stage_category: z.literal(STAGE_CATEGORY.ClosedWonAdmitted),
+    admit_date_not_null: z.literal(true),
   }),
-  date_field: z.literal("closing_date"),
+  date_field: z.literal("admit_date"),
 });
 
 export const PlacementDefinitionSchema = z.object({

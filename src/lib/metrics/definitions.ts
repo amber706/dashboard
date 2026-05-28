@@ -455,6 +455,23 @@ export interface DealShape {
   pipeline: Pipeline;
   stage_category: StageCategory;
   source_category: SourceCategory;
+  /**
+   * `VOB_Submitted` custom boolean on Zoho Deals (CONFIRMED.md #19).
+   * Per Amber's rev 5 direction, VOB is signaled by BOTH this boolean
+   * (with `vob_submitted_date` for date attribution) AND the stage
+   * (VOB - Qualifying / VOB - Approved for current status). The boolean
+   * answers "has a VOB ever been submitted"; the stage answers "what's
+   * the current VOB status".
+   */
+  vob_submitted: boolean;
+  /**
+   * Custom `Admit_Date` field on Zoho Deals (CONFIRMED.md #20). Per
+   * Amber's rev 5 direction, the Admit metric counts STRICTLY on
+   * Admit_Date. Deals with stage_category = closed_won_admitted but
+   * null admit_date are NOT counted as admits in headline KPIs (and
+   * surface in a data-quality view in Phase 1B).
+   */
+  admit_date: string | null;
 }
 
 // ── Lead-level predicates ──────────────────────────────────────────────────
@@ -541,9 +558,37 @@ export function isVobReached(deal: DealShape): boolean {
   );
 }
 
-/** §6 — Admit: stage_category = closed_won_admitted. Top-line filter is the caller's job. */
+/**
+ * §6 — Admit classifier: stage_category = closed_won_admitted.
+ *
+ * Note: per CONFIRMED.md #20, the Admit metric counts on Admit_Date strictly.
+ * Deals where stage_category = closed_won_admitted but admit_date IS NULL are
+ * classified as Admits by `isAdmit` (the classifier is stage-driven), but are
+ * EXCLUDED from headline Admit KPIs by `isCountableAdmit` — the metric needs
+ * a real Admit_Date to attribute. Phase 1B's data quality view will surface
+ * Closed-Admitted-without-Admit_Date deals for triage.
+ */
 export function isAdmit(deal: DealShape): boolean {
   return deal.stage_category === STAGE_CATEGORY.ClosedWonAdmitted;
+}
+
+/** Admit that's ready to count — has an Admit_Date set. See CONFIRMED.md #20. */
+export function isCountableAdmit(deal: DealShape): boolean {
+  return isAdmit(deal) && deal.admit_date !== null;
+}
+
+/**
+ * VOB submitted — the `VOB_Submitted` custom boolean field is true.
+ * Used together with `vob_submitted_date` for date attribution.
+ * See CONFIRMED.md #19.
+ */
+export function isVobSubmitted(deal: DealShape): boolean {
+  return deal.vob_submitted === true;
+}
+
+/** VOB approved — current stage_category = vob_approved. */
+export function isVobApproved(deal: DealShape): boolean {
+  return deal.stage_category === STAGE_CATEGORY.VobApproved;
 }
 
 /** §7 — Placement: Closed - Referred Out Unattached. Commercial-Cash only. */
