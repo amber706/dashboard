@@ -483,6 +483,32 @@ Tracks how fast specialists place callers they can't take. Cheap to maintain.
 
 ---
 
+## #33 — VOB classifier priority chain (refines CONFIRMED.md #19)
+
+**Source:** Amber's direct refinement of METRIC_DEFINITIONS.md §5 — primary fields first, stage-based methodology as a backup, and an explicit edge case for deals that close lost without ever VOBing.
+
+**Resolution:** the canonical VOB classifier `isVobSubmitted(deal)` evaluates signals in priority order:
+
+1. **Primary signal A:** `vob_submitted = true` → VOB. Return true immediately.
+2. **Primary signal B:** `vob_submitted_date IS NOT NULL` → VOB. Specialists sometimes set the date without flipping the boolean; we honor either.
+3. **Backup signal:** `stage_category` is one of `{vob_qualifying, vob_approved, pre_admit, referred_out_coming_back, closed_won_admitted, closed_won_referred_out_unattached}` → VOB. The deal is currently past the VOB step in the funnel, so a VOB must have happened.
+4. **Otherwise:** not a VOB.
+
+**Critical edge case (the bug fix):** `closed_lost` is **EXCLUDED** from the backup set. A deal can be created and closed-lost without ever VOBing (Stuck Lead → Closed Lost, lost to competition, caller dropped off). The previous taxonomy (rev 5) had `closed_lost` in the at-or-past-VOB set, which falsely classified every closed-lost deal as VOB-having. Fixed.
+
+A `closed_lost` deal **with** either primary signal set still counts as VOB (it ran VOB and then lost).
+
+`closed_won_dui_completion` is also excluded — DUI pipeline has no VOB stages.
+
+**Consequences:**
+- `STAGE_CATEGORIES_AT_OR_PAST_VOB` constant updated: 6 values now (removed `ClosedLost`).
+- `isVobSubmitted` rewritten with the priority chain.
+- `DealShape` adds `vob_submitted_date: string | null` (was already in `DealRowSchema`).
+- `VobDefinitionSchema` rule = `any_of: [vob_submitted_eq_true, vob_submitted_date_not_null, stage_category_at_or_past_vob]`.
+- New tests cover all six combinations: primary-true / date-set / stage-backup / closed-lost-no-fields (NOT VOB) / closed-lost-with-fields (IS VOB) / DUI (NOT VOB).
+
+---
+
 ## Document changelog
 
 - **2026-05-27** — Created alongside METRIC_DEFINITIONS.md rev 2. Seven resolutions recorded (#1–#7).
@@ -490,3 +516,4 @@ Tracks how fast specialists place callers they can't take. Cheap to maintain.
 - **2026-05-27 (rev 3)** — Added four resolutions (#14–#17) from live Zoho CRM API queries. Closes OPEN_QUESTIONS #6 and the residual of #17. Adds new OPEN_QUESTION #29 (Insurance_Policy_Type dimension deferred) and #30 (PPO/Unknown data anomaly).
 - **2026-05-27 (rev 4)** — Added six resolutions (#18–#23) from Supabase Edge Function inspection + Zoho Deals `getFields` + Amber's rev 5 answers. Closes OPEN_QUESTIONS #7, #14, #20 (transformed; the stage-history requirement is gone now that we have a boolean field), #25, #28. Revises CONFIRMED.md #4 (VOB now uses both signals).
 - **2026-05-27 (rev 5)** — Added nine resolutions (#24–#32) batch-closing the remaining policy questions. Closes OPEN_QUESTIONS #9, #10, #13, #15, #21, #22, #24, #26, #29. OPEN_QUESTIONS #18 (test record exclusion) and #30 (PPO=Unknown anomaly) explicitly remain deferred — #18 to Phase 1B sample-data triage, #30 to Zoho cleanup.
+- **2026-05-27 (rev 6)** — Added #33 refining the VOB classifier per Amber's edge case (closed_lost without VOB fields must NOT count as VOB).

@@ -93,16 +93,22 @@ An **MQL** is a Deal that exists in Zoho CRM at all.
 
 ## 5. VOB (Verification of Benefits)
 
-A **VOB** is a Deal that has reached the `VOB - Qualifying` stage or any later stage.
+A **VOB** is a Deal where at least one of the following is true:
 
-- **Source:** Zoho CRM Deals — stage history, not a custom field.
-- **Rule:** `stage_category` is one of `vob_qualifying`, `vob_approved`, `pre_admit`, `referred_out_coming_back`, `closed_won_admitted`, `closed_won_referred_out_unattached`, `closed_lost` — i.e., the deal has at any point been at or past VOB.
+1. **`VOB_Submitted` boolean field is `true`** — primary signal.
+2. **`VOB_Submitted_Date` is non-null** — primary signal (specialists sometimes set the date without flipping the boolean; we honor either).
+3. **Stage-based backup** (when both fields are empty): `stage_category` is one of `vob_qualifying`, `vob_approved`, `pre_admit`, `referred_out_coming_back`, `closed_won_admitted`, `closed_won_referred_out_unattached`. The deal is currently sitting past the VOB step, so a VOB must have run.
+
+Per CONFIRMED.md #33: the two primary signals are the canonical sources of truth. The stage-based backup is a fallback for deals where the specialist didn't fill in the VOB fields but the stage advancement proves a VOB happened.
+
+**Critical edge case:** `closed_lost` is **excluded** from the stage-based backup. A deal can move directly from `Stuck Lead → Closed Lost` without ever running a VOB (the caller dropped off, was lost to competition, etc.). Treating every `closed_lost` deal as VOB-having would inflate the VOB count. A `closed_lost` deal with empty `VOB_Submitted` boolean AND empty `VOB_Submitted_Date` is **not** a VOB.
+
+A `closed_lost` deal **with** either primary signal set IS a VOB — it ran VOB and then lost.
+
+- **Source:** Zoho CRM Deals.
 - **Top-line VOB** = VOB **AND** top-line pipeline. (DUI and DV pipelines don't have VOB stages at all, so this filter is effectively automatic, but the predicate is the same.)
-- **Counted on:** the date the deal first reached `vob_qualifying`. This requires stage transition history — see `OPEN_QUESTION #23`.
-- **Why this changed from the original brief:** the brief assumed a custom `VOB Submitted` boolean field. In reality, VOB is a stage-driven concept in Cornerstone's Zoho: when a specialist advances a deal into `VOB - Qualifying`, that is the moment a VOB has been submitted. No separate field exists.
-- **Edge cases:**
-  - A Deal currently at `closed_lost` whose stage history includes `vob_qualifying` is still a VOB (it had one before it lost).
-  - Without stage history, the only safe proxy is "current stage is at or past VOB" — but a deal that VOBed and then was reset to Stuck Lead would be missed. Phase 1B's sync must capture stage transitions, not just current stage. See `OPEN_QUESTION #23`.
+- **Counted on:** `VOB_Submitted_Date` when set; otherwise the date `vob_submitted` flipped to true (Zoho's `Modified_Time` is the proxy if no flip-timestamp is captured). Phase 1B `sync_zoho_crm_deals` is responsible for picking the date.
+- **`closed_won_dui_completion` is excluded** from the backup set — DUI - Cash pipeline has no VOB stages.
 
 ---
 

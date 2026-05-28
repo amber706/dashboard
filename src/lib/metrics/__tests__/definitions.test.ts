@@ -89,6 +89,7 @@ const deal = (overrides: Partial<DealShape> = {}): DealShape => ({
   stage_category: STAGE_CATEGORY.InProgress,
   source_category: SOURCE_CATEGORY.DigitalMarketing,
   vob_submitted: false,
+  vob_submitted_date: null,
   admit_date: null,
   ...overrides,
 });
@@ -143,7 +144,10 @@ describe("enum cardinality", () => {
     expect(COMMERCIAL_STAR_RATINGS).toEqual([4, 5]);
   });
 
-  it("STAGE_CATEGORIES_AT_OR_PAST_VOB covers vob + pre-admit + referred-out-coming-back + closed categories (except DUI completion which doesn't have a VOB)", () => {
+  it("STAGE_CATEGORIES_AT_OR_PAST_VOB excludes closed_lost (CONFIRMED.md #33)", () => {
+    // closed_lost is intentionally NOT in this set — deals can be lost
+    // without ever VOBing (Stuck Lead -> Closed Lost). closed_won_dui_completion
+    // is also excluded (DUI pipeline has no VOB stages).
     expect(STAGE_CATEGORIES_AT_OR_PAST_VOB).toEqual([
       STAGE_CATEGORY.VobQualifying,
       STAGE_CATEGORY.VobApproved,
@@ -151,8 +155,8 @@ describe("enum cardinality", () => {
       STAGE_CATEGORY.ReferredOutComingBack,
       STAGE_CATEGORY.ClosedWonAdmitted,
       STAGE_CATEGORY.ClosedWonReferredOutUnattached,
-      STAGE_CATEGORY.ClosedLost,
     ]);
+    expect(STAGE_CATEGORIES_AT_OR_PAST_VOB).not.toContain(STAGE_CATEGORY.ClosedLost);
   });
 
   it("STAGE_CATEGORIES_CLOSED has exactly 4 closed outcomes", () => {
@@ -397,16 +401,19 @@ describe("isTopLineMql", () => {
   });
 });
 
-describe("isVobReached", () => {
-  it("is true once stage_category reaches vob_qualifying or later", () => {
+describe("isVobReached (stage-only check: current stage is past VOB)", () => {
+  it("is true for VOB-or-past stages", () => {
     expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.VobQualifying }))).toBe(true);
     expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.VobApproved }))).toBe(true);
     expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.PreAdmit }))).toBe(true);
     expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted }))).toBe(true);
-    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.ClosedLost }))).toBe(true);
     expect(
       isVobReached(deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached })),
     ).toBe(true);
+  });
+
+  it("is FALSE for closed_lost (CONFIRMED.md #33 — deals can lose without VOBing)", () => {
+    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.ClosedLost }))).toBe(false);
   });
 
   it("is false for in_progress stages (pre-VOB)", () => {
@@ -420,24 +427,105 @@ describe("isVobReached", () => {
   });
 });
 
-// ── VOB signals (CONFIRMED.md #19 — both boolean field and stage are used) ─
+// ── VOB signals (canonical classifier with priority chain, CONFIRMED.md #33) ─
 
-describe("isVobSubmitted", () => {
-  it("returns true when vob_submitted boolean is true", () => {
+describe("isVobSubmitted (canonical: field signals first, stage backup second)", () => {
+  it("PRIMARY: returns true when vob_submitted boolean is true", () => {
     expect(isVobSubmitted(deal({ vob_submitted: true }))).toBe(true);
   });
 
-  it("returns false when vob_submitted boolean is false", () => {
-    expect(isVobSubmitted(deal({ vob_submitted: false }))).toBe(false);
-  });
-
-  it("is independent of stage_category (boolean is the authoritative signal)", () => {
-    // Stage says in_progress but boolean says submitted → counts as submitted.
+  it("PRIMARY: returns true when vob_submitted_date is set (even if boolean is false)", () => {
     expect(
       isVobSubmitted(
-        deal({ vob_submitted: true, stage_category: STAGE_CATEGORY.InProgress }),
+        deal({ vob_submitted: false, vob_submitted_date: "2026-05-10" }),
       ),
     ).toBe(true);
+  });
+
+  it("BACKUP: returns true when stage is vob_qualifying with empty fields", () => {
+    expect(
+      isVobSubmitted(
+        deal({
+          vob_submitted: false,
+          vob_submitted_date: null,
+          stage_category: STAGE_CATEGORY.VobQualifying,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("BACKUP: closed_won_admitted with empty VOB fields is still VOB (admit implies VOB happened)", () => {
+    expect(
+      isVobSubmitted(
+        deal({
+          vob_submitted: false,
+          vob_submitted_date: null,
+          stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("EDGE: closed_lost with NO VOB fields is NOT a VOB (CONFIRMED.md #33)", () => {
+    // Specialists can close a Stuck Lead to Closed Lost without ever running a VOB.
+    // This is the bug we explicitly fixed: closed_lost is NOT in the backup set.
+    expect(
+      isVobSubmitted(
+        deal({
+          vob_submitted: false,
+          vob_submitted_date: null,
+          stage_category: STAGE_CATEGORY.ClosedLost,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("EDGE: closed_lost WITH the VOB boolean true is still VOB (primary signal wins)", () => {
+    // A deal that did VOB and then lost still counts as VOB via the primary signal.
+    expect(
+      isVobSubmitted(
+        deal({
+          vob_submitted: true,
+          stage_category: STAGE_CATEGORY.ClosedLost,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("EDGE: closed_lost WITH a vob_submitted_date is still VOB (primary signal wins)", () => {
+    expect(
+      isVobSubmitted(
+        deal({
+          vob_submitted: false,
+          vob_submitted_date: "2026-04-20",
+          stage_category: STAGE_CATEGORY.ClosedLost,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("NEGATIVE: stuck-lead with no VOB fields is NOT a VOB", () => {
+    expect(
+      isVobSubmitted(
+        deal({
+          vob_submitted: false,
+          vob_submitted_date: null,
+          stage_category: STAGE_CATEGORY.InProgress,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("NEGATIVE: DUI completion is NOT a VOB (DUI pipeline has no VOB stages)", () => {
+    expect(
+      isVobSubmitted(
+        deal({
+          vob_submitted: false,
+          vob_submitted_date: null,
+          stage_category: STAGE_CATEGORY.ClosedWonDuiCompletion,
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

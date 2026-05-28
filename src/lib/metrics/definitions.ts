@@ -98,9 +98,17 @@ export const STAGE_CATEGORY_VALUES: readonly StageCategory[] = Object.freeze([
 ]);
 
 /**
- * Stage categories that imply the deal has reached VOB at some point.
- * Used by `isVobReached` — see METRIC_DEFINITIONS.md §5 and OPEN_QUESTION #23
- * for the stage-history-vs-current-stage caveat.
+ * Stage categories that imply a VOB ran at some point — used as the
+ * stage-based backup when the explicit `VOB_Submitted` boolean and
+ * `VOB_Submitted_Date` field are both empty. See CONFIRMED.md #33.
+ *
+ * `closed_lost` is INTENTIONALLY EXCLUDED. Cornerstone deals can move
+ * directly from Stuck Lead to Closed Lost without ever having a VOB
+ * run (caller dropped off, lost to competition, etc.). Treating
+ * closed_lost as "has VOB" would falsely inflate the VOB count.
+ *
+ * `closed_won_dui_completion` is also excluded — the DUI - Cash pipeline
+ * has no VOB stages at all.
  */
 export const STAGE_CATEGORIES_AT_OR_PAST_VOB: readonly StageCategory[] = Object.freeze([
   STAGE_CATEGORY.VobQualifying,
@@ -109,7 +117,6 @@ export const STAGE_CATEGORIES_AT_OR_PAST_VOB: readonly StageCategory[] = Object.
   STAGE_CATEGORY.ReferredOutComingBack,
   STAGE_CATEGORY.ClosedWonAdmitted,
   STAGE_CATEGORY.ClosedWonReferredOutUnattached,
-  STAGE_CATEGORY.ClosedLost,
 ]);
 
 /** Stage categories that represent a closed outcome (won or lost). */
@@ -464,20 +471,24 @@ export interface DealShape {
   stage_category: StageCategory;
   source_category: SourceCategory;
   /**
-   * `VOB_Submitted` custom boolean on Zoho Deals (CONFIRMED.md #19).
-   * Per Amber's rev 5 direction, VOB is signaled by BOTH this boolean
-   * (with `vob_submitted_date` for date attribution) AND the stage
-   * (VOB - Qualifying / VOB - Approved for current status). The boolean
-   * answers "has a VOB ever been submitted"; the stage answers "what's
-   * the current VOB status".
+   * `VOB_Submitted` custom boolean on Zoho Deals. **Primary signal** for
+   * the VOB metric per CONFIRMED.md #33 — if true, the deal is a VOB
+   * regardless of stage.
    */
   vob_submitted: boolean;
   /**
-   * Custom `Admit_Date` field on Zoho Deals (CONFIRMED.md #20). Per
-   * Amber's rev 5 direction, the Admit metric counts STRICTLY on
-   * Admit_Date. Deals with stage_category = closed_won_admitted but
-   * null admit_date are NOT counted as admits in headline KPIs (and
-   * surface in a data-quality view in Phase 1B).
+   * `VOB_Submitted_Date` custom date on Zoho Deals. **Primary signal** for
+   * the VOB metric per CONFIRMED.md #33 — if non-null, the deal is a VOB
+   * regardless of the boolean field's state (specialists sometimes set
+   * the date without flipping the boolean).
+   */
+  vob_submitted_date: string | null;
+  /**
+   * Custom `Admit_Date` field on Zoho Deals (CONFIRMED.md #20). The Admit
+   * metric counts STRICTLY on Admit_Date. Deals with
+   * stage_category = closed_won_admitted but null admit_date are NOT
+   * counted as admits in headline KPIs (and surface in a data-quality
+   * view in Phase 1B).
    */
   admit_date: string | null;
 }
@@ -609,12 +620,25 @@ export function isCountableAdmit(deal: DealShape): boolean {
 }
 
 /**
- * VOB submitted — the `VOB_Submitted` custom boolean field is true.
- * Used together with `vob_submitted_date` for date attribution.
- * See CONFIRMED.md #19.
+ * VOB submitted — canonical classifier. Per CONFIRMED.md #33, applies in
+ * priority order:
+ *
+ *   1. **Primary:** `vob_submitted` boolean is true.
+ *   2. **Primary:** `vob_submitted_date` is non-null. (Specialists sometimes
+ *      set the date without flipping the boolean; we honor either.)
+ *   3. **Backup:** current `stage_category` is in `STAGE_CATEGORIES_AT_OR_PAST_VOB`
+ *      — a deal currently sitting past the VOB step must have had one run.
+ *      `closed_lost` is EXCLUDED from this backup because deals can be
+ *      lost without ever VOBing (Stuck Lead → Closed Lost without VOB).
+ *
+ * If none of the three signals fire, the deal is NOT a VOB.
  */
 export function isVobSubmitted(deal: DealShape): boolean {
-  return deal.vob_submitted === true;
+  if (deal.vob_submitted === true) return true;
+  if (deal.vob_submitted_date !== null) return true;
+  return (STAGE_CATEGORIES_AT_OR_PAST_VOB as readonly StageCategory[]).includes(
+    deal.stage_category,
+  );
 }
 
 /** VOB approved — current stage_category = vob_approved. */
@@ -657,7 +681,19 @@ export function isTopLineMql(deal: DealShape): boolean {
   return isMql(deal) && isTopLinePipeline(deal);
 }
 
-/** Composite: top-line VOB. */
+/**
+ * Composite: top-line VOB submitted — the headline "VOBs this month" KPI input.
+ * Uses the canonical `isVobSubmitted` (field signals first, stage backup
+ * second) gated on top-line pipeline.
+ */
+export function isTopLineVobSubmitted(deal: DealShape): boolean {
+  return isVobSubmitted(deal) && isTopLinePipeline(deal);
+}
+
+/**
+ * Composite: top-line VOB "currently sitting past VOB" — used for live
+ * funnel-state views, not headline counts. Stage-only signal.
+ */
 export function isTopLineVobReached(deal: DealShape): boolean {
   return isVobReached(deal) && isTopLinePipeline(deal);
 }

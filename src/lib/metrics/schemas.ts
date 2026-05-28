@@ -147,7 +147,16 @@ export const VobDefinitionSchema = z.object({
   primitive: z.literal("vob"),
   source: z.literal("zoho_crm.deals"),
   rule: z.object({
-    vob_submitted: z.literal(true),
+    // Per CONFIRMED.md #33, the canonical VOB classifier uses a priority chain:
+    //   1. vob_submitted boolean is true
+    //   2. vob_submitted_date is non-null
+    //   3. stage_category in STAGE_CATEGORIES_AT_OR_PAST_VOB (closed_lost excluded)
+    // Encoded as `any_of` so the resolver knows it's an OR-of-signals rule.
+    any_of: z.tuple([
+      z.literal("vob_submitted_eq_true"),
+      z.literal("vob_submitted_date_not_null"),
+      z.literal("stage_category_at_or_past_vob"),
+    ]),
   }),
   date_field: z.literal("vob_submitted_date"),
 });
