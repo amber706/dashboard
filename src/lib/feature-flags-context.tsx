@@ -61,6 +61,7 @@ export type PageKey =
   | "page_bd_account_intel"
   | "page_bd_meetings"
   | "page_bd_refer_out"
+  | "page_bd_strategy"
   // Warehouse-backed analytics sub-pages (parent = module_analytics_warehouse).
   // Each maps 1:1 to a port from cornerstone-dashboard/app/dashboards/*.
   | "page_warehouse_executive"
