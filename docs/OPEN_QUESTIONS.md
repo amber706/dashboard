@@ -283,8 +283,18 @@ The 2022 rows are pre-Pipeline-field legacy. The 26 post-2022 rows are all OOP s
 
 ---
 
-## ~~#37 — Deal → Lead linkage field name~~ — RESOLVED
+## #37 — Deal → Lead linkage field name (PARTIAL)
 
-**Resolution (2026-05-28):** `getFields(Deals)` confirmed there is **no** Lead-Id lookup field on Deals. Zoho stores `Lead_Created_Time` (date) directly on the Deal at conversion time, which is exactly the field sales-/placement-cycle math needs — no Deal → Lead join required.
+**Status (2026-05-28):**
+- `getFields(Deals)` confirmed there is **no** Lead-Id lookup field on Deals.
+- Zoho's standard `Lead_Created_Time` (date) field exists on the Deal schema, which is exactly what sales-/placement-cycle math needs. Migration 142 plumbs it through end to end (column, upsert RPC, sync function, op_metric builder).
+- **However:** Cornerstone's Zoho returns `Lead_Created_Time = null` on all 29,524 current Deals. The field exists in the schema but isn't auto-populated by Zoho — it requires a CRM workflow that copies the Lead's Created Time to the Deal at conversion.
 
-Migration 142 adds `reporting.deals.lead_created_time DATE`. The deals sync now pulls `Lead_Created_Time` into that column. `reporting_build_op_metrics` reads it directly. `source_lead_id` stays null until a Phase 1C Contact bridge is wired up (not needed for chunk 3 metrics).
+**Action for Amber:** in Zoho CRM, add a workflow:
+- Trigger: "On Lead Conversion"
+- Action: Field Update → set Deal.Lead_Created_Time to the Lead's Created Time
+- Apply to all five pipelines.
+
+Once set up, every new conversion populates the field automatically. Historical deals remain null unless mass-backfilled (low priority — Phase 1B's reporting window is trailing-14 days; only deals admitted/closed in that window need the value for cycle math).
+
+`op_sales_cycle_daily` + `op_placement_cycle_daily` return zero rows until this workflow is in place. The TS predicates and SQL builder are correct; they're just waiting on data.
