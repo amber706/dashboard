@@ -39,6 +39,8 @@ export type PageKey =
   | "page_queue"
   | "page_high_priority_alerts"
   | "page_ops_overview"
+  // Admissions floating page — All VOBs (commercial + AHCCCS + other).
+  | "page_all_vobs"
   // Executive sub-pages
   | "page_dispositions"
   | "page_ai_bot_feedback"
