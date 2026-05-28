@@ -148,6 +148,64 @@ export async function coqlAll<T = Record<string, unknown>>(
   return { rows: out, truncated: true };
 }
 
+// COQL caps cumulative OFFSET pagination at 10k records, AND a Zoho mass-edit
+// can leave thousands of records sharing the same Modified_Time second. So we
+// keyset on (Modified_Time, Created_Time) with OFFSET=0 on every page:
+//   WHERE Modified_Time > mt
+//      OR (Modified_Time = mt AND Created_Time > ct)
+//   ORDER BY Modified_Time ASC, Created_Time ASC LIMIT 200
+// After each page, cursor advances to the last row's (Modified_Time, Created_Time).
+export function toCoqlDatetime(d: Date): string {
+  return d.toISOString().slice(0, 19) + "+00:00";
+}
+
+export async function coqlKeysetByModifiedTime<
+  T extends { id: string; Modified_Time?: string; Created_Time?: string },
+>(
+  token: string,
+  module: string,
+  fields: string,
+  modifiedSince: Date | null,
+  maxRowsTotal = 200_000,
+): Promise<{ rows: T[]; truncated: boolean; error?: string }> {
+  const PAGE_SIZE = 200;
+  const epoch = "1970-01-01T00:00:00+00:00";
+  let cursorMt = modifiedSince ? toCoqlDatetime(modifiedSince) : epoch;
+  let cursorCt = epoch;
+  let firstPage = true;
+  const out: T[] = [];
+
+  while (out.length < maxRowsTotal) {
+    const where = firstPage
+      ? `Modified_Time >= '${cursorMt}'`
+      : `(Modified_Time > '${cursorMt}' OR (Modified_Time = '${cursorMt}' AND Created_Time > '${cursorCt}'))`;
+    const q = `SELECT ${fields} FROM ${module} WHERE ${where} ORDER BY Modified_Time ASC, Created_Time ASC LIMIT ${PAGE_SIZE}`;
+    const r = await coqlOne<T>(token, q);
+    if (r.error) return { rows: out, truncated: true, error: r.error };
+    if (r.rows.length === 0) return { rows: out, truncated: false };
+
+    for (const row of r.rows) out.push(row);
+
+    const last = r.rows[r.rows.length - 1];
+    const lastMt = last.Modified_Time ? toCoqlDatetime(new Date(last.Modified_Time)) : cursorMt;
+    const lastCt = last.Created_Time ? toCoqlDatetime(new Date(last.Created_Time)) : epoch;
+
+    if (!firstPage && lastMt === cursorMt && lastCt === cursorCt) {
+      return {
+        rows: out,
+        truncated: true,
+        error: `keyset stuck: ${PAGE_SIZE} rows share (Modified_Time=${cursorMt}, Created_Time=${cursorCt})`,
+      };
+    }
+    cursorMt = lastMt;
+    cursorCt = lastCt;
+    firstPage = false;
+
+    if (r.rows.length < PAGE_SIZE) return { rows: out, truncated: false };
+  }
+  return { rows: out, truncated: true };
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // sync_runs lifecycle via RPCs
 // ────────────────────────────────────────────────────────────────────────────
@@ -210,6 +268,16 @@ export interface Mappings {
   pipeline: Map<string, string>;
   loc: Map<string, string>;
   sourceCategory: Map<string, string>;
+}
+
+export async function loadOwnerMap(): Promise<Map<string, string>> {
+  const { data, error } = await supa().rpc("reporting_load_owner_map");
+  if (error) throw new Error(`reporting_load_owner_map failed: ${error.message}`);
+  const m = new Map<string, string>();
+  for (const row of (data ?? []) as Array<{ zoho_user_id: string; user_id: string }>) {
+    m.set(row.zoho_user_id, row.user_id);
+  }
+  return m;
 }
 
 export async function loadMappings(): Promise<Mappings> {

@@ -16,12 +16,13 @@
 //   - Refer Out Type: pulled from Refer_Out_Type custom field
 
 import {
-  coqlAll,
+  coqlKeysetByModifiedTime,
   finishSyncRun,
   getZohoToken,
   handleCorsPreflight,
   jsonResponse,
   loadMappings,
+  loadOwnerMap,
   logSyncFailure,
   startSyncRun,
   supa,
@@ -66,14 +67,8 @@ interface ZohoDeal {
   Lead_Source?: string | { id: string; name: string };
 }
 
-function buildDealQuery(modifiedSince: Date | null) {
-  // COQL v6 rejects `IS NOT NULL` and ISO strings with milliseconds.
-  // Format: YYYY-MM-DDTHH:MM:SS+00:00
-  const since = modifiedSince ?? new Date(0);
-  const fmt = since.toISOString().slice(0, 19) + "+00:00";
-  return (offset: number) =>
-    `SELECT ${DEAL_FIELDS} FROM Deals WHERE Modified_Time >= '${fmt}' ORDER BY Modified_Time ASC LIMIT 200 OFFSET ${offset}`;
-}
+// Deals can exceed COQL's 10k OFFSET cap on a full backfill (~20k rows),
+// so keyset paginate on Modified_Time via coqlKeysetByModifiedTime.
 
 function pickClosedLostReason(d: ZohoDeal, pipeline: string | null): string | null {
   if (pipeline === "dui_cash") return d.Close_Reasoning_DUI ?? d.Reason_For_Loss__s ?? null;
@@ -84,11 +79,9 @@ function asBool(v: unknown): boolean {
   return v === true || v === "true" || v === "True";
 }
 
-async function resolveOwnerId(ownerZohoId: string | null): Promise<string | null> {
+function resolveOwnerId(ownerZohoId: string | null, ownerMap: Map<string, string>): string | null {
   if (!ownerZohoId) return null;
-  const { data, error } = await supa().rpc("reporting_resolve_owner_id", { p_zoho_user_id: ownerZohoId });
-  if (error) return null;
-  return (data as string | null) ?? null;
+  return ownerMap.get(ownerZohoId) ?? null;
 }
 
 interface NormalizedDeal {
@@ -113,6 +106,7 @@ interface NormalizedDeal {
 async function normalizeDeal(
   d: ZohoDeal,
   mappings: Mappings,
+  ownerMap: Map<string, string>,
   run: SyncRunHandle,
 ): Promise<NormalizedDeal | null> {
   const pipelineRaw = d.Pipeline ?? null;
@@ -159,7 +153,7 @@ async function normalizeDeal(
   const locAdm = d.Admitted_Level_of_Care ? mappings.loc.get(d.Admitted_Level_of_Care) ?? null : null;
 
   const ownerZohoId = typeof d.Owner === "object" ? d.Owner?.id : null;
-  const owner_user_id = await resolveOwnerId(ownerZohoId ?? null);
+  const owner_user_id = resolveOwnerId(ownerZohoId ?? null, ownerMap);
 
   const sourceLeadId = typeof d.Lead_Source === "object"
     ? (d.Lead_Source?.id ?? null)
@@ -197,8 +191,14 @@ Deno.serve(async (req) => {
   try {
     const token = await getZohoToken();
     const mappings = await loadMappings();
+    const ownerMap = await loadOwnerMap();
 
-    const res = await coqlAll<ZohoDeal>(token, buildDealQuery(run.watermarkUsed));
+    const res = await coqlKeysetByModifiedTime<ZohoDeal>(
+      token,
+      "Deals",
+      DEAL_FIELDS,
+      run.watermarkUsed,
+    );
     if (res.error) throw new Error(`COQL failed: ${res.error}`);
 
     const rawRows = res.rows.map((d) => ({
@@ -211,7 +211,7 @@ Deno.serve(async (req) => {
     const normalized: NormalizedDeal[] = [];
     let failed = 0;
     for (const d of res.rows) {
-      const n = await normalizeDeal(d, mappings, run);
+      const n = await normalizeDeal(d, mappings, ownerMap, run);
       if (n) normalized.push(n);
       else failed++;
     }
