@@ -60,5 +60,5 @@ SELECT cron.schedule('reporting-sync-meetings',  '15 8 * * *', $$ SELECT reporti
 -- Leads (re-enable once the Zoho refresh token includes Analytics scope):
 -- SELECT cron.schedule('reporting-sync-leads', '30 7 * * *', $$ SELECT reporting.invoke_edge_function('reporting-sync-leads'); $$);
 
--- Phase 1B chunk 3 will add:
--- SELECT cron.schedule('build-op-metrics', '0 9 * * *', $$ SELECT reporting.invoke_edge_function('build-op-metrics'); $$);
+-- Phase 1B chunk 3: op-metric builder (rebuilds trailing 14 days every run)
+SELECT cron.schedule('reporting-build-op-metrics', '0 9 * * *', $$ SELECT reporting.invoke_edge_function('reporting-build-op-metrics'); $$);
