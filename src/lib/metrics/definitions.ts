@@ -601,22 +601,23 @@ export function isVobReached(deal: DealShape): boolean {
 }
 
 /**
- * §6 — Admit classifier: stage_category = closed_won_admitted.
+ * §6 — Admit classifier with priority chain (CONFIRMED.md #34).
  *
- * Note: per CONFIRMED.md #20, the Admit metric counts on Admit_Date strictly.
- * Deals where stage_category = closed_won_admitted but admit_date IS NULL are
- * classified as Admits by `isAdmit` (the classifier is stage-driven), but are
- * EXCLUDED from headline Admit KPIs by `isCountableAdmit` — the metric needs
- * a real Admit_Date to attribute. Phase 1B's data quality view will surface
- * Closed-Admitted-without-Admit_Date deals for triage.
+ * Mirrors the VOB classifier's structure:
+ *   1. PRIMARY: `admit_date` is not null → Admit.
+ *   2. BACKUP: `stage_category` is `closed_won_admitted` → Admit (stage
+ *      advancement is sufficient evidence even if the specialist forgot
+ *      to populate Admit_Date).
+ *   3. Otherwise: not an Admit.
+ *
+ * Date attribution in Phase 1B: `COALESCE(admit_date, closing_date)`.
+ * Phase 1B's data-quality view surfaces stage=closed_won_admitted +
+ * admit_date IS NULL deals so the missing date can be backfilled.
  */
 export function isAdmit(deal: DealShape): boolean {
-  return deal.stage_category === STAGE_CATEGORY.ClosedWonAdmitted;
-}
-
-/** Admit that's ready to count — has an Admit_Date set. See CONFIRMED.md #20. */
-export function isCountableAdmit(deal: DealShape): boolean {
-  return isAdmit(deal) && deal.admit_date !== null;
+  if (deal.admit_date !== null) return true;
+  if (deal.stage_category === STAGE_CATEGORY.ClosedWonAdmitted) return true;
+  return false;
 }
 
 /**
@@ -646,14 +647,31 @@ export function isVobApproved(deal: DealShape): boolean {
   return deal.stage_category === STAGE_CATEGORY.VobApproved;
 }
 
-/** §7 — Placement: Closed - Referred Out Unattached. Commercial-Cash only. */
-export function isPlacement(deal: DealShape): boolean {
+/**
+ * §7 — Refer Outs (closed bucket): the deal closed via the
+ * `Closed - Referred Out Unattached` stage. Per CONFIRMED.md #37, this
+ * was previously named "Placement" and is now "Referred Out Closed" as
+ * a subcategory of "Refer Outs". Commercial-Cash only.
+ *
+ * The `Refer_Out_Type` custom field on the deal further distinguishes
+ * {Detox / Residential / Psych} × {Attached / Unattached} for drill-down,
+ * but the headline KPI uses the stage alone.
+ */
+export function isReferredOutClosed(deal: DealShape): boolean {
   return deal.stage_category === STAGE_CATEGORY.ClosedWonReferredOutUnattached;
 }
 
-/** §8 — Win: Admit OR Placement. */
+/**
+ * §7 — Refer Outs (active bucket): the deal is currently parked at
+ * `Referred Out - Coming Back`. Still in the funnel.
+ */
+export function isReferredOutComingBack(deal: DealShape): boolean {
+  return deal.stage_category === STAGE_CATEGORY.ReferredOutComingBack;
+}
+
+/** §8 — Win: Admit OR Referred Out Closed (the closed Refer Outs bucket). */
 export function isWin(deal: DealShape): boolean {
-  return isAdmit(deal) || isPlacement(deal);
+  return isAdmit(deal) || isReferredOutClosed(deal);
 }
 
 /** §9 — DUI Completion. */

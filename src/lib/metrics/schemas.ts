@@ -122,6 +122,26 @@ export const DealRowSchema = z.object({
   created_at: z.string().datetime({ offset: true }),
   closing_date: z.string().date().nullable(),
   admit_date: z.string().date().nullable(),
+  /**
+   * Closed Lost reason — populated only when `stage_category = closed_lost`.
+   * Sourced per-pipeline from the relevant custom field (CONFIRMED.md #35):
+   *   - Treatment closed-lost → `Lost_Reasoning` (45-value picklist)
+   *   - DUI closed-lost       → `Close_Reasoning_DUI` (Lost to Competition,
+   *                             Non-Responsive, Referred Out, Sold - Screening,
+   *                             Unmet Financial Responsibility, Unqualified)
+   *   - DV closed-lost        → (currently no dedicated field — TODO)
+   *   - Generic fallback      → `Reason_For_Loss__s` (10-value Zoho system field)
+   * Phase 1B's sync writes the per-pipeline value here so the dashboard can
+   * break down closed lost by reason.
+   */
+  closed_lost_reason: z.string().nullable(),
+  /**
+   * Refer Out Type — sourced from Zoho `Refer_Out_Type` custom picklist.
+   * 6 values: {Detox, Residential, Psych} × {Attached, Unattached}.
+   * Populated only when the deal closed via the Closed - Referred Out
+   * Unattached stage. See CONFIRMED.md #36 (pending refer-outs rename).
+   */
+  refer_out_type: z.string().nullable(),
 });
 export type DealRow = z.infer<typeof DealRowSchema>;
 
@@ -165,14 +185,19 @@ export const AdmitDefinitionSchema = z.object({
   primitive: z.literal("admit"),
   source: z.literal("zoho_crm.deals"),
   rule: z.object({
-    stage_category: z.literal(STAGE_CATEGORY.ClosedWonAdmitted),
-    admit_date_not_null: z.literal(true),
+    // CONFIRMED.md #34 — Admit uses priority chain (same shape as VOB):
+    //   1. admit_date is not null, OR
+    //   2. stage_category = closed_won_admitted
+    any_of: z.tuple([
+      z.literal("admit_date_not_null"),
+      z.literal("stage_category_eq_closed_won_admitted"),
+    ]),
   }),
-  date_field: z.literal("admit_date"),
+  date_field: z.literal("admit_date_or_closing_date"),
 });
 
-export const PlacementDefinitionSchema = z.object({
-  primitive: z.literal("placement"),
+export const ReferredOutClosedDefinitionSchema = z.object({
+  primitive: z.literal("referred_out_closed"),
   source: z.literal("zoho_crm.deals"),
   rule: z.object({
     stage_category: z.literal(STAGE_CATEGORY.ClosedWonReferredOutUnattached),
@@ -225,7 +250,7 @@ export const PrimitiveDefinitionSchema = z.discriminatedUnion("primitive", [
   MqlDefinitionSchema,
   VobDefinitionSchema,
   AdmitDefinitionSchema,
-  PlacementDefinitionSchema,
+  ReferredOutClosedDefinitionSchema,
   WinDefinitionSchema,
   DuiCompletionDefinitionSchema,
   ClosedLostDefinitionSchema,

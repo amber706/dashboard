@@ -43,14 +43,14 @@ import {
   isDvLead,
   isMql,
   isOtherPayerLead,
-  isPlacement,
+  isReferredOutClosed,
+  isReferredOutComingBack,
   isReferralIn,
   isTopLineAdmit,
   isTopLineMql,
   isTopLinePipeline,
   isTopLineVobReached,
   isTreatmentLead,
-  isCountableAdmit,
   isVobApproved,
   isVobReached,
   isVobSubmitted,
@@ -568,49 +568,74 @@ describe("isAdmit", () => {
   });
 });
 
-describe("isCountableAdmit (Admit + Admit_Date set; the headline KPI input)", () => {
-  it("requires both stage_category=closed_won_admitted AND a non-null admit_date", () => {
+describe("isAdmit priority chain (CONFIRMED.md #34)", () => {
+  it("PRIMARY: admit_date set + any stage → Admit", () => {
+    // Even if the stage hasn't been moved to closed_won_admitted yet,
+    // setting Admit_Date is sufficient evidence of an admit.
     expect(
-      isCountableAdmit(
-        deal({
-          stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
-          admit_date: "2026-05-15",
-        }),
+      isAdmit(
+        deal({ stage_category: STAGE_CATEGORY.PreAdmit, admit_date: "2026-05-15" }),
       ),
     ).toBe(true);
   });
 
-  it("excludes Closed-Admitted deals where admit_date is missing (Phase 1B surfaces these in data quality)", () => {
+  it("BACKUP: stage_category = closed_won_admitted with admit_date=null is still an Admit", () => {
+    // Specialist moved the deal to Closed - Admitted but forgot to fill Admit_Date.
+    // The stage advancement alone is enough. Phase 1B surfaces these for backfill.
     expect(
-      isCountableAdmit(
+      isAdmit(
         deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted, admit_date: null }),
+      ),
+    ).toBe(true);
+  });
+
+  it("NEGATIVE: in_progress stage with no admit_date is NOT an Admit", () => {
+    expect(
+      isAdmit(
+        deal({ stage_category: STAGE_CATEGORY.InProgress, admit_date: null }),
       ),
     ).toBe(false);
   });
 
-  it("excludes deals where admit_date is set but stage isn't closed_won_admitted", () => {
+  it("NEGATIVE: closed_lost with no admit_date is NOT an Admit", () => {
     expect(
-      isCountableAdmit(
-        deal({ stage_category: STAGE_CATEGORY.PreAdmit, admit_date: "2026-05-15" }),
+      isAdmit(
+        deal({ stage_category: STAGE_CATEGORY.ClosedLost, admit_date: null }),
       ),
     ).toBe(false);
   });
 });
 
-describe("isPlacement", () => {
+describe("isReferredOutClosed (renamed from isPlacement; CONFIRMED.md #37)", () => {
   it("matches closed_won_referred_out_unattached", () => {
     expect(
-      isPlacement(deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached })),
+      isReferredOutClosed(deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached })),
     ).toBe(true);
   });
 
   it("rejects every other stage", () => {
-    const nonPlacement = STAGE_CATEGORY_VALUES.filter(
+    const nonClosed = STAGE_CATEGORY_VALUES.filter(
       (s) => s !== STAGE_CATEGORY.ClosedWonReferredOutUnattached,
     );
-    for (const stage of nonPlacement) {
-      expect(isPlacement(deal({ stage_category: stage }))).toBe(false);
+    for (const stage of nonClosed) {
+      expect(isReferredOutClosed(deal({ stage_category: stage }))).toBe(false);
     }
+  });
+});
+
+describe("isReferredOutComingBack (Refer Outs active bucket)", () => {
+  it("matches referred_out_coming_back", () => {
+    expect(
+      isReferredOutComingBack(deal({ stage_category: STAGE_CATEGORY.ReferredOutComingBack })),
+    ).toBe(true);
+  });
+
+  it("does NOT match the closed Refer Outs bucket", () => {
+    expect(
+      isReferredOutComingBack(
+        deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -619,7 +644,7 @@ describe("isWin", () => {
     expect(isWin(deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted }))).toBe(true);
   });
 
-  it("is true for Placement", () => {
+  it("is true for Referred Out Closed (the closed Refer Outs bucket; formerly Placement)", () => {
     expect(isWin(deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached }))).toBe(
       true,
     );
@@ -1024,27 +1049,29 @@ describe("LeadRowSchema", () => {
 });
 
 describe("PrimitiveDefinitionSchema", () => {
-  it("parses an Admit definition (stage_category + admit_date required; counted on admit_date)", () => {
+  it("parses an Admit definition with the priority-chain rule shape", () => {
     const parsed = PrimitiveDefinitionSchema.parse({
       primitive: "admit",
       source: "zoho_crm.deals",
       rule: {
-        stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
-        admit_date_not_null: true,
+        any_of: [
+          "admit_date_not_null",
+          "stage_category_eq_closed_won_admitted",
+        ],
       },
-      date_field: "admit_date",
+      date_field: "admit_date_or_closing_date",
     });
     expect(parsed.primitive).toBe("admit");
   });
 
-  it("parses a Placement definition", () => {
+  it("parses a Referred Out Closed definition (renamed from Placement)", () => {
     const parsed = PrimitiveDefinitionSchema.parse({
-      primitive: "placement",
+      primitive: "referred_out_closed",
       source: "zoho_crm.deals",
       rule: { stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached },
       date_field: "closing_date",
     });
-    expect(parsed.primitive).toBe("placement");
+    expect(parsed.primitive).toBe("referred_out_closed");
   });
 
   it("parses a DUI Completion definition", () => {

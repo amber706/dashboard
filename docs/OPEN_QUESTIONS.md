@@ -232,3 +232,35 @@ Moved to `CONFIRMED.md` #29. Phase 1B adds `op_placement_cycle_daily` alongside 
 - **2026-05-27 (rev 4)** — Live Zoho API queries (getFields + getUsers). Resolved: #6, #17 (full picklist). Added: #29 (Insurance_Policy_Type dimension), #30 (PPO/Unknown anomaly).
 - **2026-05-27 (rev 5)** — Zoho Deals `getFields` + Supabase Edge Function inspection. Resolved: #7 (OAuth path locked), #14 (Admit_Date strict), #20 (VOB_Submitted_Date provides timestamp), #23 (no stage-history needed), #25 (both LOC fields exist), #28 (DUI_or_Treatment field confirmed). Revises CONFIRMED.md #4 — VOB now uses both boolean field and stage.
 - **2026-05-27 (rev 6)** — Batch closeout. Resolved: #9, #10, #12, #13, #15, #21, #22, #24, #26, #27, #29. Only two questions remain open by design: #18 (test record exclusion, deferred to Phase 1B sample-data triage) and #30 (PPO=Unknown anomaly, awaits Zoho cleanup).
+- **2026-05-27 (rev 7)** — VOB priority chain refined; closed_lost removed from backup set (CONFIRMED.md #33).
+- **2026-05-27 (rev 8)** — Admit priority chain mirrors VOB. Source Category confirmed as Zoho Global Picklist. Closed Lost reason capture added per pipeline. "Placement" renamed to "Referred Out Closed" under new "Refer Outs" parent category. New OPEN_QUESTIONS: #34 (4 hidden Source Category values — Call Center / Option 1 / Option 2 — Phase 1B sync logs whether any production data carries them), #35 (DV pipeline has no dedicated closed-lost reason field — confirm if needed).
+
+---
+
+## #34 — Hidden Source Category values: Call Center / Option 1 / Option 2 (NEW)
+
+**Where:** Zoho `Source_Category` global picklist returns 13 values via API; the Deal UI dropdown shows only 9.
+
+**Question:** the 4 hidden values are:
+- `-None-` (default empty state — fine to leave hidden)
+- `Call Center`
+- `Option 1`
+- `Option 2`
+
+Are Call Center / Option 1 / Option 2 active values in any pipeline, deprecated debris, or placeholders someone forgot to delete?
+
+**How to resolve:** Phase 1B's first sync logs production rows carrying any of these values. If counts are non-zero, decide whether to keep them or clean up the picklist in Zoho.
+
+---
+
+## #35 — DV closed-lost reason field (NEW)
+
+**Where:** `METRIC_DEFINITIONS.md` §10.
+**Question:** Treatment closed-lost has `Lost_Reasoning` (45 values); DUI has `Close_Reasoning_DUI` (6 values). DV - Cash pipeline has no dedicated closed-lost reason field.
+
+Should we:
+- (a) Add a custom `Close_Reasoning_DV` field to the Zoho DV pipeline layout,
+- (b) Fall back to the Zoho system `Reason_For_Loss__s` field for DV closed-lost,
+- (c) Not track DV closed-lost reasons at all (low volume?)
+
+**Recommended default:** (b) for Phase 1; revisit if DV volume grows.

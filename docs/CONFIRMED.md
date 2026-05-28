@@ -509,6 +509,61 @@ A `closed_lost` deal **with** either primary signal set still counts as VOB (it 
 
 ---
 
+## #34 — Admit priority chain (revises CONFIRMED.md #20)
+
+**Source:** Amber's refinement of METRIC_DEFINITIONS.md §6 — same shape as the VOB priority chain.
+
+**Resolution:** `isAdmit(deal)` evaluates signals in priority order:
+
+1. **Primary:** `admit_date` is non-null → Admit.
+2. **Backup:** `stage_category = closed_won_admitted` → Admit (stage advancement is sufficient evidence even if Admit_Date hasn't been filled in yet).
+3. **Otherwise:** not an Admit.
+
+This **revises CONFIRMED.md #20**, which previously said the Admit metric counts on `Admit_Date` strictly. Stage advancement is now an accepted backup signal — specialists who close-admit a deal but forget to populate Admit_Date still produce Admits in reporting.
+
+**Date attribution** in Phase 1B fact_admit: `COALESCE(admit_date, closing_date)`. Phase 1B's data-quality view (`v_admits_missing_date`) still surfaces stage=closed_won_admitted + admit_date IS NULL deals so the specialist can backfill the missing date.
+
+**Consequences:**
+- `isAdmit` rewritten with the 2-signal chain.
+- `isCountableAdmit` is removed — no longer a useful distinction.
+- `AdmitDefinitionSchema` rule = `any_of: [admit_date_not_null, stage_category_eq_closed_won_admitted]`.
+- New tests cover four cases: admit_date set / stage backup / closed_lost without admit_date (NOT Admit) / in_progress without admit_date (NOT Admit).
+
+---
+
+## #35 — Source Category is a Zoho Global Picklist (refines CONFIRMED.md #13)
+
+**Source:** Amber confirmation + Zoho `getFields` showing `global_picklist` set on the `Source_Category` field on both Leads and Deals.
+
+**Resolution:** `Source_Category` is a Zoho Global Picklist — the same picklist values are shared across the Lead and Deal modules. Adding or renaming a value in one place updates everywhere. The API returns 13 values (including `-None-`, `Call Center`, `Option 1`, `Option 2`); the active Deal UI dropdown surfaces only 9 (`Alumni`, `Business Development`, `Directory Listing`, `Internal`, `Organic Social`, `Paid Social`, `PPC`, `SEO`, `ZocDoc`).
+
+**Consequences:**
+- Phase 1B's `source_category_mapping` is seeded ONCE from the global picklist and serves both Leads and Deals.
+- The 4 hidden values (Call Center, Option 1, Option 2) are tracked under OPEN_QUESTION #34 — either active in Zoho but not displayed, legacy debris to clean up, or specific to a different module. Phase 1B sync logs any production deal/lead carrying one of these so we know whether they're in use.
+
+---
+
+## #36 — Closed Lost reason capture per pipeline
+
+**Source:** Zoho `getFields` on Deals — three loss-reason fields exist.
+
+**Resolution:** Closed Lost deals carry a reason populated from the appropriate per-pipeline field:
+
+| Pipeline | Reason source field | Picklist count |
+|---|---|---|
+| Commercial-Cash / AHCCCS / ZocDoc | `Lost_Reasoning` (display: "Close Reasoning (Treatment)") | 45 values |
+| DUI - Cash | `Close_Reasoning_DUI` (display: "Close Reasoning (DUI)") | 6 values: Lost to Competition, Non-Responsive (DUI), Referred Out, Sold - Screening, Unmet Financial Responsibility, Unqualified |
+| DV - Cash | (no dedicated field yet) | — |
+| Generic fallback | `Reason_For_Loss__s` (Zoho system field) | 10 values: Expectation Mismatch, Price, Unqualified Customer, Lack of response, Missed Follow Ups, Wrong Target, Competition, Future Interest, Other |
+
+**Consequences:**
+- `DealRowSchema` adds `closed_lost_reason: string | null`. Populated only when stage_category = closed_lost.
+- Phase 1B's `sync_zoho_crm_deals` reads the appropriate source field by pipeline.
+- Reporting can break Closed Lost by reason via the new column.
+- DV pipeline lacks a dedicated reason field — surfaced as OPEN_QUESTION #35.
+
+---
+
 ## Document changelog
 
 - **2026-05-27** — Created alongside METRIC_DEFINITIONS.md rev 2. Seven resolutions recorded (#1–#7).
@@ -517,3 +572,4 @@ A `closed_lost` deal **with** either primary signal set still counts as VOB (it 
 - **2026-05-27 (rev 4)** — Added six resolutions (#18–#23) from Supabase Edge Function inspection + Zoho Deals `getFields` + Amber's rev 5 answers. Closes OPEN_QUESTIONS #7, #14, #20 (transformed; the stage-history requirement is gone now that we have a boolean field), #25, #28. Revises CONFIRMED.md #4 (VOB now uses both signals).
 - **2026-05-27 (rev 5)** — Added nine resolutions (#24–#32) batch-closing the remaining policy questions. Closes OPEN_QUESTIONS #9, #10, #13, #15, #21, #22, #24, #26, #29. OPEN_QUESTIONS #18 (test record exclusion) and #30 (PPO=Unknown anomaly) explicitly remain deferred — #18 to Phase 1B sample-data triage, #30 to Zoho cleanup.
 - **2026-05-27 (rev 6)** — Added #33 refining the VOB classifier per Amber's edge case (closed_lost without VOB fields must NOT count as VOB).
+- **2026-05-27 (rev 7)** — Added #34 (Admit priority chain, mirrors VOB), #35 (Source Category Zoho Global Picklist), #36 (Closed Lost reason capture per pipeline). Revises CONFIRMED.md #20.

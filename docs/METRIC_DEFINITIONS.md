@@ -114,24 +114,44 @@ A `closed_lost` deal **with** either primary signal set IS a VOB — it ran VOB 
 
 ## 6. Admit
 
-An **Admit** is a Deal with stage category `closed_won_admitted`.
+An **Admit** is a Deal where at least one of the following is true (priority chain — CONFIRMED.md #34):
+
+1. **`Admit_Date` field is non-null** — primary signal.
+2. **`stage_category = closed_won_admitted`** — backup signal. Stage advancement alone is sufficient evidence; specialists who close-admit a deal but forget to set Admit_Date still count.
+
+If neither signal fires, the deal is **not** an Admit.
 
 - **Source:** Zoho CRM Deals.
-- **Rule:** `stage_category = closed_won_admitted`. The raw Zoho stage is `Closed - Admitted` across all four pipelines that have it (Commercial-Cash, AHCCCS, DV - Cash, ZocDoc).
+- **Source field for LOC:** `Admitted_Level_of_Care` custom field (CONFIRMED.md #21). The Admit metric is the only place this field is used; everywhere else uses `Level_of_Care_Requested`.
 - **Top-line Admit** = Admit **AND** `pipeline ∈ TOP_LINE_ADMIT_PIPELINES`. The headline "Admits this month" KPI excludes DV admits. DV's `Closed - Admitted` is reported as a separate DV Admits KPI.
-- **Counted on:** `Closing_Date` (see `OPEN_QUESTION #14` to confirm field name).
-- **Edge cases:** a Deal that reaches Closed - Admitted, gets reopened, and is re-closed: counted on the most recent transition.
+- **Counted on:** `Admit_Date` when set; fall back to `Closing_Date` when only the stage signal fires. Phase 1B fact_admit row uses `COALESCE(admit_date, closing_date)`.
+- **Data quality:** deals where `stage_category = closed_won_admitted` AND `admit_date IS NULL` surface in `v_admits_missing_date` for specialist follow-up.
 
 ---
 
-## 7. Placement (Closed-Won Referred Out Unattached)
+## 7. Refer Outs
 
-A **Placement** is a Deal closed at `Closed - Referred Out Unattached` — the specialist successfully placed the caller at another provider when Cornerstone couldn't take them.
+**Refer Outs** is a parent category covering deals that were referred to another provider — either currently being tracked as potentially returning, or permanently closed via referral. Two subcategories (CONFIRMED.md #37):
 
-- **Source:** Zoho CRM Deals.
-- **Rule:** `stage_category = closed_won_referred_out_unattached`. Only the Commercial-Cash pipeline has this stage.
+### 7a. Refer Out Coming Back (active)
+
+A Deal currently parked at the `Referred Out - Coming Back` stage — still active in the funnel; the caller may return to us.
+
+- **Rule:** `stage_category = referred_out_coming_back`.
+- **Pipelines:** Commercial-Cash, AHCCCS, ZocDoc.
+- **Reporting role:** mid-pipeline active count; never closed.
+
+### 7b. Referred Out Closed
+
+A Deal closed via the `Closed - Referred Out Unattached` stage — the specialist completed the referral to another provider. Counts as a **Win** in Cornerstone's taxonomy.
+
+- **Rule:** `stage_category = closed_won_referred_out_unattached`.
+- **Pipelines:** Commercial-Cash only.
 - **Counted on:** `Closing_Date`.
-- **Reporting role:** Placements are a *win* in Cornerstone's taxonomy but reported as a distinct line item alongside Admits, so leadership can see "treatment captures vs. placements" without losing either side. They roll up into "Total Wins" (= Admits + Placements) when a combined KPI is needed.
+- **Subcategorization (drill-down):** the `Refer_Out_Type` Zoho custom picklist breaks Closed Refer Outs into 6 buckets: `{Detox, Residential, Psych} × {Attached, Unattached}`. Captured in the `refer_out_type` column on the normalized deals table for drill-down. Not exposed in the headline KPI per Amber's direction.
+- **Reporting role:** Referred Out Closed counts toward `Total Wins` (= Admits + Referred Out Closed). Reported as a distinct line item alongside Admits.
+
+**Naming note:** the previous "Placement" primitive is renamed to "Referred Out Closed" under the Refer Outs umbrella. The Zod schema is `ReferredOutClosedDefinitionSchema` and the predicate is `isReferredOutClosed`.
 
 ---
 
@@ -163,9 +183,24 @@ A **Closed Lost** is a Deal at `stage_category = closed_lost`.
 - **Source:** Zoho CRM Deals.
 - **Rule:** any `Closed - Lost (X)` raw stage — pipeline-specific suffixes for treatment, DUI, DV.
 - **Counted on:** `Closing_Date`.
+
+### Reason breakdown (CONFIRMED.md #36)
+
+Closed Lost reasons are pulled per-pipeline from the appropriate custom field on the deal:
+
+| Pipeline | Reason source field | Picklist values |
+|---|---|---|
+| Commercial-Cash / AHCCCS / ZocDoc | `Lost_Reasoning` (display: "Close Reasoning (Treatment)") | 45 values — full enumeration deferred to drill-down |
+| DUI - Cash | `Close_Reasoning_DUI` (display: "Close Reasoning (DUI)") | Lost to Competition, Non-Responsive (DUI), Referred Out, Sold - Screening, Unmet Financial Responsibility, Unqualified |
+| DV - Cash | (no dedicated field — see OPEN_QUESTION) | — |
+| Generic fallback | `Reason_For_Loss__s` (Zoho system field) | Expectation Mismatch, Price, Unqualified Customer, Lack of response, Missed Follow Ups, Wrong Target, Competition, Future Interest, Other |
+
+The normalized `deals.closed_lost_reason` column is populated by Phase 1B from the per-pipeline field. Dashboards can break Closed Lost by reason.
+
 - **Edge cases:**
-  - There is **no** `closed_lost_referred_out` category any more. The previously-assumed "Referred Out is a kind of loss" is wrong in Cornerstone's model — see §7.
-  - `Referred Out - Coming Back` is active and not a loss — see §3.
+  - There is **no** `closed_lost_referred_out` category. The previously-assumed "Referred Out is a kind of loss" was wrong in Cornerstone's model — Referred Out is a Win (§7b).
+  - `Referred Out - Coming Back` is active and not a loss — see §7a.
+  - Closed Lost without a populated reason field is permitted but flagged in `v_closed_lost_missing_reason` for specialist follow-up.
 
 ---
 
@@ -232,17 +267,34 @@ Notably absent from the brief's draft: Residential (Cornerstone uses BHRF — Ar
 
 ## 14. Source Category
 
-Where the Lead came from. Three normalized buckets:
+Where the Lead or Deal came from. **`Source_Category` is a Zoho Global Picklist** — the same picklist values are shared across Lead and Deal modules (CONFIRMED.md #35). Updating a value in Zoho updates both surfaces simultaneously.
+
+### Raw picklist (13 values via API; 9 active in UI)
+
+| Active in Deal UI | Value |
+|:-:|---|
+| ✓ | Alumni |
+| ✓ | Business Development |
+| ✓ | Directory Listing |
+| ✓ | Internal |
+| ✓ | Organic Social |
+| ✓ | Paid Social |
+| ✓ | PPC |
+| ✓ | SEO |
+| ✓ | ZocDoc |
+| — | Call Center (in API but hidden in Deal UI) |
+| — | Option 1, Option 2 (placeholder values; see OPEN_QUESTION #34) |
+| — | -None- (default empty state) |
+
+### Normalized buckets
 
 | Normalized name | Rule | Notes |
 |---|---|---|
 | `business_development` | Raw source category = "Business Development" | BD reps' outreach |
 | `zocdoc` | Raw source category = "ZocDoc" | ZocDoc-sourced |
-| `digital_marketing` | Raw source category ∉ {Business Development, ZocDoc} | **Catch-all.** Every Lead that is not BD or ZocDoc rolls up to Digital Marketing. |
+| `digital_marketing` | Raw source category ∉ {Business Development, ZocDoc} | **Catch-all.** Every Lead/Deal that is not BD or ZocDoc rolls up to Digital Marketing (Alumni, Call Center, Internal, SEO, PPC, etc. all fall here). |
 
-This means Source Category is computed via the *negative* rule for Digital Marketing — any new raw source string Zoho introduces will automatically fall into Digital Marketing unless explicitly mapped otherwise. This is intentional: we'd rather over-count Digital Marketing than miss a new source bucket. Unmapped raw strings still appear in `v_unmapped_sources` (Phase 1B) for triage.
-
-Raw Zoho field name and exact strings: `OPEN_QUESTION #17`. The Analytics screenshot shows an `Interaction Source` column on the Leads view that's the likely candidate but not yet confirmed.
+Source Category is computed via the *negative* rule for Digital Marketing — any new raw source string Zoho introduces automatically falls into Digital Marketing unless explicitly mapped otherwise. Phase 1B's `source_category_mapping` is seeded ONCE from the global picklist and serves both Leads and Deals.
 
 ---
 
