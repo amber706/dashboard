@@ -1,8 +1,20 @@
 # Confirmed Resolutions
 
-**Status:** Phase 1A gate file. Amber's resolutions to OPEN_QUESTIONS, recorded by Claude during the doc walkthrough and pending Amber's read-through + sign-off.
+**Status:** ✅ **Phase 1A acceptance gate CLEARED — 2026-05-27.**
 
-This file is the second half of the 1A acceptance gate. METRIC_DEFINITIONS.md describes the canonical taxonomy; CONFIRMED.md is where the decisions Amber made to lock that taxonomy live. Phase 1B does not begin until every question in OPEN_QUESTIONS.md is either resolved here or explicitly marked as "intentionally deferred."
+Amber Vaughan (CMO, Cornerstone Healing Center) reviewed `METRIC_DEFINITIONS.md` and this file end-to-end across rev 1 through rev 8, provided corrections at every checkpoint, and confirms the 37 resolutions below accurately reflect Cornerstone's reporting intent. Phase 1B is unblocked.
+
+Two `OPEN_QUESTIONS` remain open by design and are NOT blockers:
+- **#18** — Test record exclusion rule. Deferred to Phase 1B sample-data triage (we'll inspect raw sync output and write the rule based on what's actually in production).
+- **#30** — `Insurance_Type` display value `PPO` stores as actual value `Unknown`. Awaits a Zoho config cleanup pass; flagged in a Phase 1B data-quality view.
+
+Two later OPEN_QUESTIONS will get resolved during Phase 1B's first sync run:
+- **#34** — Whether the hidden Source Category values (`Call Center`, `Option 1`, `Option 2`) carry any production data.
+- **#35** — Whether the DV pipeline needs a dedicated `Close_Reasoning_DV` field.
+
+---
+
+This file is the second half of the 1A acceptance gate. METRIC_DEFINITIONS.md describes the canonical taxonomy; CONFIRMED.md is where the decisions Amber made to lock that taxonomy live.
 
 Each entry below lists:
 - The question (cross-referenced to OPEN_QUESTIONS.md when it originated there)
