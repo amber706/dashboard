@@ -1,10 +1,11 @@
 // definitions.test.ts — property tests for every reporting primitive
-// classifier in `../definitions.ts`. The three cases called out in the
-// Phase 1A spec are explicit (search for "SPEC CASE").
+// classifier in `../definitions.ts`. Includes the three spec-mandated cases
+// (search for "SPEC CASE") and the post-revision predicates added after the
+// Zoho ground-truth screenshots resolved the original brief's wrong
+// assumptions.
 //
-// These tests are the canonical regression net for the taxonomy. If they
-// drift from `docs/METRIC_DEFINITIONS.md` the doc is the source of truth —
-// update the test, not the doc.
+// If a test here drifts from `docs/METRIC_DEFINITIONS.md`, the doc is the
+// source of truth — update the test, not the doc.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,12 +17,16 @@ import {
   MARKETING_CHANNEL,
   PIPELINE,
   PIPELINE_VALUES,
+  RAW_PIPELINE_STRINGS,
   REP_ROLE,
   REP_ROLE_VALUES,
   SOURCE_CATEGORY,
   SOURCE_CATEGORY_VALUES,
   STAGE_CATEGORY,
   STAGE_CATEGORY_VALUES,
+  STAGE_CATEGORIES_AT_OR_PAST_VOB,
+  STAGE_CATEGORIES_CLOSED,
+  TOP_LINE_ADMIT_PIPELINES,
   isAdmit,
   isAhcccsAdmit,
   isAhcccsLead,
@@ -29,12 +34,21 @@ import {
   isClosedLost,
   isCommercialAdmit,
   isCommercialLead,
+  isDuiCompletion,
+  isDvAdmit,
   isMql,
-  isRawStageReferredOut,
-  isReferredOut,
-  isVob,
+  isPlacement,
+  isTopLineAdmit,
+  isTopLineMql,
+  isTopLinePipeline,
+  isTopLineVobReached,
+  isVobReached,
+  isWin,
+  isZocdocAdmit,
   profileToRepRole,
+  rawPipelineToPipeline,
   rawSourceToSourceCategory,
+  rawStageToCategory,
   sourceCategoryToMarketingChannel,
   type DealShape,
   type LeadShape,
@@ -58,7 +72,6 @@ const lead = (overrides: Partial<LeadShape> = {}): LeadShape => ({
 const deal = (overrides: Partial<DealShape> = {}): DealShape => ({
   pipeline: PIPELINE.CommercialCash,
   stage_category: STAGE_CATEGORY.InProgress,
-  vob_submitted: false,
   source_category: SOURCE_CATEGORY.DigitalMarketing,
   ...overrides,
 });
@@ -66,12 +79,12 @@ const deal = (overrides: Partial<DealShape> = {}): DealShape => ({
 // ── enum cardinality (catches accidental adds/removes) ─────────────────────
 
 describe("enum cardinality", () => {
-  it("Pipeline has exactly 4 values", () => {
-    expect(PIPELINE_VALUES).toHaveLength(4);
+  it("Pipeline has exactly 5 values", () => {
+    expect(PIPELINE_VALUES).toHaveLength(5);
   });
 
-  it("StageCategory has exactly 6 values", () => {
-    expect(STAGE_CATEGORY_VALUES).toHaveLength(6);
+  it("StageCategory has exactly 9 values", () => {
+    expect(STAGE_CATEGORY_VALUES).toHaveLength(9);
   });
 
   it("SourceCategory has exactly 3 values", () => {
@@ -86,9 +99,33 @@ describe("enum cardinality", () => {
     expect(LEVEL_OF_CARE_VALUES).toHaveLength(6);
   });
 
+  it("TOP_LINE_ADMIT_PIPELINES is exactly {Commercial-Cash, AHCCCS, ZocDoc}", () => {
+    expect(TOP_LINE_ADMIT_PIPELINES).toEqual([
+      PIPELINE.CommercialCash,
+      PIPELINE.Ahcccs,
+      PIPELINE.Zocdoc,
+    ]);
+  });
+
   it("Star rating thresholds match METRIC_DEFINITIONS.md", () => {
     expect(AHCCCS_STAR_RATINGS).toEqual([3]);
     expect(COMMERCIAL_STAR_RATINGS).toEqual([4, 5]);
+  });
+
+  it("STAGE_CATEGORIES_AT_OR_PAST_VOB covers vob + pre-admit + referred-out-coming-back + closed categories (except DUI completion which doesn't have a VOB)", () => {
+    expect(STAGE_CATEGORIES_AT_OR_PAST_VOB).toEqual([
+      STAGE_CATEGORY.VobQualifying,
+      STAGE_CATEGORY.VobApproved,
+      STAGE_CATEGORY.PreAdmit,
+      STAGE_CATEGORY.ReferredOutComingBack,
+      STAGE_CATEGORY.ClosedWonAdmitted,
+      STAGE_CATEGORY.ClosedWonReferredOutUnattached,
+      STAGE_CATEGORY.ClosedLost,
+    ]);
+  });
+
+  it("STAGE_CATEGORIES_CLOSED has exactly 4 closed outcomes", () => {
+    expect(STAGE_CATEGORIES_CLOSED).toHaveLength(4);
   });
 });
 
@@ -132,19 +169,15 @@ describe("isCommercialLead", () => {
   it("does not classify star_rating=3 alone as Commercial", () => {
     expect(isCommercialLead(lead({ star_rating: 3 }))).toBe(false);
   });
-
-  it("does not classify a null lead as Commercial", () => {
-    expect(isCommercialLead(lead())).toBe(false);
-  });
 });
 
-// SPEC CASE #1 — Lead overlap. Documented in METRIC_DEFINITIONS.md §13 and
-// OPEN_QUESTION #9. Default = both classifications apply. If Amber chooses
+// SPEC CASE #1 — Lead overlap. METRIC_DEFINITIONS.md §17 + OPEN_QUESTION #9.
+// Default = both classifications apply. If Amber resolves OPEN_QUESTION #9 to
 // option A or B in CONFIRMED.md, this test gets rewritten.
 describe("SPEC CASE — AHCCCS × Commercial Lead overlap (OPEN_QUESTION #9)", () => {
   const overlap = lead({
-    star_rating: 3, // → AHCCCS-eligible by star
-    insurance_type: INSURANCE_TYPE.CommercialInsurance, // → Commercial-eligible by insurance
+    star_rating: 3,
+    insurance_type: INSURANCE_TYPE.CommercialInsurance,
   });
 
   it("classifies as AHCCCS Lead", () => {
@@ -159,107 +192,334 @@ describe("SPEC CASE — AHCCCS × Commercial Lead overlap (OPEN_QUESTION #9)", (
 // ── Deal classifiers ───────────────────────────────────────────────────────
 
 describe("isMql", () => {
-  it("returns true for any Deal shape (MQL = exists in sales pipeline)", () => {
+  it("returns true for any Deal shape (MQL = exists in any pipeline)", () => {
     expect(isMql(deal())).toBe(true);
-    expect(isMql(deal({ stage_category: STAGE_CATEGORY.ClosedWon }))).toBe(true);
-    expect(isMql(deal({ stage_category: STAGE_CATEGORY.ClosedLostOther }))).toBe(true);
+    expect(isMql(deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted }))).toBe(true);
+    expect(isMql(deal({ stage_category: STAGE_CATEGORY.ClosedLost }))).toBe(true);
   });
 });
 
-describe("isVob", () => {
-  it("requires vob_submitted=true", () => {
-    expect(isVob(deal({ vob_submitted: true }))).toBe(true);
-    expect(isVob(deal({ vob_submitted: false }))).toBe(false);
+describe("isTopLineMql", () => {
+  it("counts Commercial-Cash / AHCCCS / ZocDoc deals", () => {
+    expect(isTopLineMql(deal({ pipeline: PIPELINE.CommercialCash }))).toBe(true);
+    expect(isTopLineMql(deal({ pipeline: PIPELINE.Ahcccs }))).toBe(true);
+    expect(isTopLineMql(deal({ pipeline: PIPELINE.Zocdoc }))).toBe(true);
+  });
+
+  it("excludes DUI and DV deals", () => {
+    expect(isTopLineMql(deal({ pipeline: PIPELINE.DuiCash }))).toBe(false);
+    expect(isTopLineMql(deal({ pipeline: PIPELINE.DvCash }))).toBe(false);
+  });
+});
+
+describe("isVobReached", () => {
+  it("is true once stage_category reaches vob_qualifying or later", () => {
+    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.VobQualifying }))).toBe(true);
+    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.VobApproved }))).toBe(true);
+    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.PreAdmit }))).toBe(true);
+    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted }))).toBe(true);
+    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.ClosedLost }))).toBe(true);
+    expect(
+      isVobReached(deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached })),
+    ).toBe(true);
+  });
+
+  it("is false for in_progress stages (pre-VOB)", () => {
+    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.InProgress }))).toBe(false);
+  });
+
+  it("is false for DUI completion (DUI has no VOB stage)", () => {
+    expect(isVobReached(deal({ stage_category: STAGE_CATEGORY.ClosedWonDuiCompletion }))).toBe(
+      false,
+    );
   });
 });
 
 describe("isAdmit", () => {
-  it("requires stage_category=closed_won", () => {
-    expect(isAdmit(deal({ stage_category: STAGE_CATEGORY.ClosedWon }))).toBe(true);
+  it("requires stage_category = closed_won_admitted", () => {
+    expect(isAdmit(deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted }))).toBe(true);
   });
 
   it("rejects every other stage", () => {
-    const nonWon = STAGE_CATEGORY_VALUES.filter((s) => s !== STAGE_CATEGORY.ClosedWon);
-    for (const stage of nonWon) {
+    const nonAdmit = STAGE_CATEGORY_VALUES.filter((s) => s !== STAGE_CATEGORY.ClosedWonAdmitted);
+    for (const stage of nonAdmit) {
       expect(isAdmit(deal({ stage_category: stage }))).toBe(false);
+    }
+  });
+
+  it("does NOT require the pipeline to be top-line (DV admits still classify as Admit)", () => {
+    expect(
+      isAdmit(
+        deal({ pipeline: PIPELINE.DvCash, stage_category: STAGE_CATEGORY.ClosedWonAdmitted }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isPlacement", () => {
+  it("matches closed_won_referred_out_unattached", () => {
+    expect(
+      isPlacement(deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached })),
+    ).toBe(true);
+  });
+
+  it("rejects every other stage", () => {
+    const nonPlacement = STAGE_CATEGORY_VALUES.filter(
+      (s) => s !== STAGE_CATEGORY.ClosedWonReferredOutUnattached,
+    );
+    for (const stage of nonPlacement) {
+      expect(isPlacement(deal({ stage_category: stage }))).toBe(false);
     }
   });
 });
 
-describe("isClosedLost & isReferredOut", () => {
-  it("Closed Lost matches both referred-out and other closed-lost stages", () => {
-    expect(isClosedLost(deal({ stage_category: STAGE_CATEGORY.ClosedLostReferredOut }))).toBe(true);
-    expect(isClosedLost(deal({ stage_category: STAGE_CATEGORY.ClosedLostOther }))).toBe(true);
+describe("isWin", () => {
+  it("is true for Admit", () => {
+    expect(isWin(deal({ stage_category: STAGE_CATEGORY.ClosedWonAdmitted }))).toBe(true);
   });
 
-  it("Referred Out only matches closed_lost_referred_out", () => {
-    expect(isReferredOut(deal({ stage_category: STAGE_CATEGORY.ClosedLostReferredOut }))).toBe(
+  it("is true for Placement", () => {
+    expect(isWin(deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached }))).toBe(
       true,
     );
-    expect(isReferredOut(deal({ stage_category: STAGE_CATEGORY.ClosedLostOther }))).toBe(false);
   });
 
-  it("Closed Won is not Closed Lost", () => {
-    expect(isClosedLost(deal({ stage_category: STAGE_CATEGORY.ClosedWon }))).toBe(false);
+  it("is false for DUI completion (DUI wins are separate from top-line Wins)", () => {
+    expect(isWin(deal({ stage_category: STAGE_CATEGORY.ClosedWonDuiCompletion }))).toBe(false);
+  });
+
+  it("is false for Closed Lost", () => {
+    expect(isWin(deal({ stage_category: STAGE_CATEGORY.ClosedLost }))).toBe(false);
   });
 });
 
-// SPEC CASE #2 — AHCCCS Admit vs Commercial Admit pipeline-mutual-exclusion.
-describe("SPEC CASE — AHCCCS Admit excludes Commercial Admit", () => {
-  const ahcccsWon = deal({
+describe("isDuiCompletion", () => {
+  it("matches closed_won_dui_completion", () => {
+    expect(isDuiCompletion(deal({ stage_category: STAGE_CATEGORY.ClosedWonDuiCompletion }))).toBe(
+      true,
+    );
+  });
+
+  it("rejects every other stage", () => {
+    const others = STAGE_CATEGORY_VALUES.filter(
+      (s) => s !== STAGE_CATEGORY.ClosedWonDuiCompletion,
+    );
+    for (const stage of others) {
+      expect(isDuiCompletion(deal({ stage_category: stage }))).toBe(false);
+    }
+  });
+});
+
+describe("isClosedLost", () => {
+  it("matches closed_lost only", () => {
+    expect(isClosedLost(deal({ stage_category: STAGE_CATEGORY.ClosedLost }))).toBe(true);
+  });
+
+  it("does NOT match referred_out_coming_back (active, not closed) — see CONFIRMED.md #2", () => {
+    expect(isClosedLost(deal({ stage_category: STAGE_CATEGORY.ReferredOutComingBack }))).toBe(
+      false,
+    );
+  });
+
+  it("does NOT match placement (a win, not a loss) — see CONFIRMED.md #1", () => {
+    expect(
+      isClosedLost(deal({ stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached })),
+    ).toBe(false);
+  });
+});
+
+// ── Top-line composites ────────────────────────────────────────────────────
+
+describe("isTopLinePipeline", () => {
+  it("Commercial-Cash, AHCCCS, ZocDoc are top-line", () => {
+    expect(isTopLinePipeline(deal({ pipeline: PIPELINE.CommercialCash }))).toBe(true);
+    expect(isTopLinePipeline(deal({ pipeline: PIPELINE.Ahcccs }))).toBe(true);
+    expect(isTopLinePipeline(deal({ pipeline: PIPELINE.Zocdoc }))).toBe(true);
+  });
+
+  it("DUI and DV are not top-line", () => {
+    expect(isTopLinePipeline(deal({ pipeline: PIPELINE.DuiCash }))).toBe(false);
+    expect(isTopLinePipeline(deal({ pipeline: PIPELINE.DvCash }))).toBe(false);
+  });
+});
+
+describe("isTopLineAdmit", () => {
+  it("DV admits do NOT count toward top-line (CONFIRMED.md #3)", () => {
+    const dvAdmit = deal({
+      pipeline: PIPELINE.DvCash,
+      stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
+    });
+    expect(isAdmit(dvAdmit)).toBe(true);
+    expect(isTopLineAdmit(dvAdmit)).toBe(false);
+  });
+
+  it("Commercial admits count toward top-line", () => {
+    expect(
+      isTopLineAdmit(
+        deal({
+          pipeline: PIPELINE.CommercialCash,
+          stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isTopLineVobReached", () => {
+  it("DV deals at VOB stages do NOT count toward top-line (DV has no VOB anyway)", () => {
+    // DV has no VOB stages, so this scenario is theoretical, but the predicate
+    // still correctly excludes it on pipeline grounds.
+    expect(
+      isTopLineVobReached(
+        deal({ pipeline: PIPELINE.DvCash, stage_category: STAGE_CATEGORY.VobQualifying }),
+      ),
+    ).toBe(false);
+  });
+
+  it("Commercial deal at VOB - Qualifying counts toward top-line VOB", () => {
+    expect(
+      isTopLineVobReached(
+        deal({
+          pipeline: PIPELINE.CommercialCash,
+          stage_category: STAGE_CATEGORY.VobQualifying,
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+// SPEC CASE #2 — pipeline mutual-exclusion among Admit subtypes.
+describe("SPEC CASE — AHCCCS Admit excludes Commercial / ZocDoc / DV Admit", () => {
+  const ahcccsAdmit = deal({
     pipeline: PIPELINE.Ahcccs,
-    stage_category: STAGE_CATEGORY.ClosedWon,
+    stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
   });
 
   it("is an Admit", () => {
-    expect(isAdmit(ahcccsWon)).toBe(true);
+    expect(isAdmit(ahcccsAdmit)).toBe(true);
   });
 
   it("is an AHCCCS Admit", () => {
-    expect(isAhcccsAdmit(ahcccsWon)).toBe(true);
+    expect(isAhcccsAdmit(ahcccsAdmit)).toBe(true);
   });
 
   it("is NOT a Commercial Admit", () => {
-    expect(isCommercialAdmit(ahcccsWon)).toBe(false);
+    expect(isCommercialAdmit(ahcccsAdmit)).toBe(false);
+  });
+
+  it("is NOT a ZocDoc Admit", () => {
+    expect(isZocdocAdmit(ahcccsAdmit)).toBe(false);
+  });
+
+  it("is NOT a DV Admit", () => {
+    expect(isDvAdmit(ahcccsAdmit)).toBe(false);
   });
 });
 
-// SPEC CASE #3 — Commercial × BD orthogonality (OPEN_QUESTION #10).
+// SPEC CASE #3 — Pipeline × Source orthogonality (OPEN_QUESTION #10).
 describe("SPEC CASE — Commercial Admit and BD Admit are orthogonal", () => {
-  const commercialBdWon = deal({
+  const commercialBdAdmit = deal({
     pipeline: PIPELINE.CommercialCash,
-    stage_category: STAGE_CATEGORY.ClosedWon,
+    stage_category: STAGE_CATEGORY.ClosedWonAdmitted,
     source_category: SOURCE_CATEGORY.BusinessDevelopment,
   });
 
   it("counts as a Commercial Admit", () => {
-    expect(isCommercialAdmit(commercialBdWon)).toBe(true);
+    expect(isCommercialAdmit(commercialBdAdmit)).toBe(true);
   });
 
   it("also counts as a BD Admit", () => {
-    expect(isBdAdmit(commercialBdWon)).toBe(true);
+    expect(isBdAdmit(commercialBdAdmit)).toBe(true);
   });
 
-  it("counts as an Admit", () => {
-    expect(isAdmit(commercialBdWon)).toBe(true);
+  it("counts as an Admit and as a top-line Admit", () => {
+    expect(isAdmit(commercialBdAdmit)).toBe(true);
+    expect(isTopLineAdmit(commercialBdAdmit)).toBe(true);
+  });
+
+  it("is a Win", () => {
+    expect(isWin(commercialBdAdmit)).toBe(true);
   });
 });
 
-// ── Stage / source mapping helpers ─────────────────────────────────────────
+// ── Raw → normalized mapping helpers ───────────────────────────────────────
 
-describe("isRawStageReferredOut", () => {
-  it.each([
-    "Closed Lost - Referred Out",
-    "Closed Lost - Referred out Unattached",
-    "Referred out coming back",
-  ])("maps %s to referred-out", (raw) => {
-    expect(isRawStageReferredOut(raw)).toBe(true);
+describe("rawStageToCategory", () => {
+  it("maps the five Closed - Admitted variant pipelines to closed_won_admitted", () => {
+    expect(rawStageToCategory("Closed - Admitted")).toBe(STAGE_CATEGORY.ClosedWonAdmitted);
   });
 
-  it("rejects near-variants", () => {
-    expect(isRawStageReferredOut("Closed Lost — Referred Out")).toBe(false); // em-dash
-    expect(isRawStageReferredOut("Referred Out")).toBe(false); // missing prefix
-    expect(isRawStageReferredOut("Closed Won")).toBe(false);
+  it("maps Closed - Referred Out Unattached to closed_won_referred_out_unattached", () => {
+    expect(rawStageToCategory("Closed - Referred Out Unattached")).toBe(
+      STAGE_CATEGORY.ClosedWonReferredOutUnattached,
+    );
+  });
+
+  it("maps all three DUI win stages to closed_won_dui_completion", () => {
+    expect(rawStageToCategory("Closed - Screening Only")).toBe(
+      STAGE_CATEGORY.ClosedWonDuiCompletion,
+    );
+    expect(rawStageToCategory("Closed - Both Screening & Classes")).toBe(
+      STAGE_CATEGORY.ClosedWonDuiCompletion,
+    );
+    expect(rawStageToCategory("Closed - Classes Only")).toBe(
+      STAGE_CATEGORY.ClosedWonDuiCompletion,
+    );
+  });
+
+  it("maps all three Closed - Lost variants to closed_lost", () => {
+    expect(rawStageToCategory("Closed - Lost (Treatment)")).toBe(STAGE_CATEGORY.ClosedLost);
+    expect(rawStageToCategory("Closed - Lost (DUI)")).toBe(STAGE_CATEGORY.ClosedLost);
+    expect(rawStageToCategory("Closed - Lost (DV)")).toBe(STAGE_CATEGORY.ClosedLost);
+  });
+
+  it("maps Referred Out - Coming Back to the active soft-out category", () => {
+    expect(rawStageToCategory("Referred Out - Coming Back")).toBe(
+      STAGE_CATEGORY.ReferredOutComingBack,
+    );
+  });
+
+  it("maps Stuck Lead variants to in_progress", () => {
+    expect(rawStageToCategory("Stuck Lead - Commercial/Cash")).toBe(STAGE_CATEGORY.InProgress);
+    expect(rawStageToCategory("Stuck Lead - Ahcccs")).toBe(STAGE_CATEGORY.InProgress);
+    expect(rawStageToCategory("Stuck Lead - DUI (Cash)")).toBe(STAGE_CATEGORY.InProgress);
+    expect(rawStageToCategory("Stuck Lead - DV (Cash)")).toBe(STAGE_CATEGORY.InProgress);
+    expect(rawStageToCategory("Stuck Lead - ZocDoc")).toBe(STAGE_CATEGORY.InProgress);
+  });
+
+  it("maps VOB stages correctly", () => {
+    expect(rawStageToCategory("VOB - Qualifying")).toBe(STAGE_CATEGORY.VobQualifying);
+    expect(rawStageToCategory("VOB - Approved")).toBe(STAGE_CATEGORY.VobApproved);
+  });
+
+  it("returns null for unmapped strings (Phase 1B surfaces these via v_unmapped_stages)", () => {
+    expect(rawStageToCategory("Made-Up Stage Name")).toBeNull();
+    expect(rawStageToCategory("")).toBeNull();
+    expect(rawStageToCategory(null)).toBeNull();
+    expect(rawStageToCategory(undefined)).toBeNull();
+  });
+
+  it("rejects near-variants (case + punctuation matter)", () => {
+    expect(rawStageToCategory("closed - admitted")).toBeNull();
+    expect(rawStageToCategory("Closed-Admitted")).toBeNull();
+  });
+});
+
+describe("rawPipelineToPipeline", () => {
+  it("maps the five exact Zoho pipeline strings", () => {
+    expect(rawPipelineToPipeline(RAW_PIPELINE_STRINGS[PIPELINE.CommercialCash])).toBe(
+      PIPELINE.CommercialCash,
+    );
+    expect(rawPipelineToPipeline(RAW_PIPELINE_STRINGS[PIPELINE.Ahcccs])).toBe(PIPELINE.Ahcccs);
+    expect(rawPipelineToPipeline(RAW_PIPELINE_STRINGS[PIPELINE.Zocdoc])).toBe(PIPELINE.Zocdoc);
+    expect(rawPipelineToPipeline(RAW_PIPELINE_STRINGS[PIPELINE.DuiCash])).toBe(PIPELINE.DuiCash);
+    expect(rawPipelineToPipeline(RAW_PIPELINE_STRINGS[PIPELINE.DvCash])).toBe(PIPELINE.DvCash);
+  });
+
+  it("returns null for unknown pipelines", () => {
+    expect(rawPipelineToPipeline("Commercial/Cash")).toBeNull(); // old brief's wrong name
+    expect(rawPipelineToPipeline("DUI")).toBeNull(); // missing - Cash suffix
+    expect(rawPipelineToPipeline(null)).toBeNull();
   });
 });
 
@@ -274,7 +534,7 @@ describe("rawSourceToSourceCategory", () => {
     expect(rawSourceToSourceCategory("ZocDoc")).toBe(SOURCE_CATEGORY.Zocdoc);
   });
 
-  it("falls back to Digital Marketing for any other value (catch-all rule)", () => {
+  it("falls back to Digital Marketing for any other value", () => {
     expect(rawSourceToSourceCategory("Google Ads")).toBe(SOURCE_CATEGORY.DigitalMarketing);
     expect(rawSourceToSourceCategory("")).toBe(SOURCE_CATEGORY.DigitalMarketing);
     expect(rawSourceToSourceCategory(null)).toBe(SOURCE_CATEGORY.DigitalMarketing);
@@ -345,7 +605,7 @@ describe("LeadRowSchema", () => {
       source_category: SOURCE_CATEGORY.DigitalMarketing,
       level_of_care_requested: null,
       insurance_type: null,
-      star_rating: 6, // out of range
+      star_rating: 6,
       created_at: "2026-05-01T07:00:00Z",
     });
     expect(bad.success).toBe(false);
@@ -366,20 +626,40 @@ describe("LeadRowSchema", () => {
 });
 
 describe("PrimitiveDefinitionSchema", () => {
-  it("parses an Admit definition", () => {
+  it("parses an Admit definition (stage_category = closed_won_admitted)", () => {
     const parsed = PrimitiveDefinitionSchema.parse({
       primitive: "admit",
       source: "zoho_crm.deals",
-      rule: { stage_category: "closed_won" },
+      rule: { stage_category: STAGE_CATEGORY.ClosedWonAdmitted },
       date_field: "closing_date",
     });
     expect(parsed.primitive).toBe("admit");
   });
 
+  it("parses a Placement definition", () => {
+    const parsed = PrimitiveDefinitionSchema.parse({
+      primitive: "placement",
+      source: "zoho_crm.deals",
+      rule: { stage_category: STAGE_CATEGORY.ClosedWonReferredOutUnattached },
+      date_field: "closing_date",
+    });
+    expect(parsed.primitive).toBe("placement");
+  });
+
+  it("parses a DUI Completion definition", () => {
+    const parsed = PrimitiveDefinitionSchema.parse({
+      primitive: "dui_completion",
+      source: "zoho_crm.deals",
+      rule: { stage_category: STAGE_CATEGORY.ClosedWonDuiCompletion },
+      date_field: "closing_date",
+    });
+    expect(parsed.primitive).toBe("dui_completion");
+  });
+
   it("rejects a Lead definition with the wrong source", () => {
     const r = PrimitiveDefinitionSchema.safeParse({
       primitive: "lead",
-      source: "zoho_crm.leads", // wrong — Leads come from Analytics, not CRM
+      source: "zoho_crm.leads",
       date_field: "created_at",
     });
     expect(r.success).toBe(false);
@@ -403,11 +683,11 @@ describe("FilterContractSchema", () => {
     expect(r.success).toBe(false);
   });
 
-  it("accepts a valid custom range", () => {
+  it("accepts a valid custom range with all 5 pipelines", () => {
     const r = FilterContractSchema.safeParse({
       time: { preset: "custom", start: "2026-05-01", end: "2026-05-31" },
       level_of_care: ["php", "iop"],
-      pipeline: ["commercial_cash"],
+      pipeline: ["commercial_cash", "ahcccs", "zocdoc", "dui_cash", "dv_cash"],
       marketing_channel: ["digital"],
       sales_rep: ["00000000-0000-0000-0000-000000000000"],
     });

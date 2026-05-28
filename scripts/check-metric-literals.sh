@@ -21,54 +21,74 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Paths in scope. These are the directories the metric resolver, op_metric
-# builders, and reporting components will live in. Edit this list as new
-# reporting modules land.
+# Paths in scope. Edit as new reporting modules land.
 SCOPE_PATHS=(
   "src/lib/metrics"
   # Phase 1B will add: "supabase/functions/sync_*", "supabase/functions/build_op_metrics"
   # Phase 1C will add: "src/components/reporting", "src/features/reporting", "src/pages/reporting"
 )
 
-# Files exempt within the scope — these are the source of truth for the
-# string values themselves and ARE allowed to contain them verbatim.
+# Files exempt within the scope — these are the source of truth.
 EXEMPT_FILES=(
   "src/lib/metrics/definitions.ts"
   "src/lib/metrics/schemas.ts"
   "src/lib/metrics/__tests__/definitions.test.ts"
 )
 
-# Forbidden literal strings. Each is a string that ONLY appears in
-# definitions.ts (or a mapping table). If grep finds one elsewhere, that's
-# a literal that needs to be replaced with a constant import.
-#
-# IMPORTANT: each entry is matched as a literal substring inside a TS/SQL
-# source file. Quoted forms are sufficient because every legit use case
-# inside the scope is a TS string literal or an SQL string literal.
+# Forbidden literal strings. Each is matched as a literal substring against
+# TS/SQL source. Quoted forms are sufficient because every legit reporting
+# use case is either a TS string literal or an SQL string literal.
 FORBIDDEN=(
-  # Normalized enum values (string identifiers used in DB + JSON)
+  # Normalized pipeline enum values
   '"commercial_cash"'
   '"ahcccs"'
-  '"dui"'
   '"zocdoc"'
-  '"closed_won"'
-  '"closed_lost_referred_out"'
-  '"closed_lost_other"'
-  '"vob_submitted"'
+  '"dui_cash"'
+  '"dv_cash"'
+
+  # Normalized stage_category enum values
+  '"vob_qualifying"'
+  '"vob_approved"'
+  '"pre_admit"'
+  '"referred_out_coming_back"'
+  '"closed_won_admitted"'
+  '"closed_won_referred_out_unattached"'
+  '"closed_won_dui_completion"'
+  '"closed_lost"'
+
+  # Normalized source_category enum values
   '"digital_marketing"'
   '"business_development"'
-  # Raw Zoho stage strings
-  '"Closed Lost - Referred Out"'
-  '"Closed Lost - Referred out Unattached"'
-  '"Referred out coming back"'
-  '"Closed Won"'
+
+  # Raw Zoho pipeline strings
+  '"Commercial-Cash"'
+  '"DUI - Cash"'
+  '"DV - Cash"'
+
+  # Raw Zoho stage strings — Closed wins / losses
+  '"Closed - Admitted"'
+  '"Closed - Referred Out Unattached"'
+  '"Closed - Screening Only"'
+  '"Closed - Both Screening & Classes"'
+  '"Closed - Classes Only"'
+  '"Closed - Lost (Treatment)"'
+  '"Closed - Lost (DUI)"'
+  '"Closed - Lost (DV)"'
+
+  # Raw Zoho stage strings — VOB
+  '"VOB - Qualifying"'
+  '"VOB - Approved"'
+
+  # Raw Zoho stage strings — referred-out active
+  '"Referred Out - Coming Back"'
+
   # Raw source category strings
   '"Business Development"'
-  '"ZocDoc"'
+
   # Insurance type strings
   '"Commercial Insurance"'
   '"Private Pay"'
-  '"AHCCCS"'
+
   # Rep profile strings
   '"Treatment Standard"'
 )

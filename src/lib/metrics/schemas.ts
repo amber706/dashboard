@@ -1,7 +1,7 @@
 /**
  * Zod schemas for every reporting primitive defined in `definitions.ts`.
  *
- * The schemas serve two purposes:
+ * Two purposes:
  *   1. Runtime validation at every system boundary (sync jobs, API responses,
  *      filter URLs) — fail loudly if a string drifts off the canonical set.
  *   2. The `FilterContractSchema` is the contract surface between the metric
@@ -13,9 +13,7 @@
 import { z } from "zod";
 
 import {
-  AHCCCS_INSURANCE_TYPES,
   AHCCCS_STAR_RATINGS,
-  COMMERCIAL_INSURANCE_TYPES,
   COMMERCIAL_STAR_RATINGS,
   INSURANCE_TYPE,
   LEVEL_OF_CARE_VALUES,
@@ -23,14 +21,14 @@ import {
   PIPELINE_VALUES,
   REP_ROLE_VALUES,
   SOURCE_CATEGORY_VALUES,
+  STAGE_CATEGORY,
   STAGE_CATEGORY_VALUES,
   TIME_RANGE_PRESET,
   TIME_RANGE_PRESET_VALUES,
 } from "./definitions";
 
 // ────────────────────────────────────────────────────────────────────────────
-// Primitive enums — narrowed from the const tuples in definitions.ts so the
-// Zod schema and the TS type can never drift apart.
+// Primitive enums — narrowed from the const tuples in definitions.ts.
 // ────────────────────────────────────────────────────────────────────────────
 
 export const PipelineEnum = z.enum(PIPELINE_VALUES as unknown as [string, ...string[]]);
@@ -84,6 +82,13 @@ export const LeadRowSchema = z.object({
 });
 export type LeadRow = z.infer<typeof LeadRowSchema>;
 
+/**
+ * Deal row as it lands in the normalized `deals` table. Note that
+ * `vob_submitted` is NOT a separate boolean — VOB is derived from
+ * `stage_category` (or, ideally, stage history). See METRIC_DEFINITIONS.md §5.
+ * `vob_reached_at` is populated by Phase 1B from stage transition history;
+ * when null, the deal never reached VOB.
+ */
 export const DealRowSchema = z.object({
   source_deal_id: z.string().min(1),
   source_lead_id: z.string().min(1).nullable(),
@@ -91,7 +96,7 @@ export const DealRowSchema = z.object({
   pipeline: PipelineEnum,
   stage_raw: z.string().min(1),
   stage_category: StageCategoryEnum,
-  vob_submitted: z.boolean(),
+  vob_reached_at: z.string().datetime({ offset: true }).nullable(),
   level_of_care_requested: LevelOfCareEnum.nullable(),
   level_of_care_admitted: LevelOfCareEnum.nullable(),
   source_category: SourceCategoryEnum,
@@ -102,10 +107,8 @@ export type DealRow = z.infer<typeof DealRowSchema>;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Per-primitive "definition" schemas.
-//
-// These describe — declaratively — the boolean rule for each primitive, so the
-// Phase 1B build job can serialize them into metric definitions stored in the
-// database, and the verifier in `scripts/verify_metrics.ts` can replay them.
+// Describe the boolean rule for each primitive declaratively, so the
+// Phase 1B build job can serialize them and the verifier can replay them.
 // ────────────────────────────────────────────────────────────────────────────
 
 export const LeadDefinitionSchema = z.object({
@@ -124,16 +127,46 @@ export const VobDefinitionSchema = z.object({
   primitive: z.literal("vob"),
   source: z.literal("zoho_crm.deals"),
   rule: z.object({
-    vob_submitted: z.literal(true),
+    stage_category_at_or_past: z.literal(STAGE_CATEGORY.VobQualifying),
   }),
-  date_field: z.literal("vob_submitted_at"),
+  date_field: z.literal("vob_reached_at"),
 });
 
 export const AdmitDefinitionSchema = z.object({
   primitive: z.literal("admit"),
   source: z.literal("zoho_crm.deals"),
   rule: z.object({
-    stage_category: z.literal("closed_won"),
+    stage_category: z.literal(STAGE_CATEGORY.ClosedWonAdmitted),
+  }),
+  date_field: z.literal("closing_date"),
+});
+
+export const PlacementDefinitionSchema = z.object({
+  primitive: z.literal("placement"),
+  source: z.literal("zoho_crm.deals"),
+  rule: z.object({
+    stage_category: z.literal(STAGE_CATEGORY.ClosedWonReferredOutUnattached),
+  }),
+  date_field: z.literal("closing_date"),
+});
+
+export const WinDefinitionSchema = z.object({
+  primitive: z.literal("win"),
+  source: z.literal("zoho_crm.deals"),
+  rule: z.object({
+    stage_category_any_of: z.tuple([
+      z.literal(STAGE_CATEGORY.ClosedWonAdmitted),
+      z.literal(STAGE_CATEGORY.ClosedWonReferredOutUnattached),
+    ]),
+  }),
+  date_field: z.literal("closing_date"),
+});
+
+export const DuiCompletionDefinitionSchema = z.object({
+  primitive: z.literal("dui_completion"),
+  source: z.literal("zoho_crm.deals"),
+  rule: z.object({
+    stage_category: z.literal(STAGE_CATEGORY.ClosedWonDuiCompletion),
   }),
   date_field: z.literal("closing_date"),
 });
@@ -142,7 +175,7 @@ export const ClosedLostDefinitionSchema = z.object({
   primitive: z.literal("closed_lost"),
   source: z.literal("zoho_crm.deals"),
   rule: z.object({
-    stage_category: z.enum(["closed_lost_referred_out", "closed_lost_other"]),
+    stage_category: z.literal(STAGE_CATEGORY.ClosedLost),
   }),
   date_field: z.literal("closing_date"),
 });
@@ -150,19 +183,9 @@ export const ClosedLostDefinitionSchema = z.object({
 export const ReferralInDefinitionSchema = z.object({
   primitive: z.literal("referral_in"),
   source: z.literal("zoho_analytics.leads"),
-  // The exact rule is unresolved (OPEN_QUESTION #15). Captured as a placeholder
-  // so Phase 1B can wire it in once Amber answers.
+  // Rule unresolved — see OPEN_QUESTION #15.
   rule: z.object({ pending_open_question: z.literal(15) }),
   date_field: z.literal("created_at"),
-});
-
-export const ReferralOutDefinitionSchema = z.object({
-  primitive: z.literal("referral_out"),
-  source: z.literal("zoho_crm.deals"),
-  rule: z.object({
-    stage_category: z.literal("closed_lost_referred_out"),
-  }),
-  date_field: z.literal("closing_date"),
 });
 
 export const PrimitiveDefinitionSchema = z.discriminatedUnion("primitive", [
@@ -170,9 +193,11 @@ export const PrimitiveDefinitionSchema = z.discriminatedUnion("primitive", [
   MqlDefinitionSchema,
   VobDefinitionSchema,
   AdmitDefinitionSchema,
+  PlacementDefinitionSchema,
+  WinDefinitionSchema,
+  DuiCompletionDefinitionSchema,
   ClosedLostDefinitionSchema,
   ReferralInDefinitionSchema,
-  ReferralOutDefinitionSchema,
 ]);
 export type PrimitiveDefinition = z.infer<typeof PrimitiveDefinitionSchema>;
 
@@ -202,7 +227,6 @@ const PresetTimeRange = z.object({
 });
 
 export const TimeRangeSchema = z.union([CustomTimeRange, PresetTimeRange]);
-
 export type TimeRange = z.infer<typeof TimeRangeSchema>;
 
 export const FilterContractSchema = z.object({
@@ -215,7 +239,7 @@ export const FilterContractSchema = z.object({
 
 export type FilterContract = z.infer<typeof FilterContractSchema>;
 
-/** Default filter applied by every chart on first load — see §20 of the def doc. */
+/** Default filter applied by every chart on first load. */
 export const DEFAULT_FILTER: FilterContract = {
   time: { preset: TIME_RANGE_PRESET.ThisMonth },
   level_of_care: [],
@@ -225,9 +249,7 @@ export const DEFAULT_FILTER: FilterContract = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Compile-time guard: the numerical thresholds in definitions.ts must remain
-// pinned to the values documented in METRIC_DEFINITIONS.md. If anyone bumps
-// them without updating the doc, TypeScript catches it here.
+// Compile-time guard: numerical thresholds must remain pinned to the doc.
 // ────────────────────────────────────────────────────────────────────────────
 
 const _pinnedStarRatings = {
