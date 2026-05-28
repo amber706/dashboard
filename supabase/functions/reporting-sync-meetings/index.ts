@@ -9,54 +9,58 @@
 // Event / In-Service / Drop / Tour / Other.
 
 import {
-  coqlAll,
+  coqlKeysetByModifiedTime,
   finishSyncRun,
   getZohoToken,
   handleCorsPreflight,
   jsonResponse,
+  loadOwnerMap,
   startSyncRun,
   supa,
   upsertRaw,
 } from "./_shared/reporting-sync.ts";
 
+// Events module uses polymorphic What_Id (Accounts/Deals/etc.) rather than
+// a direct Account field. account_name is sourced from What_Id.name when the
+// linked entity is an Account; otherwise null.
+//
+// Meeting type semantics in this org: Subject is named `Event_Title`; the
+// canonical type field is `Meeting_Type_s` (multiselect picklist with values
+// Drop / Event / In - Service / Standard Meeting / Tour).
 const EVENT_FIELDS = [
-  "id", "Subject", "Activity_Type", "Owner", "Start_DateTime",
-  "Created_Time", "Modified_Time", "Account", "Who_Id",
+  "id", "Event_Title", "Meeting_Type_s", "Owner", "Start_DateTime",
+  "Created_Time", "Modified_Time", "What_Id", "Who_Id",
 ].join(", ");
 
 interface ZohoEvent {
   id: string;
-  Subject?: string;
-  Activity_Type?: string;
+  Event_Title?: string;
+  Meeting_Type_s?: string | string[];
   Owner?: { id: string; name?: string };
   Start_DateTime?: string;
   Created_Time?: string;
   Modified_Time?: string;
-  Account?: { id?: string; name?: string };
+  What_Id?: { id?: string; name?: string };
   Who_Id?: { id?: string; name?: string };
 }
 
-function buildEventQuery(modifiedSince: Date | null) {
-  const since = modifiedSince ?? new Date(0);
-  return (offset: number) =>
-    `SELECT ${EVENT_FIELDS} FROM Events WHERE Modified_Time >= '${since.toISOString()}' ORDER BY Modified_Time ASC LIMIT 200 OFFSET ${offset}`;
-}
+// Normalizes the Meeting_Type_s multiselect (`Tour;Event` → first listed) +
+// Event_Title fallback into our 5 canonical values.
+function normalizeMeetingType(
+  meetingTypes: string | string[] | undefined,
+  title: string | undefined,
+): string {
+  const raw = Array.isArray(meetingTypes)
+    ? meetingTypes
+    : (meetingTypes ?? "").split(";").map((s) => s.trim()).filter(Boolean);
+  const first = (raw[0] ?? "").toLowerCase();
+  const t = (title ?? "").toLowerCase();
 
-function normalizeMeetingType(activity: string | undefined, subject: string | undefined): string {
-  const a = (activity ?? "").toLowerCase();
-  const s = (subject ?? "").toLowerCase();
-  if (a.includes("in-service") || s.includes("in-service") || s.includes("in service")) return "In-Service";
-  if (a.includes("drop") || s.includes("drop-off") || s.includes("drop off")) return "Drop";
-  if (a.includes("tour") || s.includes("tour")) return "Tour";
-  if (a === "event" || s.includes("event")) return "Event";
+  if (first.includes("in - service") || first.includes("in-service") || t.includes("in-service") || t.includes("in service")) return "In-Service";
+  if (first.includes("drop") || t.includes("drop-off") || t.includes("drop off")) return "Drop";
+  if (first.includes("tour") || t.includes("tour")) return "Tour";
+  if (first === "event" || first === "standard meeting" || t.includes("event")) return "Event";
   return "Other";
-}
-
-async function resolveOwnerId(ownerZohoId: string | null): Promise<string | null> {
-  if (!ownerZohoId) return null;
-  const { data, error } = await supa().rpc("reporting_resolve_owner_id", { p_zoho_user_id: ownerZohoId });
-  if (error) return null;
-  return (data as string | null) ?? null;
 }
 
 Deno.serve(async (req) => {
@@ -68,7 +72,14 @@ Deno.serve(async (req) => {
 
   try {
     const token = await getZohoToken();
-    const res = await coqlAll<ZohoEvent>(token, buildEventQuery(run.watermarkUsed));
+    const ownerMap = await loadOwnerMap();
+
+    const res = await coqlKeysetByModifiedTime<ZohoEvent>(
+      token,
+      "Events",
+      EVENT_FIELDS,
+      run.watermarkUsed,
+    );
     if (res.error) throw new Error(`COQL failed: ${res.error}`);
 
     const rawRows = res.rows.map((e) => ({
@@ -81,13 +92,13 @@ Deno.serve(async (req) => {
     const normalized = [];
     for (const e of res.rows) {
       const ownerZohoId = typeof e.Owner === "object" ? e.Owner?.id ?? null : null;
-      const host_user_id = await resolveOwnerId(ownerZohoId);
+      const host_user_id = ownerZohoId ? (ownerMap.get(ownerZohoId) ?? null) : null;
       normalized.push({
         source_meeting_id: e.id,
         host_user_id,
-        meeting_type: normalizeMeetingType(e.Activity_Type, e.Subject),
+        meeting_type: normalizeMeetingType(e.Meeting_Type_s, e.Event_Title),
         lead_id: null, // Who_Id → leads.id resolution deferred to a follow-up
-        account_name: typeof e.Account === "object" ? e.Account?.name ?? null : null,
+        account_name: typeof e.What_Id === "object" ? e.What_Id?.name ?? null : null,
         occurred_at: e.Start_DateTime ?? e.Created_Time ?? new Date().toISOString(),
       });
     }
@@ -105,7 +116,13 @@ Deno.serve(async (req) => {
 
     await finishSyncRun(run, { status: "success", rowsProcessed: upserted });
 
-    return jsonResponse({ ok: true, run_id: run.id, meetings_pulled: res.rows.length, meetings_upserted: upserted });
+    return jsonResponse({
+      ok: true,
+      run_id: run.id,
+      meetings_pulled: res.rows.length,
+      meetings_upserted: upserted,
+      truncated: res.truncated,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await finishSyncRun(run, { status: "failure", rowsProcessed: 0, errorMessage: msg });
