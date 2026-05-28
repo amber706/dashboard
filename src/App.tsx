@@ -67,6 +67,7 @@ import BdTopAccounts from "@/pages/bd/top-accounts";
 import BdAccountTrends from "@/pages/bd/account-trends";
 import BdStrategy from "@/pages/bd/strategy";
 import BdReferOutStrategy from "@/pages/bd/refer-out-strategy";
+import AllVobs from "@/pages/vobs";
 import BdReferrals from "@/pages/bd/referrals";
 import BdStuckAccounts from "@/pages/bd/stuck-accounts";
 import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
@@ -156,6 +157,7 @@ function AppRoutes() {
         <Route path="/live/:id" component={LiveCall} />
         <Route path="/wrap-up/:id" component={WrapUp} />
         <Route path="/leads/:id" component={LeadDetail} />
+        <Route path="/vobs" component={Mod("page_all_vobs", AllVobs)} />
 
         {/* Manager + admin only. RLS would already filter the data
             for staff, but the page shells expose information that
