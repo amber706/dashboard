@@ -449,6 +449,14 @@ export interface LeadShape {
   star_rating: number | null;
   insurance_type: InsuranceType | null;
   level_of_care_requested: LevelOfCare | null;
+  source_category: SourceCategory;
+  /**
+   * Raw value of the Zoho `BD_Rep` Lead picklist — names of BD reps when a
+   * lead is attributable to a specific BD rep contact. Used by `isReferralIn`
+   * per CONFIRMED.md #27. Values are bare names ("Amber", "Casey", etc.),
+   * or null / "-None-" / "None" when unattributed.
+   */
+  bd_rep_inbound: string | null;
 }
 
 export interface DealShape {
@@ -499,31 +507,38 @@ export function isDvLead(lead: LeadShape): boolean {
 }
 
 /**
- * AHCCCS Lead: treatment lead AND (3 stars OR insurance=AHCCCS).
- * The treatment-lead gate excludes DUI/DV leads even if they somehow have an
- * AHCCCS insurance value — per CONFIRMED.md #12, LOC drives program routing.
+ * AHCCCS Lead: treatment lead with insurance/star pointing to AHCCCS.
+ *
+ * Precedence rule (CONFIRMED.md #24): insurance type takes precedence over
+ * star rating. Star rating is the fallback used only when insurance_type
+ * is null. This means a star=3 lead with insurance=Commercial Insurance is
+ * a Commercial Lead, NOT an AHCCCS Lead — Cornerstone's payer signal wins.
+ *
+ * The treatment-lead gate excludes DUI/DV leads even with AHCCCS insurance.
  */
 export function isAhcccsLead(lead: LeadShape): boolean {
   if (!isTreatmentLead(lead)) return false;
-  const starMatch = lead.star_rating !== null && AHCCCS_STAR_RATINGS.includes(lead.star_rating);
-  const insuranceMatch =
-    lead.insurance_type !== null &&
-    (AHCCCS_INSURANCE_TYPES as readonly InsuranceType[]).includes(lead.insurance_type);
-  return starMatch || insuranceMatch;
+  if (lead.insurance_type !== null) {
+    return (AHCCCS_INSURANCE_TYPES as readonly InsuranceType[]).includes(lead.insurance_type);
+  }
+  // Fallback: only when insurance is null, star rating drives the bucket.
+  return lead.star_rating !== null && AHCCCS_STAR_RATINGS.includes(lead.star_rating);
 }
 
 /**
- * Commercial Lead: treatment lead AND (4-5 stars OR insurance ∈ {Commercial Insurance, Cash}).
- * Note: "Cash" replaces the brief's "Private Pay" — Cornerstone's picklist uses Cash.
+ * Commercial Lead: treatment lead with insurance/star pointing to Commercial.
+ *
+ * Same precedence rule (CONFIRMED.md #24): insurance type wins. Star is
+ * fallback when insurance is null. "Cash" (stored as "Cash Pay") replaces
+ * the brief's "Private Pay".
  */
 export function isCommercialLead(lead: LeadShape): boolean {
   if (!isTreatmentLead(lead)) return false;
-  const starMatch =
-    lead.star_rating !== null && COMMERCIAL_STAR_RATINGS.includes(lead.star_rating);
-  const insuranceMatch =
-    lead.insurance_type !== null &&
-    (COMMERCIAL_INSURANCE_TYPES as readonly InsuranceType[]).includes(lead.insurance_type);
-  return starMatch || insuranceMatch;
+  if (lead.insurance_type !== null) {
+    return (COMMERCIAL_INSURANCE_TYPES as readonly InsuranceType[]).includes(lead.insurance_type);
+  }
+  // Fallback: only when insurance is null, star rating drives the bucket.
+  return lead.star_rating !== null && COMMERCIAL_STAR_RATINGS.includes(lead.star_rating);
 }
 
 /**
@@ -536,6 +551,22 @@ export function isOtherPayerLead(lead: LeadShape): boolean {
   if (!isTreatmentLead(lead)) return false;
   if (lead.insurance_type === null) return false;
   return (OTHER_PAYER_INSURANCE_TYPES as readonly InsuranceType[]).includes(lead.insurance_type);
+}
+
+/**
+ * Referral In: a Lead that came in via a known referral source.
+ *
+ * Rule (CONFIRMED.md #27): `Source_Category = Business Development` OR
+ * the `BD_Rep` field on the Lead is set to a specific BD rep name (not
+ * null, not the "-None-" / "None" sentinels Zoho uses for empty picklists).
+ */
+export function isReferralIn(lead: LeadShape): boolean {
+  if (lead.source_category === SOURCE_CATEGORY.BusinessDevelopment) return true;
+  const bd = lead.bd_rep_inbound;
+  if (bd === null) return false;
+  const trimmed = bd.trim();
+  if (trimmed === "" || trimmed === "-None-" || trimmed === "None") return false;
+  return true;
 }
 
 // ── Deal-level predicates ──────────────────────────────────────────────────

@@ -56,23 +56,15 @@ Moved to `CONFIRMED.md` #3. DUI and DV both reported separately from top-line; n
 
 ---
 
-## #9 — Lead overlap rule: AHCCCS Lead vs Commercial Lead
+## ~~#9 — Lead overlap rule~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §17.
-**Question:** A Lead with `star_rating = 3` AND `insurance_type = "Commercial Insurance"` matches both definitions. Choose:
-- **A** — star rating wins → AHCCCS Lead only.
-- **B** — insurance type wins → Commercial Lead only.
-- **C** — both apply, the Lead counts in both buckets (current default — safer for not dropping rows, but double-counts when summed).
-- **D** — flag the row for manual triage; do not classify until resolved.
+Moved to `CONFIRMED.md` #24. Insurance-wins precedence: when insurance_type is set, it's authoritative; star rating is the fallback only when insurance is null.
 
 ---
 
-## #10 — Pipeline × Source Category orthogonality
+## ~~#10 — Pipeline × Source Category orthogonality~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §21.
-**Question:** Confirm that Pipeline and Source Category are intentionally independent. A Deal with `pipeline = commercial_cash` and `source_category = business_development` should count as BOTH a Commercial Admit AND a BD Admit when filtered by each dimension separately.
-
-This is the current default and matches the orthogonality matrix. Confirming explicitly because the executive narrative sometimes treats "BD" and "Commercial" as alternatives rather than co-occurring.
+Moved to `CONFIRMED.md` #25. Orthogonal across per-dimension charts; distinct in headline totals. Same deal counts once in "Total Admits this month" even if it shows up under both Commercial and BD breakdowns.
 
 ---
 
@@ -82,17 +74,15 @@ Moved to `CONFIRMED.md` #11. 13 Cornerstone-specific values: BHRF, Detox, PHP, I
 
 ---
 
-## #12 — Sales Cycle: `Closing_Date` exact field name
+## ~~#12 — Sales Cycle: `Closing_Date` exact field name~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §6, §15.
-**Question:** Confirm the Zoho Deals field is named `Closing_Date` (API name). Some Zoho orgs use a custom `Actual_Close_Date` instead.
+Confirmed via Zoho `getFields` on Deals — `Closing_Date` is the standard field. Used for non-admit closings; for admits, the `Admit_Date` custom field is canonical (see `CONFIRMED.md` #20).
 
 ---
 
-## #13 — Lead `Created Time` semantics
+## ~~#13 — Lead `Created Time` semantics~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §1.
-**Question:** Is `Created Time` on the Zoho Lead record the moment the Lead was first captured (e.g., form submission or call), or could it be the moment of CRM record creation (which could be later)? Pinning this matters for both Lead-creation counts and Sales Cycle math.
+Moved to `CONFIRMED.md` #31. `Created_Time` represents the intake moment (form submission, call answered, walk-in). Used directly in Sales Cycle math.
 
 ---
 
@@ -102,16 +92,9 @@ Moved to `CONFIRMED.md` #20. Custom `Admit_Date` field is canonical; deals witho
 
 ---
 
-## #15 — Referral In source-side definition
+## ~~#15 — Referral In source-side definition~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §11.
-**Question:** What field(s) on a Zoho Lead indicate it is a Referral In?
-- (a) `Lead_Source = "Referral"` (or similar)
-- (b) `Source_Category` contains a referring account name
-- (c) presence of a non-null `Referring_Account` field
-- (d) Lead Source's parent category in `source_category_mapping` resolves to "Referral"
-
-Without this answer the Referral In count cannot be populated.
+Moved to `CONFIRMED.md` #27. Referral In = `Source_Category = Business Development` OR `BD_Rep` field is set on the Lead.
 
 ---
 
@@ -127,16 +110,11 @@ Moved to `CONFIRMED.md` #17. 13 picklist values pulled via Zoho API. Catch-all r
 
 ---
 
-## #18 — Test record exclusion rule
+## #18 — Test record exclusion rule (DEFERRED to Phase 1B)
 
-**Where:** `METRIC_DEFINITIONS.md` §22.
-**Question:** How are test Leads / test Deals identified for exclusion?
-- (a) Owner email contains "test" or matches a deny-list of internal addresses
-- (b) Naming convention (Lead first/last name contains "Test")
-- (c) A boolean custom field `Is_Test`
-- (d) Specific Source value (e.g. `Lead_Source = "Test"`)
+**Status:** Amber explicitly deferred this to Phase 1B sample-data triage. We sample raw production data during the first sync, identify the test rows by inspection, and write the exclusion rule based on what's actually there. Until then, no test-exclusion filter is applied.
 
-If multiple rules apply, list all.
+**Risk:** raw counts in Phase 1B include test data until this is closed.
 
 ---
 
@@ -152,22 +130,15 @@ Moved to `CONFIRMED.md` #19. The `VOB_Submitted_Date` custom field provides the 
 
 ---
 
-## #21 — Orphan deals in Sales Cycle math
+## ~~#21 — Orphan deals in Sales Cycle math~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §15.
-**Question:** For Sales Cycle, when a `closed_won_admitted` Deal has no matching Lead row in Zoho Analytics:
-- (a) Exclude from Sales Cycle (current default).
-- (b) Fall back to Deal `Created_Time` as the start point.
-- (c) Surface in a separate "orphan" metric.
+Moved to `CONFIRMED.md` #28. Fall back to Deal `Created_Time` as the start point.
 
 ---
 
-## #22 — Top-line MQL inclusion (NEW)
+## ~~#22 — Top-line MQL inclusion~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §4.
-**Question:** Should the headline "MQLs this month" KPI include DUI - Cash and DV - Cash deals, or follow the same top-line restriction as Admits (Commercial-Cash + AHCCCS + ZocDoc only)?
-
-Current draft: top-line MQL = MQL AND `pipeline ∈ TOP_LINE_ADMIT_PIPELINES`, matching the Admit treatment. Confirming because consistency is a question of taste here — some orgs count all deals as MQLs and only filter at the win line.
+Moved to `CONFIRMED.md` #26. Same restriction as Admit — top-line MQL = Commercial-Cash + AHCCCS + ZocDoc only.
 
 ---
 
@@ -177,12 +148,9 @@ Moved to `CONFIRMED.md` #19. The `VOB_Submitted` boolean + `VOB_Submitted_Date` 
 
 ---
 
-## #24 — DUI Completion type as a separate dimension (NEW)
+## ~~#24 — DUI Completion granularity~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §9.
-**Question:** DUI's three win stages (`Closed - Screening Only`, `Closed - Both Screening & Classes`, `Closed - Classes Only`) all roll up to `closed_won_dui_completion`. Should DUI reporting break the win count down by these three sub-types, or treat them as one bucket?
-
-If granularity is needed, we add a `dui_completion_type` derived field on the deals row.
+Moved to `CONFIRMED.md` #30. Roll up to one DUI Completion KPI by default; drill-down available via a derived `dui_completion_subtype` field.
 
 ---
 
@@ -201,31 +169,23 @@ If LOC doesn't apply to DUI: the LOC filter on a top-line dashboard implicitly e
 
 ---
 
-## #27 — Lead Score Rating: full 4-star and 5-star label strings (NEW)
+## ~~#27 — Lead Score Rating: full 4-star and 5-star label strings~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §16, CONFIRMED.md #10.
-**Question:** the screenshot truncated the 4-star and 5-star Lead Score Rating labels:
-- 4: `⭐⭐⭐⭐ Seeking Treatment: Commercial, N...`
-- 5: `⭐⭐⭐⭐⭐ Seeking Treatment: Commercial,...`
+Pulled via Zoho `getFields`. Full labels:
+- 0: `Unable To Score/Never Made Contact`
+- 1: `⭐ Junk/Spam`
+- 2: `⭐⭐ HR/Client Care/Family/Care Coordination(Not Making a Referral)`
+- 3: `⭐⭐⭐ Seeking Treatment: Medicaid`
+- 4: `⭐⭐⭐⭐ Seeking Treatment: Commercial, Not Ready to Make a Decision`
+- 5: `⭐⭐⭐⭐⭐ Seeking Treatment: Commercial, Ready to Make a Decision`
 
-Star-count parsing works on truncated strings since we count ⭐ characters. But for surfacing in dashboards (e.g., "Lead Score Distribution" chart), we want the full labels.
-
-**How to resolve:** in Zoho CRM, hover or open the Lead Score Rating field's picklist and copy the full text. Also the 2-star label (`HR/Client Care/Family/Care Coordination...`) is truncated.
+(Stored actual_value text differs — it's clinical descriptors. See doc §16 for both.)
 
 ---
 
-## #29 — Insurance_Policy_Type (network: PPO/HMO/EPO/POS) as a separate dimension (NEW)
+## ~~#29 — Insurance_Policy_Type as separate dimension~~ — RESOLVED
 
-**Where:** discovered via Zoho `getFields`.
-**Question:** the Zoho Leads module has a `Insurance_Policy_Type` field (a 5-value picklist: PPO, HMO, EPO, POS, Not Applicable) that captures the *network type* of a Commercial insurance plan. Additionally, the `Insurance_Type` field is overloaded — those same four network values appear there too, alongside the coverage classes.
-
-For Phase 1A we deferred this dimension per Amber's direction: ignore both the overloaded values in `Insurance_Type` and the entire `Insurance_Policy_Type` field. But the question remains:
-
-- For Phase 2+, do we surface PPO/HMO/EPO/POS as a separate **Network** filter on the FilterBar?
-- Do any current dashboards (e.g., the All VOBs page's network chips) depend on this dimension being modeled?
-- Should we clean up the overloaded values in `Insurance_Type` (move PPO/HMO/EPO/POS out of that picklist) before Phase 1B sync to prevent the sync ingesting unclassifiable values?
-
-**Recommended:** add `Insurance_Policy_Type` as a separate enum and Phase 1B sync field, but do not include it in any classification predicates yet. Surface in `v_unmapped_insurance_types` (Phase 1B) if any Lead has a network-type value in `Insurance_Type` so cleanup is visible.
+Moved to `CONFIRMED.md` #32. Deferred to Phase 2 as a separate Network filter. Phase 1 ships without it.
 
 ---
 
@@ -258,12 +218,9 @@ If this field is authoritative for treatment-vs-court routing, it might be a bet
 
 ---
 
-## #26 — Placement cycle metric (NEW)
+## ~~#26 — Placement cycle metric~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §15.
-**Question:** Sales Cycle is currently defined for top-line Admits. Should Placements (`closed_won_referred_out_unattached`) get their own cycle metric — `placement_cycle_days = closing_date − lead.created_at` for placement deals? Useful for measuring how fast specialists place callers they can't take.
-
-**Recommended default:** yes, add `op_placement_cycle_daily` to the Phase 1B operational metric tables alongside `op_sales_cycle_daily`. Cheap to maintain alongside the existing aggregation.
+Moved to `CONFIRMED.md` #29. Phase 1B adds `op_placement_cycle_daily` alongside `op_sales_cycle_daily`.
 
 ---
 
@@ -274,3 +231,4 @@ If this field is authoritative for treatment-vs-court routing, it might be a bet
 - **2026-05-27 (rev 3)** — Revised alongside METRIC_DEFINITIONS.md rev 3 + Lead detail screenshots. Resolved (moved to CONFIRMED.md): #4, #5, #11. Partially resolved: #17 (field name confirmed; full picklist still pending). Added: #27 (full 4/5-star labels), #28 (Treatment or Court Services field).
 - **2026-05-27 (rev 4)** — Live Zoho API queries (getFields + getUsers). Resolved: #6, #17 (full picklist). Added: #29 (Insurance_Policy_Type dimension), #30 (PPO/Unknown anomaly).
 - **2026-05-27 (rev 5)** — Zoho Deals `getFields` + Supabase Edge Function inspection. Resolved: #7 (OAuth path locked), #14 (Admit_Date strict), #20 (VOB_Submitted_Date provides timestamp), #23 (no stage-history needed), #25 (both LOC fields exist), #28 (DUI_or_Treatment field confirmed). Revises CONFIRMED.md #4 — VOB now uses both boolean field and stage.
+- **2026-05-27 (rev 6)** — Batch closeout. Resolved: #9, #10, #12, #13, #15, #21, #22, #24, #26, #27, #29. Only two questions remain open by design: #18 (test record exclusion, deferred to Phase 1B sample-data triage) and #30 (PPO=Unknown anomaly, awaits Zoho cleanup).

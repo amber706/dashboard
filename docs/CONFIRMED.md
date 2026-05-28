@@ -377,9 +377,116 @@ This matches how a rep sees the field in the CRM and matches the screenshots Amb
 
 ---
 
+## #24 — Lead overlap: insurance-wins precedence (resolves OPEN_QUESTION #9)
+
+**Question:** A Lead with `star_rating = 3` AND `insurance_type = "Commercial Insurance"` matches both AHCCCS Lead and Commercial Lead. Which wins?
+
+**Resolution:** **Insurance wins.** When `insurance_type` is set (not null), it's the authoritative classifier; star rating is ignored. When `insurance_type` is null, star rating becomes the fallback signal.
+
+| insurance_type | star_rating | Result |
+|---|---|---|
+| Commercial Insurance | 3 | Commercial (insurance wins) |
+| Commercial Insurance | 5 | Commercial |
+| AHCCCS | 5 | AHCCCS (insurance wins) |
+| AHCCCS | 3 | AHCCCS |
+| Medicare | (any) | Other Payer |
+| null | 3 | AHCCCS (star fallback) |
+| null | 4 or 5 | Commercial (star fallback) |
+| null | null | Unclassified |
+
+**Consequences:**
+- `isAhcccsLead` and `isCommercialLead` updated: insurance check is exhaustive when present, star is the fallback.
+- SPEC CASE #1 test rewritten: star=3 + Commercial Insurance → Commercial only (not both).
+- Buckets are mutually exclusive — no double-counting when AHCCCS and Commercial counts are summed.
+
+---
+
+## #25 — Pipeline × Source orthogonality with deduplication (resolves OPEN_QUESTION #10)
+
+**Resolution:** **orthogonal across dimensions, distinct in totals.**
+
+A Deal with `pipeline = commercial_cash` AND `source_category = business_development` and stage `closed_won_admitted` counts:
+- In the "Admits by Pipeline" chart: 1 under Commercial.
+- In the "Admits by Source" chart: 1 under BD.
+- In the headline "Total Admits this month" KPI: 1 (not 2).
+
+The dimensions are independent multi-selects in the FilterBar. The headline totals always show distinct deal counts; per-dimension breakdowns can sum to more than the total. Dashboards must label per-dimension charts clearly so leadership doesn't misread the sums.
+
+---
+
+## #26 — MQL top-line filter (resolves OPEN_QUESTION #22)
+
+**Resolution:** **headline MQL = MQL AND pipeline ∈ {Commercial-Cash, AHCCCS, ZocDoc}.** Same restriction as Admit. DUI and DV deals count as MQLs only inside their own pipeline-specific KPIs; never in the headline funnel.
+
+**Consequences:** `isTopLineMql` predicate stays as written. Doc §4 confirms the rule explicitly.
+
+---
+
+## #27 — Referral In: source_category=BD OR BD_Rep is set (resolves OPEN_QUESTION #15)
+
+**Question:** What makes a Lead a Referral In?
+
+**Resolution:** Lead is a Referral In if **either**:
+- `source_category = "Business Development"`, OR
+- The `BD_Rep` Lead picklist field is set to a specific BD rep name (not null, not `-None-`, not `None`).
+
+The `BD_Rep` field is a 20-value picklist of BD rep names (Amber, Ashley, Casey, Dane, Emari, Farah, etc.) — set on a Lead when a specific BD rep brought the referral in.
+
+**Consequences:**
+- `LeadShape` adds `bd_rep_inbound: string | null`.
+- New predicate `isReferralIn(lead)` implements the OR rule.
+- `LeadRowSchema` adds the matching field.
+- `ReferralInDefinitionSchema` rule = `source_category_or_bd_rep_set: true`.
+
+---
+
+## #28 — Orphan deals fall back to Deal Created_Time (resolves OPEN_QUESTION #21)
+
+**Resolution:** when a Closed-Admitted Deal has no matching Lead row in Zoho Analytics, Sales Cycle = `closing_date − deal.created_time`. The Deal's own creation timestamp substitutes for the missing Lead creation. Phase 1B's Sales Cycle calc handles this fallback.
+
+**Trade-off:** under-reports cycle time slightly (the lead almost always existed before the Deal was created), but avoids excluding admits.
+
+---
+
+## #29 — Placement cycle metric scheduled (resolves OPEN_QUESTION #26)
+
+**Resolution:** Phase 1B adds `op_placement_cycle_daily` alongside `op_sales_cycle_daily`. Same shape:
+
+```
+placement_cycle_days = closing_date − lead.created_time
+  for deals where stage_category = closed_won_referred_out_unattached
+```
+
+Tracks how fast specialists place callers they can't take. Cheap to maintain.
+
+---
+
+## #30 — DUI granularity: roll up by default, drill-down available (resolves OPEN_QUESTION #24)
+
+**Resolution:** the headline KPI shows a single `DUI Completions` count combining `Closed - Screening Only`, `Closed - Both Screening & Classes`, `Closed - Classes Only`. Clicking the KPI opens a breakdown by subtype.
+
+**Consequences:**
+- The normalized `deals` table adds a derived `dui_completion_subtype` field (one of: `screening_only` / `both` / `classes_only` / `null`) for the drill-down.
+- The `stage_category` enum stays as `closed_won_dui_completion` for the rollup.
+
+---
+
+## #31 — Lead `Created_Time` is the intake moment (resolves OPEN_QUESTION #13)
+
+**Resolution:** Zoho `Created_Time` on a Lead represents the moment the lead first came in — form submission, call answered, walk-in registered. Sales Cycle math uses this value directly as the start point.
+
+---
+
+## #32 — Insurance_Policy_Type deferred to Phase 2 (resolves OPEN_QUESTION #29)
+
+**Resolution:** the separate `Insurance_Policy_Type` field (PPO/HMO/EPO/POS/Not Applicable) is a real reporting dimension but is **not in Phase 1**. Phase 2 adds a Network multi-select to the FilterBar for Commercial leads. Phase 1B schema does not include the field.
+
+---
+
 ## Document changelog
 
 - **2026-05-27** — Created alongside METRIC_DEFINITIONS.md rev 2. Seven resolutions recorded (#1–#7).
 - **2026-05-27 (rev 2)** — Added six resolutions (#8–#13) alongside METRIC_DEFINITIONS.md rev 3. Closes OPEN_QUESTIONS #4, #5, #11; partially closes #17.
 - **2026-05-27 (rev 3)** — Added four resolutions (#14–#17) from live Zoho CRM API queries. Closes OPEN_QUESTIONS #6 and the residual of #17. Adds new OPEN_QUESTION #29 (Insurance_Policy_Type dimension deferred) and #30 (PPO/Unknown data anomaly).
 - **2026-05-27 (rev 4)** — Added six resolutions (#18–#23) from Supabase Edge Function inspection + Zoho Deals `getFields` + Amber's rev 5 answers. Closes OPEN_QUESTIONS #7, #14, #20 (transformed; the stage-history requirement is gone now that we have a boolean field), #25, #28. Revises CONFIRMED.md #4 (VOB now uses both signals).
+- **2026-05-27 (rev 5)** — Added nine resolutions (#24–#32) batch-closing the remaining policy questions. Closes OPEN_QUESTIONS #9, #10, #13, #15, #21, #22, #24, #26, #29. OPEN_QUESTIONS #18 (test record exclusion) and #30 (PPO=Unknown anomaly) explicitly remain deferred — #18 to Phase 1B sample-data triage, #30 to Zoho cleanup.

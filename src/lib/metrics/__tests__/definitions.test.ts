@@ -44,6 +44,7 @@ import {
   isMql,
   isOtherPayerLead,
   isPlacement,
+  isReferralIn,
   isTopLineAdmit,
   isTopLineMql,
   isTopLinePipeline,
@@ -78,6 +79,8 @@ const lead = (overrides: Partial<LeadShape> = {}): LeadShape => ({
   star_rating: null,
   insurance_type: null,
   level_of_care_requested: null,
+  source_category: SOURCE_CATEGORY.DigitalMarketing,
+  bd_rep_inbound: null,
   ...overrides,
 });
 
@@ -283,6 +286,36 @@ describe("isCommercialLead", () => {
   });
 });
 
+describe("isReferralIn (CONFIRMED.md #27)", () => {
+  it("matches when source_category = business_development", () => {
+    expect(
+      isReferralIn(
+        lead({ source_category: SOURCE_CATEGORY.BusinessDevelopment }),
+      ),
+    ).toBe(true);
+  });
+
+  it("matches when bd_rep_inbound is set to a rep name", () => {
+    expect(isReferralIn(lead({ bd_rep_inbound: "Casey" }))).toBe(true);
+    expect(isReferralIn(lead({ bd_rep_inbound: "Amber" }))).toBe(true);
+  });
+
+  it("does NOT match when bd_rep_inbound is null / empty / '-None-' / 'None'", () => {
+    expect(isReferralIn(lead({ bd_rep_inbound: null }))).toBe(false);
+    expect(isReferralIn(lead({ bd_rep_inbound: "" }))).toBe(false);
+    expect(isReferralIn(lead({ bd_rep_inbound: "-None-" }))).toBe(false);
+    expect(isReferralIn(lead({ bd_rep_inbound: "None" }))).toBe(false);
+  });
+
+  it("does NOT match when neither signal is present", () => {
+    expect(
+      isReferralIn(
+        lead({ source_category: SOURCE_CATEGORY.DigitalMarketing, bd_rep_inbound: null }),
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("isOtherPayerLead", () => {
   it.each([INSURANCE_TYPE.Medicare, INSURANCE_TYPE.NoInsurance, INSURANCE_TYPE.OutOfStateMedicaid])(
     "treats insurance=%s as Other Payer",
@@ -305,21 +338,39 @@ describe("isOtherPayerLead", () => {
   });
 });
 
-// SPEC CASE #1 — Lead overlap. METRIC_DEFINITIONS.md §17 + OPEN_QUESTION #9.
-// Default = both classifications apply. If Amber resolves OPEN_QUESTION #9 to
-// option A or B in CONFIRMED.md, this test gets rewritten.
-describe("SPEC CASE — AHCCCS × Commercial Lead overlap (OPEN_QUESTION #9)", () => {
-  const overlap = lead({
-    star_rating: 3,
-    insurance_type: INSURANCE_TYPE.CommercialInsurance,
+// SPEC CASE #1 — Lead overlap. METRIC_DEFINITIONS.md §17 + CONFIRMED.md #24.
+// Insurance wins: star=3 + insurance=Commercial Insurance → Commercial ONLY.
+describe("SPEC CASE — Insurance-wins precedence on AHCCCS × Commercial overlap (CONFIRMED.md #24)", () => {
+  const star3Commercial = lead({
+    star_rating: 3, // would qualify as AHCCCS by star
+    insurance_type: INSURANCE_TYPE.CommercialInsurance, // but Commercial Insurance overrides
   });
 
-  it("classifies as AHCCCS Lead", () => {
-    expect(isAhcccsLead(overlap)).toBe(true);
+  it("classifies as Commercial Lead only (insurance wins)", () => {
+    expect(isCommercialLead(star3Commercial)).toBe(true);
   });
 
-  it("also classifies as Commercial Lead (current default — both apply)", () => {
-    expect(isCommercialLead(overlap)).toBe(true);
+  it("does NOT classify as AHCCCS Lead (insurance overrides star)", () => {
+    expect(isAhcccsLead(star3Commercial)).toBe(false);
+  });
+
+  it("inverse: star=5 + insurance=AHCCCS → AHCCCS only (insurance wins)", () => {
+    const star5Ahcccs = lead({
+      star_rating: 5,
+      insurance_type: INSURANCE_TYPE.Ahcccs,
+    });
+    expect(isAhcccsLead(star5Ahcccs)).toBe(true);
+    expect(isCommercialLead(star5Ahcccs)).toBe(false);
+  });
+
+  it("star fallback: when insurance is null, star=3 → AHCCCS", () => {
+    expect(isAhcccsLead(lead({ star_rating: 3, insurance_type: null }))).toBe(true);
+    expect(isCommercialLead(lead({ star_rating: 3, insurance_type: null }))).toBe(false);
+  });
+
+  it("star fallback: when insurance is null, star=5 → Commercial", () => {
+    expect(isCommercialLead(lead({ star_rating: 5, insurance_type: null }))).toBe(true);
+    expect(isAhcccsLead(lead({ star_rating: 5, insurance_type: null }))).toBe(false);
   });
 });
 
@@ -806,8 +857,9 @@ describe("LeadRowSchema", () => {
       source_category: SOURCE_CATEGORY.DigitalMarketing,
       level_of_care_requested: "iop3",
       insurance_type: INSURANCE_TYPE.CommercialInsurance,
-      lead_score_rating: "⭐⭐⭐⭐ Seeking Treatment: Commercial, N",
+      lead_score_rating: "⭐⭐⭐⭐ Seeking Treatment: Commercial, Not Ready to Make a Decision",
       star_rating: 4,
+      bd_rep_inbound: null,
       created_at: "2026-05-01T07:00:00Z",
     });
     expect(ok.success).toBe(true);
@@ -822,6 +874,7 @@ describe("LeadRowSchema", () => {
       insurance_type: null,
       lead_score_rating: "Unable To Score/Never Made Contact",
       star_rating: 0,
+      bd_rep_inbound: null,
       created_at: "2026-05-01T07:00:00Z",
     });
     expect(ok.success).toBe(true);
@@ -836,6 +889,7 @@ describe("LeadRowSchema", () => {
       insurance_type: null,
       lead_score_rating: null,
       star_rating: 6,
+      bd_rep_inbound: null,
       created_at: "2026-05-01T07:00:00Z",
     });
     expect(bad.success).toBe(false);
@@ -850,6 +904,7 @@ describe("LeadRowSchema", () => {
       insurance_type: null,
       lead_score_rating: null,
       star_rating: 3,
+      bd_rep_inbound: null,
       created_at: "2026-05-01T07:00:00Z",
     });
     expect(bad.success).toBe(false);
@@ -872,6 +927,7 @@ describe("LeadRowSchema", () => {
         insurance_type: ins,
         lead_score_rating: null,
         star_rating: null,
+        bd_rep_inbound: null,
         created_at: "2026-05-01T07:00:00Z",
       });
       expect(ok.success).toBe(true);

@@ -84,6 +84,8 @@ export const LeadRowSchema = z.object({
   lead_score_rating: z.string().nullable(),
   /** Derived star count (0-5), parsed from `lead_score_rating` via `leadScoreRatingToStarCount`. */
   star_rating: z.number().int().min(0).max(5).nullable(),
+  /** Zoho `BD_Rep` Lead picklist value; used by `isReferralIn`. */
+  bd_rep_inbound: z.string().nullable(),
   created_at: z.string().datetime({ offset: true }),
 });
 export type LeadRow = z.infer<typeof LeadRowSchema>;
@@ -202,8 +204,10 @@ export const ClosedLostDefinitionSchema = z.object({
 export const ReferralInDefinitionSchema = z.object({
   primitive: z.literal("referral_in"),
   source: z.literal("zoho_analytics.leads"),
-  // Rule unresolved — see OPEN_QUESTION #15.
-  rule: z.object({ pending_open_question: z.literal(15) }),
+  rule: z.object({
+    // CONFIRMED.md #27: source_category=business_development OR bd_rep_inbound is set.
+    source_category_or_bd_rep_set: z.literal(true),
+  }),
   date_field: z.literal("created_at"),
 });
 
