@@ -83,7 +83,7 @@ function FeatureTogglesCard() {
 
   // "Floating" pages — those with no parent module. Rendered in a
   // dedicated group at the top so they don't get lost.
-  const FLOATING_PAGES: FeatureKey[] = ["page_supervisor_review", "page_suggestions"];
+  const FLOATING_PAGES: FeatureKey[] = ["page_supervisor_review", "page_suggestions", "page_my_coaching"];
 
   // Pages keyed by their parent module — built fresh from the loaded
   // flag list so new sub-features auto-appear in the right group when
