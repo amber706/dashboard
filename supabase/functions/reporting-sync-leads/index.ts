@@ -6,11 +6,12 @@
 //
 // This is the canonical lead source — the live Zoho CRM Leads module loses
 // rows on conversion, so we read the Analytics snapshot which preserves
-// pre-conversion state. Auth uses the same Zoho OAuth token (scope widened
-// in CONFIRMED.md #18).
+// pre-conversion state.
 //
-// Status: scaffold deployed; Analytics API request format needs production
-// verification. Trigger manually first, then schedule via cron.
+// Uses Zoho Analytics V2 **bulk export** (async job → poll → download).
+// The synchronous /data endpoint can't handle the ~60k row volume + returns
+// API_MALFORMED_URL for our request shape; the bulk endpoint is the
+// documented path for large views.
 
 import {
   finishSyncRun,
@@ -19,7 +20,6 @@ import {
   jsonResponse,
   leadScoreRatingToStarCount,
   loadMappings,
-  logSyncFailure,
   startSyncRun,
   supa,
   upsertRaw,
@@ -28,7 +28,7 @@ import {
 
 const WORKSPACE_ID = Deno.env.get("ZOHO_ANALYTICS_WORKSPACE_ID") ?? "2573883000000036001";
 const VIEW_ID = Deno.env.get("ZOHO_ANALYTICS_LEADS_VIEW_ID") ?? "2573883000000035215";
-const ORG_ID = Deno.env.get("ZOHO_ANALYTICS_ORG_ID"); // required by the Analytics API
+const ORG_ID = Deno.env.get("ZOHO_ANALYTICS_ORG_ID");
 
 interface AnalyticsLeadRow {
   Id?: string;
@@ -44,26 +44,80 @@ interface AnalyticsLeadRow {
   [k: string]: unknown;
 }
 
-async function fetchAnalyticsView(token: string): Promise<AnalyticsLeadRow[]> {
-  if (!ORG_ID) {
-    throw new Error("ZOHO_ANALYTICS_ORG_ID env var not set");
-  }
-  // Zoho Analytics V2 export API
-  const url = `${ZOHO_ANALYTICS_API_DOMAIN}/restapi/v2/workspaces/${WORKSPACE_ID}/views/${VIEW_ID}/data`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Zoho-oauthtoken ${token}`,
-      "ZANALYTICS-ORGID": ORG_ID,
-      Accept: "application/json",
-    },
+// ── Zoho Analytics V2 bulk export ─────────────────────────────────────────
+// Three-step flow:
+//   1. POST  /bulk/.../data        → creates an export job, returns jobId.
+//   2. GET   /bulk/.../exportjobs/{jobId} → poll until status = "JOB COMPLETED".
+//   3. GET   /bulk/.../exportjobs/{jobId}/data → downloads the result.
+
+interface BulkJobResponse {
+  status?: string;
+  summary?: string;
+  data?: {
+    jobId?: string;
+    status?: string; // "JOB IN PROGRESS" / "JOB COMPLETED" / "JOB FAILURE"
+    downloadUrl?: string;
+  };
+}
+
+const analyticsHeaders = (token: string): Record<string, string> => ({
+  Authorization: `Zoho-oauthtoken ${token}`,
+  "ZANALYTICS-ORGID": ORG_ID!,
+  Accept: "application/json",
+});
+
+function bulkUrl(...parts: string[]): string {
+  return `${ZOHO_ANALYTICS_API_DOMAIN}/restapi/v2/bulk/workspaces/${WORKSPACE_ID}/views/${VIEW_ID}/${parts.join("/")}`;
+}
+
+async function createExportJob(token: string): Promise<string> {
+  const config = encodeURIComponent(JSON.stringify({ responseFormat: "json" }));
+  const res = await fetch(`${bulkUrl("data")}?CONFIG=${config}`, {
+    method: "POST",
+    headers: analyticsHeaders(token),
   });
-  if (!res.ok) {
-    throw new Error(`Analytics fetch failed (${res.status}): ${(await res.text()).slice(0, 400)}`);
+  const text = await res.text();
+  if (!res.ok) throw new Error(`bulk create-job (${res.status}): ${text.slice(0, 400)}`);
+  const j = JSON.parse(text) as BulkJobResponse;
+  const jobId = j.data?.jobId;
+  if (!jobId) throw new Error(`bulk create-job returned no jobId: ${text.slice(0, 400)}`);
+  return jobId;
+}
+
+async function pollExportJob(token: string, jobId: string): Promise<void> {
+  const POLL_MS = 3000;
+  const MAX_POLLS = 60; // 60 × 3s = 3 minutes
+  for (let i = 0; i < MAX_POLLS; i++) {
+    const res = await fetch(bulkUrl("exportjobs", jobId), { headers: analyticsHeaders(token) });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`bulk poll (${res.status}): ${text.slice(0, 400)}`);
+    const j = JSON.parse(text) as BulkJobResponse;
+    const status = j.data?.status ?? "";
+    if (status === "JOB COMPLETED") return;
+    if (status === "JOB FAILURE") throw new Error(`bulk job failed: ${text.slice(0, 400)}`);
+    await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  const j = await res.json();
-  // Response shape varies — try common shapes
-  return (j.data ?? j.rows ?? j) as AnalyticsLeadRow[];
+  throw new Error(`bulk job did not complete in ${(POLL_MS * MAX_POLLS) / 1000}s`);
+}
+
+async function downloadExportJob(token: string, jobId: string): Promise<AnalyticsLeadRow[]> {
+  const res = await fetch(bulkUrl("exportjobs", jobId, "data"), { headers: analyticsHeaders(token) });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`bulk download (${res.status}): ${text.slice(0, 400)}`);
+  // Response may be a JSON object or JSON array depending on Zoho's mood —
+  // tolerate both shapes.
+  const parsed = JSON.parse(text);
+  if (Array.isArray(parsed)) return parsed as AnalyticsLeadRow[];
+  if (Array.isArray(parsed?.data)) return parsed.data as AnalyticsLeadRow[];
+  if (Array.isArray(parsed?.data?.rows)) return parsed.data.rows as AnalyticsLeadRow[];
+  throw new Error(`bulk download returned unrecognized shape: ${text.slice(0, 200)}`);
+}
+
+async function fetchAnalyticsView(token: string): Promise<AnalyticsLeadRow[]> {
+  if (!ORG_ID) throw new Error("ZOHO_ANALYTICS_ORG_ID env var not set");
+  const jobId = await createExportJob(token);
+  await pollExportJob(token, jobId);
+  return await downloadExportJob(token, jobId);
 }
 
 Deno.serve(async (req) => {
@@ -108,7 +162,7 @@ Deno.serve(async (req) => {
 
       normalized.push({
         source_lead_id: sourceId,
-        owner_user_id: null, // owner resolution via Interaction Owner column TODO
+        owner_user_id: null,
         source_category,
         level_of_care_requested: loc,
         insurance_type: insurance,

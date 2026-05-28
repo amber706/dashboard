@@ -283,17 +283,8 @@ The 2022 rows are pre-Pipeline-field legacy. The 26 post-2022 rows are all OOP s
 
 ---
 
-## #37 — Deal → Lead linkage field name (NEW)
+## ~~#37 — Deal → Lead linkage field name~~ — RESOLVED
 
-**Where:** `reporting-sync-deals` sets `source_lead_id` from the `Lead_Source` field, but `Lead_Source` is the marketing-source string ("Web Form", "Referral", etc.), not the Lead-record FK. The current sync writes NULL into `source_lead_id` for all 28,435 deals.
+**Resolution (2026-05-28):** `getFields(Deals)` confirmed there is **no** Lead-Id lookup field on Deals. Zoho stores `Lead_Created_Time` (date) directly on the Deal at conversion time, which is exactly the field sales-/placement-cycle math needs — no Deal → Lead join required.
 
-**Impact:** `op_sales_cycle_daily` and `op_placement_cycle_daily` join via `source_lead_id` and so are empty. The dashboard's "Sales Cycle (days)" KPI won't populate.
-
-**Decision needed:** identify the correct Zoho field that holds the Lead Id on a converted Deal. Candidates from the Deals module schema:
-- A custom `Lead_Id` lookup field (if Cornerstone added one),
-- Zoho's built-in `Lead_Conversion` linkage (queried via the Conversions API rather than COQL on Deals),
-- `Contact_Name` lookup (some Zoho orgs use Contacts as the bridge between converted Leads and Deals).
-
-**Next step:** call Zoho `getFields(Deals)` via MCP and look for any lookup-typed field whose target module is Leads.
-
-**Recommended default:** add the correct field name to `reporting-sync-deals` and re-run with a full backfill. Until then, sales-cycle math is N/A.
+Migration 142 adds `reporting.deals.lead_created_time DATE`. The deals sync now pulls `Lead_Created_Time` into that column. `reporting_build_op_metrics` reads it directly. `source_lead_id` stays null until a Phase 1C Contact bridge is wired up (not needed for chunk 3 metrics).

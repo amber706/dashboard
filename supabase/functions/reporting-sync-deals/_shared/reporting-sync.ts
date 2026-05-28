@@ -85,7 +85,11 @@ export async function getZohoToken(): Promise<string> {
       }
       const j = await res.json();
       const tok = j.access_token as string;
-      if (!tok) throw new Error("Zoho OAuth response missing access_token");
+      if (!tok) {
+        throw new Error(
+          `Zoho OAuth response missing access_token. Response: ${JSON.stringify(j).slice(0, 400)}`,
+        );
+      }
       const expiresAt = Date.now() + Math.max(60_000, ((j.expires_in ?? 3600) - 300) * 1000);
       _memToken = { token: tok, expiresAt };
       try {
