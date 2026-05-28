@@ -205,7 +205,79 @@ The brief's ASAM-aligned candidates (Detox/Residential/PHP/IOP/OP/Sober Living) 
 
 ---
 
+## #14 — Insurance Type: stored values differ from display labels
+
+**Source:** Zoho CRM `getFields` API call against the Leads module.
+
+**Resolution:** the Zoho API returns the *stored* (actual) value, not the display label. Two of the six insurance values have a stored/display mismatch:
+
+| Display label | Stored value (what API returns) |
+|---|---|
+| Commercial Insurance | `Private Insurance` |
+| Cash | `Cash Pay` |
+| AHCCCS, Medicare, No Insurance, Out of State Medicaid | (same as display) |
+
+The Zoho `Insurance_Type` picklist also contains EPO, HMO, POS, and PPO values overloaded into the same field. Those are network types and properly belong in the separate `Insurance_Policy_Type` field (a 4-value picklist: PPO / HMO / EPO / POS / Not Applicable). Per Amber's direction, we ignore both the network-type values in `Insurance_Type` and the entire `Insurance_Policy_Type` field for Phase 1A — see OPEN_QUESTION #29.
+
+**Consequences:**
+- `INSURANCE_TYPE.CommercialInsurance` = `"Private Insurance"` (was `"Commercial Insurance"`).
+- `INSURANCE_TYPE.Cash` = `"Cash Pay"` (was `"Cash"`).
+- Postgres `insurance_type` enum and Zod `InsuranceTypeEnum` updated to match.
+- Display formatting of insurance values in the UI is handled at the resolver layer (Phase 1C), not in the canonical constants.
+
+---
+
+## #15 — Rep Profile names (resolves OPEN_QUESTION #6)
+
+**Source:** Zoho CRM `getUsers` against all 37 active users.
+
+**Resolution:** four distinct profiles in production:
+
+| Profile | Role classification | Notes |
+|---|---|---|
+| `TREATMENT Standard` | Admissions Rep | **All caps on TREATMENT** — not "Treatment Standard" |
+| `Administrator` | Admissions Rep | **Not "Admin"** — full word |
+| `Call Center AHCCCS` | Admissions Rep | See #16 |
+| `Business Development` | BD Rep | (unchanged) |
+
+**Consequences:**
+- `ADMISSIONS_REP_PROFILES` updated to `["TREATMENT Standard", "Administrator", "Call Center AHCCCS"]`.
+- `BD_REP_PROFILE` = `"Business Development"` (unchanged).
+- Old casings ("Treatment Standard", "Admin") no longer match.
+
+---
+
+## #16 — Call Center AHCCCS counts as Admissions Rep
+
+**Question:** the `Call Center AHCCCS` profile (5+ active users including Berenice, Gerardo, Karla, Cynthia, Jose, Simon) — do these count as Admissions Reps for reporting?
+
+**Resolution:** **Yes.** They handle AHCCCS-line intake — same workflow class as treatment intake, just specialized to the AHCCCS pipeline. Their activity rolls up into Admissions Rep metrics alongside TREATMENT Standard + Administrator.
+
+**Consequences:**
+- `ADMISSIONS_REP_PROFILES` includes `"Call Center AHCCCS"`.
+- No need for a separate `call_center_rep` role; they classify as `admissions_rep` via `profileToRepRole`.
+
+---
+
+## #17 — Source Category full picklist + catch-all rule confirmed
+
+**Source:** Zoho CRM `getFields` against Leads module.
+
+**Resolution:** the Zoho `Source Category` picklist contains 13 values (excluding `-None-`):
+
+`Alumni`, `Business Development`, `Call Center`, `Directory Listing`, `Internal`, `Option 1`, `Option 2`, `Organic Social`, `Paid Social`, `PPC`, `SEO`, `ZocDoc`.
+
+Amber confirmed the catch-all classification rule stands as written: **everything not in `{Business Development, ZocDoc}` rolls up to Digital Marketing.** That means Alumni, Call Center, Internal, and the two placeholder "Option 1"/"Option 2" values all flow into Digital Marketing.
+
+**Consequences:**
+- `rawSourceToSourceCategory` unchanged.
+- Phase 1B's `source_category_mapping` seeds all 11 non-BD/non-ZocDoc raw strings → Digital Marketing.
+- `v_unmapped_sources` will be empty against current production data.
+
+---
+
 ## Document changelog
 
 - **2026-05-27** — Created alongside METRIC_DEFINITIONS.md rev 2. Seven resolutions recorded (#1–#7).
 - **2026-05-27 (rev 2)** — Added six resolutions (#8–#13) alongside METRIC_DEFINITIONS.md rev 3. Closes OPEN_QUESTIONS #4, #5, #11; partially closes #17.
+- **2026-05-27 (rev 3)** — Added four resolutions (#14–#17) from live Zoho CRM API queries. Closes OPEN_QUESTIONS #6 and the residual of #17. Adds new OPEN_QUESTION #29 (Insurance_Policy_Type dimension deferred) and #30 (PPO/Unknown data anomaly).

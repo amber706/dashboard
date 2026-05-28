@@ -193,16 +193,22 @@ export const RAW_SOURCE_BUSINESS_DEVELOPMENT = "Business Development";
 export const RAW_SOURCE_ZOCDOC = "ZocDoc";
 
 // ────────────────────────────────────────────────────────────────────────────
-// Insurance types (raw Zoho Lead picklist values; see CONFIRMED.md #8)
+// Insurance types (raw Zoho Lead picklist values; see CONFIRMED.md #8 + #14)
 // ────────────────────────────────────────────────────────────────────────────
-// Picklist confirmed from Zoho Lead detail screen. "Private Pay" from the
-// original brief was wrong — Cornerstone uses "Cash". Medicare, No Insurance,
-// and Out of State Medicaid added per CONFIRMED.md #9.
+// Values are the ZOHO ACTUAL STORED VALUES (what the API returns), not the
+// display labels. Two display→actual differences confirmed via the Leads
+// metadata API:
+//   - "Commercial Insurance" display → stored as "Private Insurance"
+//   - "Cash" display              → stored as "Cash Pay"
+// The Insurance_Type field also contains EPO/HMO/POS/PPO values, but those
+// are network types overloaded into the same picklist. The properly-scoped
+// network field is `Insurance_Policy_Type` (PPO/HMO/EPO/POS/Not Applicable);
+// we intentionally ignore both for Phase 1A — see OPEN_QUESTION #29.
 
 export const INSURANCE_TYPE = {
   Ahcccs: "AHCCCS",
-  CommercialInsurance: "Commercial Insurance",
-  Cash: "Cash",
+  CommercialInsurance: "Private Insurance",
+  Cash: "Cash Pay",
   Medicare: "Medicare",
   NoInsurance: "No Insurance",
   OutOfStateMedicaid: "Out of State Medicaid",
@@ -322,7 +328,7 @@ export const RAW_LOC_STRINGS = Object.freeze({
   [LEVEL_OF_CARE.Php]: "PHP",
   [LEVEL_OF_CARE.Iop5]: "IOP5",
   [LEVEL_OF_CARE.Iop3]: "IOP3",
-  [LEVEL_OF_CARE.ViopAdult]: "VIOP Adult",
+  [LEVEL_OF_CARE.ViopAdult]: "VIOP", // Note: stored as "VIOP" in Zoho even though display label is "VIOP Adult"
   [LEVEL_OF_CARE.ViopAdolescent]: "VIOP Adolescent",
   [LEVEL_OF_CARE.Op]: "OP",
   [LEVEL_OF_CARE.Vop]: "VOP",
@@ -350,9 +356,18 @@ export const REP_ROLE_VALUES: readonly RepRole[] = Object.freeze([
   REP_ROLE.Other,
 ]);
 
+/**
+ * Zoho Profile names that classify a User as an Admissions Rep.
+ * Confirmed from live Users API (CONFIRMED.md #15):
+ * - "TREATMENT Standard" — note ALL CAPS on TREATMENT
+ * - "Administrator" (not "Admin" as the brief said)
+ * - "Call Center AHCCCS" — bilingual AHCCCS-line intake reps; included
+ *   per CONFIRMED.md #16
+ */
 export const ADMISSIONS_REP_PROFILES: readonly string[] = Object.freeze([
-  "Treatment Standard",
-  "Admin",
+  "TREATMENT Standard",
+  "Administrator",
+  "Call Center AHCCCS",
 ]);
 
 export const BD_REP_PROFILE = "Business Development";

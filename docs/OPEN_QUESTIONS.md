@@ -38,16 +38,9 @@ Moved to `CONFIRMED.md` #10. Field is `Lead Score Rating` (a single picklist col
 
 ---
 
-## #6 — BD Rep and Admissions Rep profile names
+## ~~#6 — BD Rep and Admissions Rep profile names~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §19, §20.
-**Question:** Confirm the exact literal Zoho Profile names:
-- Admissions Rep (current draft: `Treatment Standard`, `Admin`)
-- BD Rep (current draft: `Business Development`)
-
-If "Admin" includes non-admissions admins (IT/system admins), we need a tighter filter — possibly Role-based instead of Profile-based.
-
-**How to resolve:** Zoho CRM Setup → Security Control → Profiles.
+Moved to `CONFIRMED.md` #15 + #16. Four profiles in production: `TREATMENT Standard`, `Administrator`, `Call Center AHCCCS` (all → Admissions Rep), `Business Development` (→ BD Rep).
 
 ---
 
@@ -142,13 +135,9 @@ The original "Referral Out" primitive is replaced by **Placement** (`closed_won_
 
 ---
 
-## #17 — Source Category full picklist (residual; field name confirmed)
+## ~~#17 — Source Category full picklist~~ — RESOLVED
 
-**Status:** Field-name partially resolved in `CONFIRMED.md` #13 — the canonical field is `Source Category`. The example lead shows `Source Category = SEO`, correctly captured by the Digital Marketing catch-all.
-
-**Still pending:** the complete list of `Source Category` raw values currently in production. Phase 1B needs this to seed the `source_category_mapping` table without leaving values in `v_unmapped_sources`.
-
-**How to resolve:** in Zoho CRM Setup → Customization → Leads → Source Category field, copy the full picklist. Or run a `DISTINCT Source_Category` query against the Zoho Analytics Leads view.
+Moved to `CONFIRMED.md` #17. 13 picklist values pulled via Zoho API. Catch-all rule (everything except BD/ZocDoc → Digital Marketing) confirmed as the intended classification.
 
 ---
 
@@ -248,6 +237,30 @@ Star-count parsing works on truncated strings since we count ⭐ characters. But
 
 ---
 
+## #29 — Insurance_Policy_Type (network: PPO/HMO/EPO/POS) as a separate dimension (NEW)
+
+**Where:** discovered via Zoho `getFields`.
+**Question:** the Zoho Leads module has a `Insurance_Policy_Type` field (a 5-value picklist: PPO, HMO, EPO, POS, Not Applicable) that captures the *network type* of a Commercial insurance plan. Additionally, the `Insurance_Type` field is overloaded — those same four network values appear there too, alongside the coverage classes.
+
+For Phase 1A we deferred this dimension per Amber's direction: ignore both the overloaded values in `Insurance_Type` and the entire `Insurance_Policy_Type` field. But the question remains:
+
+- For Phase 2+, do we surface PPO/HMO/EPO/POS as a separate **Network** filter on the FilterBar?
+- Do any current dashboards (e.g., the All VOBs page's network chips) depend on this dimension being modeled?
+- Should we clean up the overloaded values in `Insurance_Type` (move PPO/HMO/EPO/POS out of that picklist) before Phase 1B sync to prevent the sync ingesting unclassifiable values?
+
+**Recommended:** add `Insurance_Policy_Type` as a separate enum and Phase 1B sync field, but do not include it in any classification predicates yet. Surface in `v_unmapped_insurance_types` (Phase 1B) if any Lead has a network-type value in `Insurance_Type` so cleanup is visible.
+
+---
+
+## #30 — `Insurance_Type` value "PPO" → stored "Unknown" (NEW)
+
+**Where:** discovered via Zoho `getFields`.
+**Question:** the `Insurance_Type` picklist has a display value `PPO` whose **actual stored value is `Unknown`**. This is either a Zoho rename gone wrong or a deliberate workaround. Either way, leads with the value will hit our sync as the literal string `Unknown`, which is not in the canonical enum.
+
+**How to resolve:** check Zoho CRM Setup → Customization → Leads → Insurance Type field; either fix the actual_value to `PPO` or confirm `Unknown` is intentional. If intentional, decide whether `Unknown` should be a separate insurance type (e.g., for unverified payer leads).
+
+---
+
 ## #28 — `Treatment or Court Services` field semantics (NEW)
 
 **Where:** observed in Zoho Lead detail.
@@ -276,3 +289,4 @@ If this field is authoritative for treatment-vs-court routing, it might be a bet
 - **2026-05-27 (rev 1)** — Initial draft alongside METRIC_DEFINITIONS.md rev 1. 21 open questions raised.
 - **2026-05-27 (rev 2)** — Revised alongside METRIC_DEFINITIONS.md rev 2. Resolved (moved to CONFIRMED.md): #1, #2, #3, #8, #19. Retired (no longer applicable): #16. Transformed: #20 (the underlying assumption changed). Partially resolved: #7 (IDs locked, OAuth still pending). Added: #22, #23, #24, #25, #26.
 - **2026-05-27 (rev 3)** — Revised alongside METRIC_DEFINITIONS.md rev 3 + Lead detail screenshots. Resolved (moved to CONFIRMED.md): #4, #5, #11. Partially resolved: #17 (field name confirmed; full picklist still pending). Added: #27 (full 4/5-star labels), #28 (Treatment or Court Services field).
+- **2026-05-27 (rev 4)** — Live Zoho API queries (getFields + getUsers). Resolved: #6, #17 (full picklist). Added: #29 (Insurance_Policy_Type dimension), #30 (PPO/Unknown anomaly).

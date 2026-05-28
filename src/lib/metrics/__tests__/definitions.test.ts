@@ -692,16 +692,28 @@ describe("sourceCategoryToMarketingChannel", () => {
 // ── Rep role mapping ───────────────────────────────────────────────────────
 
 describe("profileToRepRole", () => {
-  it("Treatment Standard → admissions_rep", () => {
-    expect(profileToRepRole("Treatment Standard")).toBe(REP_ROLE.AdmissionsRep);
+  it("TREATMENT Standard → admissions_rep (caps on TREATMENT — CONFIRMED.md #15)", () => {
+    expect(profileToRepRole("TREATMENT Standard")).toBe(REP_ROLE.AdmissionsRep);
   });
 
-  it("Admin → admissions_rep", () => {
-    expect(profileToRepRole("Admin")).toBe(REP_ROLE.AdmissionsRep);
+  it("Administrator → admissions_rep (not 'Admin' as brief assumed)", () => {
+    expect(profileToRepRole("Administrator")).toBe(REP_ROLE.AdmissionsRep);
+  });
+
+  it("Call Center AHCCCS → admissions_rep (CONFIRMED.md #16)", () => {
+    expect(profileToRepRole("Call Center AHCCCS")).toBe(REP_ROLE.AdmissionsRep);
   });
 
   it("Business Development → bd_rep", () => {
     expect(profileToRepRole("Business Development")).toBe(REP_ROLE.BdRep);
+  });
+
+  it("Old casing 'Treatment Standard' (without caps) → other (no longer matches)", () => {
+    expect(profileToRepRole("Treatment Standard")).toBe(REP_ROLE.Other);
+  });
+
+  it("Old name 'Admin' → other (no longer matches)", () => {
+    expect(profileToRepRole("Admin")).toBe(REP_ROLE.Other);
   });
 
   it("Unknown profile → other", () => {

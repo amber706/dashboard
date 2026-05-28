@@ -85,9 +85,10 @@ FORBIDDEN=(
   # Raw source category strings
   '"Business Development"'
 
-  # Insurance type strings (Cornerstone picklist; CONFIRMED.md #8)
-  '"Commercial Insurance"'
-  '"Cash"'
+  # Insurance type strings — stored ACTUAL values from Zoho
+  # (Cornerstone picklist; CONFIRMED.md #8 + #14)
+  '"Private Insurance"'
+  '"Cash Pay"'
   '"Medicare"'
   '"No Insurance"'
   '"Out of State Medicaid"'
@@ -110,8 +111,9 @@ FORBIDDEN=(
   '"vop_adult"'
   '"vop_adolescent"'
 
-  # Rep profile strings
-  '"Treatment Standard"'
+  # Rep profile strings (CONFIRMED.md #15)
+  '"TREATMENT Standard"'
+  '"Call Center AHCCCS"'
 )
 
 violations=0

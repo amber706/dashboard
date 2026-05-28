@@ -131,15 +131,21 @@ BEGIN
   END IF;
 END$$;
 
--- ── insurance_type (Cornerstone Lead picklist; CONFIRMED.md #8) ────────────
--- "Cash" replaces the brief's wrong "Private Pay".
+-- ── insurance_type (Cornerstone Lead picklist; CONFIRMED.md #8 + #14) ──────
+-- Stored actual values from Zoho API (display labels differ for two entries):
+--   "Commercial Insurance" display → stored as "Private Insurance"
+--   "Cash" display                 → stored as "Cash Pay"
+-- Network types (EPO/HMO/POS/PPO) intentionally NOT in this enum even though
+-- they also appear in the Zoho Insurance_Type picklist — they belong to the
+-- separate Insurance_Policy_Type dimension we defer to Phase 2 (OPEN_QUESTION
+-- #29).
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'insurance_type') THEN
     CREATE TYPE insurance_type AS ENUM (
       'AHCCCS',
-      'Commercial Insurance',
-      'Cash',
+      'Private Insurance',
+      'Cash Pay',
       'Medicare',
       'No Insurance',
       'Out of State Medicaid'
