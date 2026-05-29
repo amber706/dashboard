@@ -25,6 +25,7 @@ import { useOpFunnel } from "@/features/op-reporting/hooks/useOpFunnel";
 import { FilterBar } from "@/features/op-reporting/components/FilterBar";
 import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
 import { ExportButton } from "@/features/op-reporting/components/ExportButton";
+import { SavedViewsControl } from "@/features/op-reporting/components/SavedViewsControl";
 import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
 import {
   useOpFunnelByPipeline,
@@ -69,7 +70,10 @@ export default function OpFunnel() {
         </div>
       </div>
 
-      <FilterBar filters={filters} onChange={setFilters} />
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <FilterBar filters={filters} onChange={setFilters} />
+        <SavedViewsControl pageKey="op-funnel" filters={filters} onApply={setFilters} />
+      </div>
 
       {error && (
         <Card>
