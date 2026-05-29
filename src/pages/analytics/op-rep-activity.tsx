@@ -24,6 +24,7 @@ import {
   type RepActivityRow,
   type RepRole,
 } from "@/features/op-reporting/hooks/useOpRepActivity";
+import { useOpRepFunnel } from "@/features/op-reporting/hooks/useOpRepFunnel";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -95,6 +96,7 @@ function RepRow({ row }: { row: RepActivityRow }) {
 export default function OpRepActivity() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
   const { data, isLoading, error } = useOpRepActivity(range);
+  const { data: funnelByRep, isLoading: funnelByRepLoading } = useOpRepFunnel(range);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -176,6 +178,65 @@ export default function OpRepActivity() {
                 <tbody>
                   {data.rows.map((r) => (
                     <RepRow key={r.owner_user_id ?? "_"} row={r} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Funnel attribution per specialist */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Funnel by specialist</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Outcome side: MQLs / VOBs / Admits owned by each specialist in the window,
+            from op_lead_funnel_daily.owner_user_id. Pairs with the activity table above
+            to close the loop on input vs outcome. Sorted by admits.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {funnelByRepLoading || !funnelByRep ? (
+            <Skeleton className="h-60 w-full" />
+          ) : funnelByRep.rows.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-6">
+              No funnel attribution in this window.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-2 pr-4">Specialist</th>
+                    <th className="py-2 pr-4 text-right">MQLs</th>
+                    <th className="py-2 pr-4 text-right">VOBs</th>
+                    <th className="py-2 pr-4 text-right">Admits</th>
+                    <th className="py-2 pr-4 text-right">Closed Lost</th>
+                    <th className="py-2 pr-0 text-right">MQL → Admit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {funnelByRep.rows.map((r) => (
+                    <tr key={r.owner_user_id} className="border-b last:border-0">
+                      <td className="py-2 pr-4 font-medium">
+                        <div className="flex items-center gap-2">
+                          <span>{r.full_name ?? "—"}</span>
+                          {r.role_derived && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded border ${ROLE_TONE[r.role_derived]}`}>
+                              {ROLE_LABEL[r.role_derived]}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.mqls_count)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.vobs_count)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.admits_count)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.closed_lost_count)}</td>
+                      <td className="py-2 pr-0 text-right tabular-nums">
+                        {r.mql_to_admit != null ? `${(r.mql_to_admit * 100).toFixed(1)}%` : "—"}
+                      </td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
