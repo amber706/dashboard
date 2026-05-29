@@ -21,13 +21,9 @@ import {
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
-import { useState } from "react";
 import { useOpFunnel } from "@/features/op-reporting/hooks/useOpFunnel";
-import {
-  FilterBar,
-  EMPTY_FILTERS,
-  type FilterContract,
-} from "@/features/op-reporting/components/FilterBar";
+import { FilterBar } from "@/features/op-reporting/components/FilterBar";
+import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
 import {
   useOpFunnelByPipeline,
   labelForPipeline,
@@ -49,7 +45,7 @@ const fmtPct = (n: number | null | undefined, d = 1) =>
 
 export default function OpFunnel() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
-  const [filters, setFilters] = useState<FilterContract>(EMPTY_FILTERS);
+  const [filters, setFilters] = useFilterUrlState();
   const { data, isLoading, error } = useOpFunnel(range, filters);
   const { data: byPipeline, isLoading: byPipelineLoading } = useOpFunnelByPipeline(range, filters);
   const { data: bySource, isLoading: bySourceLoading } = useOpFunnelBySource(range, filters);

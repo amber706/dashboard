@@ -5,7 +5,6 @@
 // and deep-links to /analytics/op-funnel, /op-rep-activity, /op-referrals
 // for the drill-downs.
 
-import { useState } from "react";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,11 +26,8 @@ import {
 } from "@/features/op-reporting/hooks/useOpFunnelByPipeline";
 import { useOpRepActivity } from "@/features/op-reporting/hooks/useOpRepActivity";
 import { useOpReferrals } from "@/features/op-reporting/hooks/useOpReferrals";
-import {
-  FilterBar,
-  EMPTY_FILTERS,
-  type FilterContract,
-} from "@/features/op-reporting/components/FilterBar";
+import { FilterBar } from "@/features/op-reporting/components/FilterBar";
+import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -66,7 +62,7 @@ function DrillCard({ title, description, href, children }: DrillCardProps) {
 
 export default function OpOverview() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
-  const [filters, setFilters] = useState<FilterContract>(EMPTY_FILTERS);
+  const [filters, setFilters] = useFilterUrlState();
   const funnel = useOpFunnel(range, filters);
   const byPipeline = useOpFunnelByPipeline(range, filters);
   const repActivity = useOpRepActivity(range);
