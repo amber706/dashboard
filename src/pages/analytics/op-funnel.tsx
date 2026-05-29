@@ -22,6 +22,11 @@ import { MetricCard } from "@/components/dashboard/MetricCard";
 import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import { useOpFunnel } from "@/features/op-reporting/hooks/useOpFunnel";
+import {
+  useOpFunnelByPipeline,
+  labelForPipeline,
+  isTopLine,
+} from "@/features/op-reporting/hooks/useOpFunnelByPipeline";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -31,6 +36,7 @@ const fmtPct = (n: number | null | undefined, d = 1) =>
 export default function OpFunnel() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
   const { data, isLoading, error } = useOpFunnel(range);
+  const { data: byPipeline, isLoading: byPipelineLoading } = useOpFunnelByPipeline(range);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -154,6 +160,79 @@ export default function OpFunnel() {
           </CardContent>
         </Card>
       )}
+
+      {/* By pipeline */}
+      <Card>
+        <CardHeader>
+          <CardTitle>By pipeline</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Per-pipeline rollup. Top-line subtotal (Commercial-Cash + AHCCCS + ZocDoc) is the
+            headline-KPI denominator; DUI and DV are reported separately per CONFIRMED.md #3.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {byPipelineLoading || !byPipeline ? (
+            <Skeleton className="h-40 w-full" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-2 pr-4">Pipeline</th>
+                    <th className="py-2 pr-4 text-right">Leads</th>
+                    <th className="py-2 pr-4 text-right">MQLs</th>
+                    <th className="py-2 pr-4 text-right">VOBs</th>
+                    <th className="py-2 pr-4 text-right">Admits</th>
+                    <th className="py-2 pr-4 text-right">Closed Lost</th>
+                    <th className="py-2 pr-4 text-right">Refer Out</th>
+                    <th className="py-2 pr-0 text-right">MQL → Admit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {byPipeline.rows.map((r) => {
+                    const ratio = r.mqls_count > 0 ? r.admits_count / r.mqls_count : null;
+                    return (
+                      <tr
+                        key={r.pipeline ?? "_unattached"}
+                        className={`border-b last:border-0 ${isTopLine(r.pipeline) ? "" : "text-muted-foreground"}`}
+                      >
+                        <td className="py-2 pr-4 font-medium">
+                          {labelForPipeline(r.pipeline)}
+                          {isTopLine(r.pipeline) && (
+                            <span className="ml-2 text-[10px] uppercase tracking-wider text-[#10B981]">top-line</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.leads_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.mqls_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.vobs_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.admits_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.closed_lost_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.referred_out_count)}</td>
+                        <td className="py-2 pr-0 text-right tabular-nums">{fmtPct(ratio)}</td>
+                      </tr>
+                    );
+                  })}
+                  {/* Top-line subtotal */}
+                  <tr className="border-t-2 border-[#10B981]/40 font-medium">
+                    <td className="py-2 pr-4">Top-line subtotal</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">—</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(byPipeline.topLineTotals.mqls_count)}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(byPipeline.topLineTotals.vobs_count)}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(byPipeline.topLineTotals.admits_count)}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(byPipeline.topLineTotals.closed_lost_count)}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(byPipeline.topLineTotals.referred_out_count)}</td>
+                    <td className="py-2 pr-0 text-right tabular-nums">
+                      {byPipeline.topLineTotals.mqls_count > 0
+                        ? fmtPct(byPipeline.topLineTotals.admits_count / byPipeline.topLineTotals.mqls_count)
+                        : "—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
