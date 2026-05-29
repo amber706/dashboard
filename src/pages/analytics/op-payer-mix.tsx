@@ -13,12 +13,18 @@ import { ShieldCheck, CreditCard, HelpCircle, Gavel, Users } from "lucide-react"
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
+import { useState } from "react";
 import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import {
   useOpPayerMix,
   type PayerBucket,
 } from "@/features/op-reporting/hooks/useOpPayerMix";
+import {
+  FilterBar,
+  EMPTY_FILTERS,
+  type FilterContract,
+} from "@/features/op-reporting/components/FilterBar";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -36,7 +42,9 @@ const BUCKET_COLOR: Record<PayerBucket, string> = {
 
 export default function OpPayerMix() {
   const { preset, range, setPreset } = useDashboardRange("L30D");
-  const { data, isLoading, error } = useOpPayerMix(range);
+  const [filters, setFilters] = useState<FilterContract>(EMPTY_FILTERS);
+  const { data, isLoading, error } = useOpPayerMix(range, filters);
+  const pipelineFilterActive = filters.pipelines.length > 0;
 
   const unclassifiedShare =
     data && data.total > 0 ? data.treatment.unclassified / data.total : null;
@@ -50,6 +58,15 @@ export default function OpPayerMix() {
         />
         <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
+
+      <FilterBar filters={filters} onChange={setFilters} />
+
+      {pipelineFilterActive && (
+        <div className="text-xs text-muted-foreground">
+          Pipeline filter doesn't apply on this page — leads aren't attributed to a
+          pipeline until they convert to deals. Channel + LOC filters are honored.
+        </div>
+      )}
 
       {error && (
         <Card>
