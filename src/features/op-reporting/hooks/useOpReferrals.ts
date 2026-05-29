@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { DateRange } from "@/features/analytics-warehouse/api/types";
 import type { Pipeline } from "@/lib/metrics/definitions";
+import type { FilterContract } from "@/features/op-reporting/components/FilterBar";
+import { filtersActive, filterCacheKey } from "./filterArgs";
 
 export interface ReferralDailyRow {
   date: string;
@@ -32,13 +34,26 @@ export interface ReferralsData {
   };
 }
 
-export function useOpReferrals(range: DateRange) {
+export function useOpReferrals(range: DateRange, filters?: FilterContract) {
   return useQuery({
-    queryKey: ["op-referrals", range.from, range.to],
+    queryKey: ["op-referrals", range.from, range.to, filterCacheKey(filters)],
     queryFn: async (): Promise<ReferralsData> => {
+      // Referrals only honors pipeline + source filters; LOC isn't a
+      // dimension on op_referrals_daily. We pass through the two that apply.
+      const referralArgs = {
+        p_start: range.from,
+        p_end: range.to,
+        p_pipelines: filters && filters.pipelines.length > 0 ? filters.pipelines : null,
+        p_source_categories: filters && filters.sources.length > 0 ? filters.sources : null,
+      };
+      const useFiltered = filtersActive(filters) && (filters!.pipelines.length + filters!.sources.length) > 0;
       const [dailyRes, breakdownRes] = await Promise.all([
-        supabase.rpc("reporting_op_referrals_daily", { p_start: range.from, p_end: range.to }),
-        supabase.rpc("reporting_op_referred_out_breakdown", { p_start: range.from, p_end: range.to }),
+        useFiltered
+          ? supabase.rpc("reporting_op_referrals_daily_filtered", referralArgs)
+          : supabase.rpc("reporting_op_referrals_daily", { p_start: range.from, p_end: range.to }),
+        useFiltered
+          ? supabase.rpc("reporting_op_referred_out_breakdown_filtered", referralArgs)
+          : supabase.rpc("reporting_op_referred_out_breakdown", { p_start: range.from, p_end: range.to }),
       ]);
       if (dailyRes.error) throw new Error(`reporting_op_referrals_daily: ${dailyRes.error.message}`);
       if (breakdownRes.error) throw new Error(`reporting_op_referred_out_breakdown: ${breakdownRes.error.message}`);

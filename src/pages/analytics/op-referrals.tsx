@@ -16,9 +16,15 @@ import { Handshake, Globe, ArrowRightCircle, Users } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
+import { useState } from "react";
 import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import { useOpReferrals } from "@/features/op-reporting/hooks/useOpReferrals";
+import {
+  FilterBar,
+  EMPTY_FILTERS,
+  type FilterContract,
+} from "@/features/op-reporting/components/FilterBar";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -35,7 +41,9 @@ const PIPELINE_LABEL: Record<string, string> = {
 
 export default function OpReferrals() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
-  const { data, isLoading, error } = useOpReferrals(range);
+  const [filters, setFilters] = useState<FilterContract>(EMPTY_FILTERS);
+  const { data, isLoading, error } = useOpReferrals(range, filters);
+  const locFilterActive = filters.locs.length > 0;
   const bdShare =
     data && data.totals.total_referrals_in > 0
       ? data.totals.bd_referrals_in / data.totals.total_referrals_in
@@ -50,6 +58,15 @@ export default function OpReferrals() {
         />
         <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
+
+      <FilterBar filters={filters} onChange={setFilters} />
+
+      {locFilterActive && (
+        <div className="text-xs text-muted-foreground">
+          LOC filter doesn't apply on this page — op_referrals_daily doesn't carry
+          Level of Care. Pipeline + Channel filters are honored.
+        </div>
+      )}
 
       {error && (
         <Card>
