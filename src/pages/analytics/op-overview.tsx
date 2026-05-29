@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/section-header";
+import { CacheFreshnessBadge } from "@/features/op-reporting/components/CacheFreshnessBadge";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import {
   Inbox, ShieldCheck, CheckCircle2, Handshake, Calendar, ChevronRight,
@@ -100,6 +101,10 @@ export default function OpOverview() {
           />
           <RangePicker preset={preset} range={range} onChange={setPreset} />
         </div>
+
+      <div className="flex justify-end -mt-3">
+        <CacheFreshnessBadge />
+      </div>
       </div>
 
       <div className="flex items-center justify-between gap-2 flex-wrap">

@@ -11,6 +11,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/section-header";
+import { CacheFreshnessBadge } from "@/features/op-reporting/components/CacheFreshnessBadge";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { Handshake, Globe, ArrowRightCircle, Users } from "lucide-react";
 import {
@@ -62,6 +63,10 @@ export default function OpReferrals() {
           />
           <RangePicker preset={preset} range={range} onChange={setPreset} />
         </div>
+
+      <div className="flex justify-end -mt-3">
+        <CacheFreshnessBadge />
+      </div>
       </div>
 
       <div className="flex items-center justify-between gap-2 flex-wrap">

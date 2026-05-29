@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/section-header";
+import { CacheFreshnessBadge } from "@/features/op-reporting/components/CacheFreshnessBadge";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { AlertTriangle, CheckCircle2, Tag, Link as LinkIcon } from "lucide-react";
 import { useOpDataQuality } from "@/features/op-reporting/hooks/useOpDataQuality";
@@ -78,6 +79,11 @@ export default function OpDataQuality() {
           title="Data quality"
           subtitle="Sync health, unmapped enum values, and orphan records for the Phase 1B pipeline. Wraps the migration-160 views."
         />
+      </div>
+
+
+      <div className="flex justify-end -mt-3">
+        <CacheFreshnessBadge />
       </div>
 
       {error && (
