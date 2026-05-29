@@ -92,6 +92,7 @@ import OpFunnel from "@/pages/analytics/op-funnel";
 import OpRepActivity from "@/pages/analytics/op-rep-activity";
 import OpReferrals from "@/pages/analytics/op-referrals";
 import OpOverview from "@/pages/analytics/op-overview";
+import OpPayerMix from "@/pages/analytics/op-payer-mix";
 import WarehouseRepMetrics from "@/pages/analytics/rep-metrics";
 import WarehouseChannel from "@/pages/analytics/channel";
 import AnalyticsChartView from "@/pages/analytics/chart-view";
@@ -187,6 +188,7 @@ function AppRoutes() {
         <Route path="/analytics/op-rep-activity"  component={MgrMod("page_warehouse_rep_metrics", OpRepActivity)} />
         <Route path="/analytics/op-overview"      component={MgrMod("page_warehouse_executive",   OpOverview)} />
         <Route path="/analytics/op-referrals"     component={MgrMod("page_warehouse_bd_activity", OpReferrals)} />
+        <Route path="/analytics/op-payer-mix"     component={MgrMod("page_warehouse_payer",       OpPayerMix)} />
         <Route path="/analytics/rep-metrics"   component={MgrMod("page_warehouse_rep_metrics", WarehouseRepMetrics)} />
         <Route path="/analytics/channel"       component={MgrMod("page_warehouse_channel",     WarehouseChannel)} />
         <Route path="/analytics/chart-view"    component={MgrMod("page_warehouse_chart_view",  AnalyticsChartView)} />
