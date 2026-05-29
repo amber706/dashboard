@@ -24,7 +24,6 @@ import {
   loadMappings,
   startSyncRun,
   supa,
-  upsertRaw,
   ZOHO_ANALYTICS_API_DOMAIN,
 } from "./_shared/reporting-sync.ts";
 
@@ -44,29 +43,6 @@ const INSURANCE_TYPE_ENUM: ReadonlySet<string> = new Set([
   "No Insurance",
   "Out of State Medicaid",
 ]);
-
-// Fields we keep in raw_zoho_analytics_leads.raw_payload. Persisting the
-// full ~100-column Analytics row pushes the edge runtime past
-// WORKER_RESOURCE_LIMIT (256MB) at ~16k rows. The slim payload retains
-// every column the data-quality views + unmapped-value diagnostics need.
-const RAW_PAYLOAD_FIELDS: readonly string[] = [
-  "Id", "Lead Id", "Created_Time", "Created Time", "Modified_Time", "Modified Time",
-  "Interaction Owner",
-  "Source_Category", "Source Category",
-  "Level_of_Care_Requested", "Level of Care Requested",
-  "Insurance_Type", "Insurance Type",
-  "Lead_Score_Rating", "Lead Score Rating",
-  "BD_Rep", "BD Rep",
-] as const;
-
-function slimRawPayload(r: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const k of RAW_PAYLOAD_FIELDS) {
-    const v = r[k];
-    if (v != null && v !== "") out[k] = v;
-  }
-  return out;
-}
 
 type Row = Record<string, string>;
 
@@ -233,10 +209,14 @@ Deno.serve(async (req) => {
       throw new Error(`bulk download (${downloadRes.status}): ${(await downloadRes.text()).slice(0, 400)}`);
     }
 
-    // Stream rows through batched upserts so peak memory stays bounded.
-    // 200 keeps each upsert payload under 1MB even with slim raw_payloads.
+    // Stream rows through batched normalized upserts. We deliberately skip
+    // the raw_zoho_analytics_leads mirror — persisting 60k+ rows of JSONB
+    // in addition to streaming the CSV breaches the edge runtime's 256MB
+    // cap (v8 / v9 / v10 all OOM'd at 16-49k rows even with slim payloads).
+    // The unmapped-source / unmapped-loc views read from raw_zoho_crm_deals
+    // which still covers the same enums — we lose lead-side coverage but
+    // gain a working end-to-end leads pipeline.
     const BATCH = 200;
-    let rawBuf: Array<{ source_id: string; source_modified_at: string | null; raw_payload: unknown }> = [];
     let normBuf: Array<{
       source_lead_id: string;
       owner_user_id: null;
@@ -253,12 +233,10 @@ Deno.serve(async (req) => {
     let failed = 0;
 
     async function flush() {
-      if (rawBuf.length === 0) return;
-      await upsertRaw("raw_zoho_analytics_leads", rawBuf, 100);
+      if (normBuf.length === 0) return;
       const { data, error } = await supa().rpc("reporting_upsert_leads", { p_rows: normBuf });
       if (error) throw new Error(`reporting_upsert_leads failed: ${error.message}`);
       totalUpserted += Number(data ?? normBuf.length);
-      rawBuf = [];
       normBuf = [];
     }
 
@@ -274,18 +252,12 @@ Deno.serve(async (req) => {
       const scoreRating = (r["Lead_Score_Rating"] ?? r["Lead Score Rating"] ?? "").trim() || null;
       const bdRep = (r["BD_Rep"] ?? r["BD Rep"] ?? "").trim() || null;
       const createdAt = (r["Created_Time"] ?? r["Created Time"] ?? "").trim() || new Date().toISOString();
-      const modifiedAt = (r["Modified_Time"] ?? r["Modified Time"] ?? "").trim() || null;
 
       const source_category = sourceCategoryRaw
         ? (mappings.sourceCategory.get(sourceCategoryRaw) ?? "digital_marketing")
         : "digital_marketing";
       const loc = locRaw ? mappings.loc.get(locRaw) ?? null : null;
 
-      rawBuf.push({
-        source_id: sourceId,
-        source_modified_at: modifiedAt,
-        raw_payload: slimRawPayload(r),
-      });
       normBuf.push({
         source_lead_id: sourceId,
         owner_user_id: null,
@@ -298,7 +270,7 @@ Deno.serve(async (req) => {
         created_at: createdAt,
       });
 
-      if (rawBuf.length >= BATCH) await flush();
+      if (normBuf.length >= BATCH) await flush();
     }
     await flush();
 
