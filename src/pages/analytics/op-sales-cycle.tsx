@@ -12,6 +12,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/section-header";
+import { CacheFreshnessBadge } from "@/features/op-reporting/components/CacheFreshnessBadge";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { Clock, Hourglass, AlertCircle } from "lucide-react";
 import { useUrlDateRange } from "@/features/op-reporting/hooks/useUrlDateRange";
@@ -81,6 +82,10 @@ export default function OpSalesCycle() {
           />
           <RangePicker preset={preset} range={range} onChange={setPreset} />
         </div>
+
+      <div className="flex justify-end -mt-3">
+        <CacheFreshnessBadge />
+      </div>
       </div>
 
       {error && (

@@ -12,6 +12,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/section-header";
+import { CacheFreshnessBadge } from "@/features/op-reporting/components/CacheFreshnessBadge";
 import {
   Users, Inbox, ShieldCheck, CheckCircle2, XCircle, ArrowRightCircle,
 } from "lucide-react";
@@ -68,6 +69,10 @@ export default function OpFunnel() {
           />
           <RangePicker preset={preset} range={range} onChange={setPreset} />
         </div>
+
+      <div className="flex justify-end -mt-3">
+        <CacheFreshnessBadge />
+      </div>
       </div>
 
       <div className="flex items-center justify-between gap-2 flex-wrap">

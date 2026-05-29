@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/section-header";
+import { CacheFreshnessBadge } from "@/features/op-reporting/components/CacheFreshnessBadge";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import {
   PhoneIncoming, PhoneOutgoing, PhoneMissed, Clock, Calendar,
@@ -138,6 +139,10 @@ export default function OpRepActivity() {
           />
           <RangePicker preset={preset} range={range} onChange={setPreset} />
         </div>
+
+      <div className="flex justify-end -mt-3">
+        <CacheFreshnessBadge />
+      </div>
       </div>
 
       {error && (
