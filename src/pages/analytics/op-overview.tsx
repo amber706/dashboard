@@ -17,7 +17,7 @@ import {
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
+import { useUrlDateRange } from "@/features/op-reporting/hooks/useUrlDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import { useOpFunnel } from "@/features/op-reporting/hooks/useOpFunnel";
 import {
@@ -64,7 +64,7 @@ function DrillCard({ title, description, href, children }: DrillCardProps) {
 }
 
 export default function OpOverview() {
-  const { preset, range, setPreset } = useDashboardRange("MTD");
+  const { preset, range, setPreset } = useUrlDateRange("MTD");
   const [filters, setFilters] = useFilterUrlState();
   const funnel = useOpFunnel(range, filters);
   const byPipeline = useOpFunnelByPipeline(range, filters);

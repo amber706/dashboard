@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/section-header";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { Clock, Hourglass, AlertCircle } from "lucide-react";
-import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
+import { useUrlDateRange } from "@/features/op-reporting/hooks/useUrlDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import { ExportButton } from "@/features/op-reporting/components/ExportButton";
 import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
@@ -28,7 +28,7 @@ const fmtPct = (n: number | null | undefined, d = 1) =>
   n == null ? "—" : `${(n * 100).toFixed(d)}%`;
 
 export default function OpSalesCycle() {
-  const { preset, range, setPreset } = useDashboardRange("L30D");
+  const { preset, range, setPreset } = useUrlDateRange("L30D");
   const { data, isLoading, error } = useOpSalesCycle(range);
 
   const coverage = data?.coverage ?? null;
