@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { DateRange } from "@/features/analytics-warehouse/api/types";
 import type { FilterContract } from "@/features/op-reporting/components/FilterBar";
+import { filtersActive, filterArgs, filterCacheKey } from "./filterArgs";
 
 export interface OpFunnelDailyRow {
   date: string; // YYYY-MM-DD
@@ -60,29 +61,14 @@ function deriveTotals(rows: OpFunnelDailyRow[]): OpFunnelTotals {
 }
 
 export function useOpFunnel(range: DateRange, filters?: FilterContract) {
-  const hasFilters =
-    !!filters &&
-    (filters.pipelines.length > 0 || filters.sources.length > 0 || filters.locs.length > 0);
-
   return useQuery({
-    queryKey: [
-      "op-funnel-daily",
-      range.from,
-      range.to,
-      filters?.pipelines.join(",") ?? "",
-      filters?.sources.join(",") ?? "",
-      filters?.locs.join(",") ?? "",
-    ],
+    queryKey: ["op-funnel-daily", range.from, range.to, filterCacheKey(filters)],
     queryFn: async (): Promise<OpFunnelData> => {
-      // Use the filtered RPC when any selection is active; the unfiltered
-      // RPC is the existing 2-arg signature, kept for hot-path simplicity.
-      const { data, error } = hasFilters
+      const { data, error } = filtersActive(filters)
         ? await supabase.rpc("reporting_op_funnel_daily_filtered", {
             p_start: range.from,
             p_end: range.to,
-            p_pipelines: filters!.pipelines.length > 0 ? filters!.pipelines : null,
-            p_source_categories: filters!.sources.length > 0 ? filters!.sources : null,
-            p_locs: filters!.locs.length > 0 ? filters!.locs : null,
+            ...filterArgs(filters),
           })
         : await supabase.rpc("reporting_op_funnel_daily", {
             p_start: range.from,

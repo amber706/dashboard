@@ -12,6 +12,8 @@ import {
   TOP_LINE_ADMIT_PIPELINES,
   type Pipeline,
 } from "@/lib/metrics/definitions";
+import type { FilterContract } from "@/features/op-reporting/components/FilterBar";
+import { filtersActive, filterArgs, filterCacheKey } from "./filterArgs";
 
 export interface PipelineRollupRow {
   pipeline: Pipeline | null;
@@ -55,14 +57,20 @@ function emptyTotals(): Omit<PipelineRollupRow, "pipeline"> {
   };
 }
 
-export function useOpFunnelByPipeline(range: DateRange) {
+export function useOpFunnelByPipeline(range: DateRange, filters?: FilterContract) {
   return useQuery({
-    queryKey: ["op-funnel-by-pipeline", range.from, range.to],
+    queryKey: ["op-funnel-by-pipeline", range.from, range.to, filterCacheKey(filters)],
     queryFn: async (): Promise<ByPipelineData> => {
-      const { data, error } = await supabase.rpc("reporting_op_funnel_by_pipeline", {
-        p_start: range.from,
-        p_end: range.to,
-      });
+      const { data, error } = filtersActive(filters)
+        ? await supabase.rpc("reporting_op_funnel_by_pipeline_filtered", {
+            p_start: range.from,
+            p_end: range.to,
+            ...filterArgs(filters),
+          })
+        : await supabase.rpc("reporting_op_funnel_by_pipeline", {
+            p_start: range.from,
+            p_end: range.to,
+          });
       if (error) throw new Error(`reporting_op_funnel_by_pipeline: ${error.message}`);
       const rows = (data ?? []) as PipelineRollupRow[];
       const topLineTotals = rows.reduce((acc, r) => {

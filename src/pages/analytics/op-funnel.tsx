@@ -51,9 +51,9 @@ export default function OpFunnel() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
   const [filters, setFilters] = useState<FilterContract>(EMPTY_FILTERS);
   const { data, isLoading, error } = useOpFunnel(range, filters);
-  const { data: byPipeline, isLoading: byPipelineLoading } = useOpFunnelByPipeline(range);
-  const { data: bySource, isLoading: bySourceLoading } = useOpFunnelBySource(range);
-  const { data: byLoc, isLoading: byLocLoading } = useOpFunnelByLoc(range);
+  const { data: byPipeline, isLoading: byPipelineLoading } = useOpFunnelByPipeline(range, filters);
+  const { data: bySource, isLoading: bySourceLoading } = useOpFunnelBySource(range, filters);
+  const { data: byLoc, isLoading: byLocLoading } = useOpFunnelByLoc(range, filters);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
