@@ -146,7 +146,7 @@ export const MASTER_TABS: MasterTab[] = [
       "/admin/leads", "/admin/health", "/admin/audit", "/admin/settings",
       "/admin", "/settings",
     ],
-    sections: ["Analytics", "Quality", "Staffing", "Insights", "Admin"],
+    sections: ["Op Reporting", "Analytics", "Quality", "Staffing", "Insights", "Admin"],
     empty: false,
     feature: "module_executive",
   },
