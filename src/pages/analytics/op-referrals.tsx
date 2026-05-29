@@ -22,6 +22,7 @@ import { useOpReferrals } from "@/features/op-reporting/hooks/useOpReferrals";
 import { FilterBar } from "@/features/op-reporting/components/FilterBar";
 import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
 import { ExportButton } from "@/features/op-reporting/components/ExportButton";
+import { SavedViewsControl } from "@/features/op-reporting/components/SavedViewsControl";
 import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
 
 const fmtNumber = (n: number | null | undefined) =>
@@ -63,7 +64,10 @@ export default function OpReferrals() {
         </div>
       </div>
 
-      <FilterBar filters={filters} onChange={setFilters} />
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <FilterBar filters={filters} onChange={setFilters} />
+        <SavedViewsControl pageKey="op-referrals" filters={filters} onApply={setFilters} />
+      </div>
 
       {locFilterActive && (
         <div className="text-xs text-muted-foreground">
