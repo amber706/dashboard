@@ -264,3 +264,37 @@ Should we:
 - (c) Not track DV closed-lost reasons at all (low volume?)
 
 **Recommended default:** (b) for Phase 1; revisit if DV volume grows.
+
+---
+
+## #36 — Pipeline null on legacy Deals (NEW)
+
+**Where:** `reporting-sync-deals` smoke test (2026-05-28, run `06652bea-3458-47ba-8378-91be7ad33257`).
+**Observed:** 1,058 of 29,493 Deals (3.6%) have `Pipeline = null` in Zoho's COQL response and are rejected with `schema_mismatch`. Distribution by Created year: 2022 = 1,032, 2023 = 22, 2024 = 3, 2025 = 1.
+
+The 2022 rows are pre-Pipeline-field legacy. The 26 post-2022 rows are all OOP screening/class stages (`Closed - Sold Screening`, `Closed - Sold Classes`, `Closed - Sold Screening & Class`) where Zoho appears not to populate Pipeline even on current records.
+
+**Decision needed:**
+- (a) Backfill Pipeline in Zoho for legacy rows (one-time mass update)
+- (b) Treat `Pipeline = null` as `oop_screening_class` when Stage matches an OOP class stage; drop the rest as pre-Pipeline legacy
+- (c) Accept the partial — these 1,058 deals predate Phase 1B's reporting window (trailing 14 days) and won't affect op_metrics
+
+**Recommended default:** (c) for Phase 1B chunk 2 sign-off. Revisit if any historical-period drill-down needs them.
+
+---
+
+## #37 — Deal → Lead linkage field name (PARTIAL)
+
+**Status (2026-05-28):**
+- `getFields(Deals)` confirmed there is **no** Lead-Id lookup field on Deals.
+- Zoho's standard `Lead_Created_Time` (date) field exists on the Deal schema, which is exactly what sales-/placement-cycle math needs. Migration 142 plumbs it through end to end (column, upsert RPC, sync function, op_metric builder).
+- **However:** Cornerstone's Zoho returns `Lead_Created_Time = null` on all 29,524 current Deals. The field exists in the schema but isn't auto-populated by Zoho — it requires a CRM workflow that copies the Lead's Created Time to the Deal at conversion.
+
+**Action for Amber:** in Zoho CRM, add a workflow:
+- Trigger: "On Lead Conversion"
+- Action: Field Update → set Deal.Lead_Created_Time to the Lead's Created Time
+- Apply to all five pipelines.
+
+Once set up, every new conversion populates the field automatically. Historical deals remain null unless mass-backfilled (low priority — Phase 1B's reporting window is trailing-14 days; only deals admitted/closed in that window need the value for cycle math).
+
+`op_sales_cycle_daily` + `op_placement_cycle_daily` return zero rows until this workflow is in place. The TS predicates and SQL builder are correct; they're just waiting on data.

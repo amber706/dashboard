@@ -7,3 +7,6 @@ build
 .env.*.local
 *.log
 .vite
+
+# Supabase CLI scratch (linked-project.json, cli-latest)
+supabase/.temp/

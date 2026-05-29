@@ -112,13 +112,14 @@ All under one layout: `Cornerstone Main Sales Pipeline`.
 ## #7 — Zoho Analytics workspace and view for Leads (partially resolves OPEN_QUESTION #7)
 
 **Resolution:**
+- **Org ID:** `781397472` (sent as `ZANALYTICS-ORGID` header; **distinct from the Workspace ID** — easy to confuse since they look the same in URL paths).
 - Workspace ID: `2573883000000036001`
 - View ID: `2573883000000035215`
 - Report name: `Leads (Zoho CRM)`
-- Owner workspace: `Cornerstone Healing Main An...` (Cornerstone Healing Main Analytics workspace)
-- Row count at snapshot: 60,666
+- Owner workspace: `Cornerstone Healing Main Analytics Workspace`
+- Row count at snapshot: 60,666 (Phase 1B verified via bulk-export CSV stream).
 
-**Still pending:** OAuth client ID / secret / refresh token, scope, and whether the report supports incremental pull by Modified Time. Phase 1B can't write the sync without these. Tracked under OPEN_QUESTION #7 (residual).
+**Still pending:** whether the report supports incremental pull by Modified Time. Phase 1B does a full snapshot each run (60k rows fit in the trailing-window bulk export in <5 minutes); incremental can be added in Phase 1C if needed.
 
 ---
 
