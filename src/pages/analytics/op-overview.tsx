@@ -78,7 +78,6 @@ export default function OpOverview() {
   const topLineMqlToAdmit =
     topLine && topLine.mqls_count > 0 ? topLine.admits_count / topLine.mqls_count : null;
 
-  const topReps = repActivity.data?.rows.slice(0, 5) ?? [];
   const topReferOutTypes = referrals.data?.breakdown.slice(0, 5) ?? [];
 
   const isLoading =
@@ -267,39 +266,6 @@ export default function OpOverview() {
                       </tr>
                     );
                   })}
-              </tbody>
-            </table>
-          )}
-        </DrillCard>
-
-        <DrillCard
-          title="Top BD reps by meetings"
-          description="Specialist meeting volume over the window."
-          href="/analytics/op-rep-activity"
-        >
-          {repActivity.isLoading ? (
-            <Skeleton className="h-32 w-full" />
-          ) : topReps.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No rep activity in this window.</div>
-          ) : (
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-muted-foreground border-b text-xs">
-                  <th className="py-1 pr-4">Specialist</th>
-                  <th className="py-1 pr-4 text-right">Calls</th>
-                  <th className="py-1 pr-0 text-right">Meetings</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topReps.map((r) => (
-                  <tr key={r.owner_user_id ?? "_"} className="border-b last:border-0">
-                    <td className="py-1.5 pr-4 font-medium">{r.full_name ?? "—"}</td>
-                    <td className="py-1.5 pr-4 text-right tabular-nums">
-                      {fmtNumber(r.inbound_calls + r.outbound_calls)}
-                    </td>
-                    <td className="py-1.5 pr-0 text-right tabular-nums">{fmtNumber(r.meetings_count)}</td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           )}
