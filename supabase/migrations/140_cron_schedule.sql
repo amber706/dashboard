@@ -52,13 +52,13 @@ $fn$;
 REVOKE ALL ON FUNCTION reporting.invoke_edge_function(TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION reporting.invoke_edge_function(TEXT) TO postgres, service_role;
 
--- Schedule. Leads is intentionally disabled — see header note.
+-- Schedule. All six jobs run staggered to keep the data-freshness banner
+-- on the homepage consistent at 02:00 Phoenix (09:00 UTC).
 SELECT cron.schedule('reporting-sync-users',     '15 7 * * *', $$ SELECT reporting.invoke_edge_function('reporting-sync-users');     $$);
+SELECT cron.schedule('reporting-sync-leads',     '30 7 * * *', $$ SELECT reporting.invoke_edge_function('reporting-sync-leads');     $$);
 SELECT cron.schedule('reporting-sync-deals',     '45 7 * * *', $$ SELECT reporting.invoke_edge_function('reporting-sync-deals');     $$);
 SELECT cron.schedule('reporting-sync-calls',     '0  8 * * *', $$ SELECT reporting.invoke_edge_function('reporting-sync-calls');     $$);
 SELECT cron.schedule('reporting-sync-meetings',  '15 8 * * *', $$ SELECT reporting.invoke_edge_function('reporting-sync-meetings');  $$);
--- Leads (re-enable once the Zoho refresh token includes Analytics scope):
--- SELECT cron.schedule('reporting-sync-leads', '30 7 * * *', $$ SELECT reporting.invoke_edge_function('reporting-sync-leads'); $$);
 
 -- Phase 1B chunk 3: op-metric builder (rebuilds trailing 14 days every run)
 SELECT cron.schedule('reporting-build-op-metrics', '0 9 * * *', $$ SELECT reporting.invoke_edge_function('reporting-build-op-metrics'); $$);

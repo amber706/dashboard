@@ -69,11 +69,22 @@ function exportJobUrl(jobId: string, suffix?: "data"): string {
   return `${ZOHO_ANALYTICS_API_DOMAIN}/restapi/v2/bulk/workspaces/${WORKSPACE_ID}/exportjobs/${jobId}${suffix ? "/" + suffix : ""}`;
 }
 
-async function createExportJob(token: string): Promise<string> {
+async function createExportJob(token: string, modifiedSince: Date | null): Promise<string> {
   // CSV format streams cleanly. GET with CONFIG URL-encoded in the query
   // string is what Zoho V2 bulk-export actually wants.
-  const configJson = JSON.stringify({ responseFormat: "csv" });
-  const url = `${createExportUrl()}?CONFIG=${encodeURIComponent(configJson)}`;
+  //
+  // Criteria semantics for Analytics V2: SQL-ish predicate with column
+  // names quoted, datetime values single-quoted in ISO format. When the
+  // sync has a prior-success watermark we use it to pull only Modified
+  // Time > watermark; otherwise we fall back to last 30 days so the
+  // first run after an outage doesn't blow the edge runtime budget on
+  // the full ~60k snapshot.
+  const since = modifiedSince ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const config: Record<string, unknown> = {
+    responseFormat: "csv",
+    criteria: `"Modified Time" > '${since.toISOString().slice(0, 19)}'`,
+  };
+  const url = `${createExportUrl()}?CONFIG=${encodeURIComponent(JSON.stringify(config))}`;
   const res = await fetch(url, { method: "GET", headers: analyticsHeaders(token) });
   const text = await res.text();
   if (!res.ok) throw new Error(`bulk create-job (${res.status}): ${text.slice(0, 400)}`);
@@ -201,7 +212,14 @@ Deno.serve(async (req) => {
     const token = await getZohoToken();
     const mappings = await loadMappings();
 
-    const jobId = await createExportJob(token);
+    // Allow an explicit override via ?since=YYYY-MM-DD for manual backfills.
+    // Otherwise use the sync_runs watermark (or 30-day fallback inside
+    // createExportJob).
+    const sinceOverride = url.searchParams.get("since");
+    const since: Date | null = sinceOverride
+      ? new Date(sinceOverride)
+      : (run.watermarkUsed ?? null);
+    const jobId = await createExportJob(token, since);
     await pollExportJob(token, jobId);
 
     const downloadRes = await fetch(exportJobUrl(jobId, "data"), { headers: analyticsHeaders(token) });
