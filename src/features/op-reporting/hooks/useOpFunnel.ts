@@ -8,6 +8,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { DateRange } from "@/features/analytics-warehouse/api/types";
+import type { FilterContract } from "@/features/op-reporting/components/FilterBar";
 
 export interface OpFunnelDailyRow {
   date: string; // YYYY-MM-DD
@@ -58,18 +59,39 @@ function deriveTotals(rows: OpFunnelDailyRow[]): OpFunnelTotals {
   };
 }
 
-export function useOpFunnel(range: DateRange) {
+export function useOpFunnel(range: DateRange, filters?: FilterContract) {
+  const hasFilters =
+    !!filters &&
+    (filters.pipelines.length > 0 || filters.sources.length > 0 || filters.locs.length > 0);
+
   return useQuery({
-    queryKey: ["op-funnel-daily", range.from, range.to],
+    queryKey: [
+      "op-funnel-daily",
+      range.from,
+      range.to,
+      filters?.pipelines.join(",") ?? "",
+      filters?.sources.join(",") ?? "",
+      filters?.locs.join(",") ?? "",
+    ],
     queryFn: async (): Promise<OpFunnelData> => {
-      const { data, error } = await supabase.rpc("reporting_op_funnel_daily", {
-        p_start: range.from,
-        p_end: range.to,
-      });
+      // Use the filtered RPC when any selection is active; the unfiltered
+      // RPC is the existing 2-arg signature, kept for hot-path simplicity.
+      const { data, error } = hasFilters
+        ? await supabase.rpc("reporting_op_funnel_daily_filtered", {
+            p_start: range.from,
+            p_end: range.to,
+            p_pipelines: filters!.pipelines.length > 0 ? filters!.pipelines : null,
+            p_source_categories: filters!.sources.length > 0 ? filters!.sources : null,
+            p_locs: filters!.locs.length > 0 ? filters!.locs : null,
+          })
+        : await supabase.rpc("reporting_op_funnel_daily", {
+            p_start: range.from,
+            p_end: range.to,
+          });
       if (error) throw new Error(`reporting_op_funnel_daily: ${error.message}`);
       const rows = (data ?? []) as OpFunnelDailyRow[];
       return { rows, totals: deriveTotals(rows) };
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes — cache is rebuilt daily anyway
+    staleTime: 5 * 60 * 1000,
   });
 }

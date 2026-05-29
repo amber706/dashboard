@@ -21,7 +21,13 @@ import {
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
+import { useState } from "react";
 import { useOpFunnel } from "@/features/op-reporting/hooks/useOpFunnel";
+import {
+  FilterBar,
+  EMPTY_FILTERS,
+  type FilterContract,
+} from "@/features/op-reporting/components/FilterBar";
 import {
   useOpFunnelByPipeline,
   labelForPipeline,
@@ -43,7 +49,8 @@ const fmtPct = (n: number | null | undefined, d = 1) =>
 
 export default function OpFunnel() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
-  const { data, isLoading, error } = useOpFunnel(range);
+  const [filters, setFilters] = useState<FilterContract>(EMPTY_FILTERS);
+  const { data, isLoading, error } = useOpFunnel(range, filters);
   const { data: byPipeline, isLoading: byPipelineLoading } = useOpFunnelByPipeline(range);
   const { data: bySource, isLoading: bySourceLoading } = useOpFunnelBySource(range);
   const { data: byLoc, isLoading: byLocLoading } = useOpFunnelByLoc(range);
@@ -57,6 +64,8 @@ export default function OpFunnel() {
         />
         <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
+
+      <FilterBar filters={filters} onChange={setFilters} />
 
       {error && (
         <Card>
