@@ -103,12 +103,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ops/alerts", label: "High-Priority Alerts", icon: <AlertTriangle className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const, pulse: true },
     { href: "/ops/supervisor-review", label: "Supervisor Review", icon: <Eye className="w-4 h-4" />, section: "Alerts", roles: ["manager", "admin"] as const },
 
-    // LIVE OPS — Overview is the manager command center; Suggestions kept
-    // as a separate link because it has its own act/dismiss workflow.
-    // (Callbacks, VOB, Intake, Outreach, Stuck, Abandoned are now all in /queue.)
-    { href: "/ops/overview", label: "Overview", icon: <Gauge className="w-4 h-4" />, section: "Live Ops", roles: ["manager", "admin"] as const },
+    // LIVE OPS — removed. The "Overview" entry that used to live here
+    // pointed at /ops/overview, which is the SAME page managers/admins
+    // already land on when they click "Dashboard" (home-v2 redirects
+    // "/" → "/ops/overview" for those roles). Two nav items rendering
+    // the same view was the source of the "overview and dashboard are
+    // the same" report. Keeping only the top-level "Dashboard" link.
     // AI Suggestions — surfaced in Workflow (above) for all roles.
-    // Removed from Live Ops to avoid the duplicate sidebar entry.
 
     // QUALITY (review surfaces — Coaching Feed dropped because /ops/overview
     // Attention Strip + Watchlist already surface trending-down specialists,
@@ -123,6 +124,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
     // the ETL in etl/. Each entry is independently flag-gated via
     // page_warehouse_*; the parent module_analytics_warehouse cascades
     // visibility.
+    // Phase 1C ("Op") pages — read from the reporting.op_* cache (Phase 1B
+    // data layer). The legacy fact_*/dim_* pages stay until the new pages
+    // are at parity; both live side-by-side during the migration.
+    { href: "/analytics/op-overview",    label: "Op Overview",         icon: <BarChart3 className="w-4 h-4" />,   section: "Op Reporting", roles: ["manager", "admin"] as const },
+    { href: "/analytics/op-funnel",      label: "Op Funnel",           icon: <TrendingDown className="w-4 h-4" />, section: "Op Reporting", roles: ["manager", "admin"] as const },
+    { href: "/analytics/op-rep-activity", label: "Op Rep Activity",    icon: <Users className="w-4 h-4" />,        section: "Op Reporting", roles: ["manager", "admin"] as const },
+    { href: "/analytics/op-referrals",   label: "Op Referrals",        icon: <Calendar className="w-4 h-4" />,     section: "Op Reporting", roles: ["manager", "admin"] as const },
+
     { href: "/analytics/executive",   label: "Executive Snapshot",  icon: <BarChart3 className="w-4 h-4" />,   section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/funnel",      label: "Funnel Analysis",     icon: <TrendingDown className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/rep-metrics", label: "Rep Metrics",         icon: <Trophy className="w-4 h-4" />,       section: "Analytics", roles: ["manager", "admin"] as const },
@@ -243,6 +252,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href === "/executive" || href === "/analytics") return "module_executive";
     // Warehouse-backed analytics — page flags cascade off
     // module_analytics_warehouse.
+    // Phase 1C (Op Reporting) — reuse the warehouse flags so visibility
+    // toggles together; we can split into dedicated module_op_reporting
+    // flags later if Amber wants per-page gating.
+    if (href === "/analytics/op-overview")     return "page_warehouse_executive";
+    if (href === "/analytics/op-funnel")       return "page_warehouse_funnel";
+    if (href === "/analytics/op-rep-activity") return "page_warehouse_rep_metrics";
+    if (href === "/analytics/op-referrals")    return "page_warehouse_bd_activity";
+
     if (href === "/analytics/executive")     return "page_warehouse_executive";
     if (href === "/analytics/funnel")        return "page_warehouse_funnel";
     if (href === "/analytics/rep-metrics")   return "page_warehouse_rep_metrics";
@@ -281,12 +298,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // structurally. Rebuild a synthetic "Practice" entry at the top.
   const sections = [...new Set(filteredItems.map((i) => i.section))];
 
+  // Active-check helper. The Dashboard ("/") item also matches
+  // /ops/overview for managers/admins because home-v2 redirects "/"
+  // there for those roles — without this carve-out the Dashboard
+  // entry would never highlight for them.
+  const dashboardCovers = (loc: string) =>
+    loc === "/" || ((role === "manager" || role === "admin") && loc.startsWith("/ops/overview"));
+  const isNavActive = (href: string, loc: string) =>
+    href === "/"
+      ? dashboardCovers(loc)
+      : loc.startsWith(href.split("/").slice(0, 3).join("/"));
+
   // Track which sections are expanded; auto-expand the section containing the
   // active page on first render and whenever the location changes.
-  const sectionForActive = filteredItems.find((i) => {
-    if (i.href === "/") return location === "/";
-    return location.startsWith(i.href.split("/").slice(0, 3).join("/"));
-  })?.section;
+  const sectionForActive = filteredItems.find((i) => isNavActive(i.href, location))?.section;
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     sections.forEach((s) => {
@@ -385,9 +410,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         {open && (
                           <ul className="space-y-0.5">
                             {items.map((item) => {
-                              const isItemActive = item.href === "/"
-                                ? location === "/"
-                                : location.startsWith(item.href.split("/").slice(0, 3).join("/"));
+                              const isItemActive = isNavActive(item.href, location);
                               return (
                                 <li key={item.href + item.label}>
                                   <Link
