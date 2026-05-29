@@ -45,8 +45,13 @@ export function useOpReferrals(range: DateRange, filters?: FilterContract) {
         p_end: range.to,
         p_pipelines: filters && filters.pipelines.length > 0 ? filters.pipelines : null,
         p_source_categories: filters && filters.sources.length > 0 ? filters.sources : null,
+        p_owner_user_ids: filters && filters.reps.length > 0 ? filters.reps : null,
       };
-      const useFiltered = filtersActive(filters) && (filters!.pipelines.length + filters!.sources.length) > 0;
+      // LOC isn't a dim on op_referrals_daily — skip the filtered RPC when
+      // only LOC was picked. The other three dims do apply.
+      const useFiltered =
+        filtersActive(filters) &&
+        (filters!.pipelines.length + filters!.sources.length + filters!.reps.length) > 0;
       const [dailyRes, breakdownRes] = await Promise.all([
         useFiltered
           ? supabase.rpc("reporting_op_referrals_daily_filtered", referralArgs)
