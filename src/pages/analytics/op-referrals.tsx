@@ -21,6 +21,8 @@ import { RangePicker } from "@/features/analytics-warehouse/components/RangePick
 import { useOpReferrals } from "@/features/op-reporting/hooks/useOpReferrals";
 import { FilterBar } from "@/features/op-reporting/components/FilterBar";
 import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
+import { ExportButton } from "@/features/op-reporting/components/ExportButton";
+import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -52,7 +54,13 @@ export default function OpReferrals() {
           title="Referrals"
           subtitle="BD-attributed lead inflow + closed referred-out deals, from reporting.op_referrals_daily."
         />
-        <RangePicker preset={preset} range={range} onChange={setPreset} />
+        <div className="flex items-center gap-2">
+          <ExportButton
+            disabled={!data || data.rows.length === 0}
+            onExport={() => downloadCsv(dateStampedName("op-referrals-daily"), data?.rows ?? [])}
+          />
+          <RangePicker preset={preset} range={range} onChange={setPreset} />
+        </div>
       </div>
 
       <FilterBar filters={filters} onChange={setFilters} />

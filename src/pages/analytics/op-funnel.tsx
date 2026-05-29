@@ -24,6 +24,8 @@ import { RangePicker } from "@/features/analytics-warehouse/components/RangePick
 import { useOpFunnel } from "@/features/op-reporting/hooks/useOpFunnel";
 import { FilterBar } from "@/features/op-reporting/components/FilterBar";
 import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
+import { ExportButton } from "@/features/op-reporting/components/ExportButton";
+import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
 import {
   useOpFunnelByPipeline,
   labelForPipeline,
@@ -58,7 +60,13 @@ export default function OpFunnel() {
           title="Funnel (Op Metric Cache)"
           subtitle="Leads → MQLs → VOBs → Admits, sourced from reporting.op_lead_funnel_daily. Cache rebuilds at 02:00 Phoenix."
         />
-        <RangePicker preset={preset} range={range} onChange={setPreset} />
+        <div className="flex items-center gap-2">
+          <ExportButton
+            disabled={!data || data.rows.length === 0}
+            onExport={() => downloadCsv(dateStampedName("op-funnel-daily"), data?.rows ?? [])}
+          />
+          <RangePicker preset={preset} range={range} onChange={setPreset} />
+        </div>
       </div>
 
       <FilterBar filters={filters} onChange={setFilters} />

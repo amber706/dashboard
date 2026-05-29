@@ -25,6 +25,8 @@ import {
   type RepRole,
 } from "@/features/op-reporting/hooks/useOpRepActivity";
 import { useOpRepFunnel } from "@/features/op-reporting/hooks/useOpRepFunnel";
+import { ExportButton } from "@/features/op-reporting/components/ExportButton";
+import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -105,7 +107,37 @@ export default function OpRepActivity() {
           title="Rep Activity"
           subtitle="Per-rep call + meeting totals from reporting.op_rep_activity_daily. Cache rebuilds at 02:00 Phoenix."
         />
-        <RangePicker preset={preset} range={range} onChange={setPreset} />
+        <div className="flex items-center gap-2">
+          <ExportButton
+            disabled={!data || data.rows.length === 0}
+            onExport={() => {
+              // Combine activity + funnel-attribution side-by-side on each
+              // rep so the CSV is a one-row-per-specialist report.
+              const fByRep = new Map((funnelByRep?.rows ?? []).map((r) => [r.owner_user_id, r]));
+              const rows = (data?.rows ?? []).map((a) => {
+                const f = fByRep.get(a.owner_user_id ?? "");
+                return {
+                  specialist: a.full_name ?? "—",
+                  role: a.role_derived ?? "—",
+                  active_days: a.active_days,
+                  inbound_calls: a.inbound_calls,
+                  outbound_calls: a.outbound_calls,
+                  missed_calls: a.missed_calls,
+                  calls_over_2min: a.calls_over_2min,
+                  meetings_count: a.meetings_count,
+                  meetings_by_type_json: JSON.stringify(a.meetings_by_type ?? {}),
+                  mqls_count: f?.mqls_count ?? 0,
+                  vobs_count: f?.vobs_count ?? 0,
+                  admits_count: f?.admits_count ?? 0,
+                  closed_lost_count: f?.closed_lost_count ?? 0,
+                  mql_to_admit: f?.mql_to_admit ?? null,
+                };
+              });
+              downloadCsv(dateStampedName("op-rep-activity"), rows);
+            }}
+          />
+          <RangePicker preset={preset} range={range} onChange={setPreset} />
+        </div>
       </div>
 
       {error && (
