@@ -139,10 +139,10 @@ export default function OpRepActivity() {
           />
           <RangePicker preset={preset} range={range} onChange={setPreset} />
         </div>
+      </div>
 
       <div className="flex justify-end -mt-3">
         <CacheFreshnessBadge />
-      </div>
       </div>
 
       {error && (

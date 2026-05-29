@@ -63,10 +63,10 @@ export default function OpReferrals() {
           />
           <RangePicker preset={preset} range={range} onChange={setPreset} />
         </div>
+      </div>
 
       <div className="flex justify-end -mt-3">
         <CacheFreshnessBadge />
-      </div>
       </div>
 
       <div className="flex items-center justify-between gap-2 flex-wrap">
