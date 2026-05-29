@@ -12,6 +12,8 @@ import {
   LEVEL_OF_CARE,
   type LevelOfCare,
 } from "@/lib/metrics/definitions";
+import type { FilterContract } from "@/features/op-reporting/components/FilterBar";
+import { filtersActive, filterArgs, filterCacheKey } from "./filterArgs";
 
 export interface LocRollupRow {
   level_of_care: LevelOfCare | null;
@@ -45,14 +47,20 @@ export function labelForLoc(loc: LevelOfCare | null): string {
   return loc == null ? "Unspecified" : LOC_LABEL[loc] ?? loc;
 }
 
-export function useOpFunnelByLoc(range: DateRange) {
+export function useOpFunnelByLoc(range: DateRange, filters?: FilterContract) {
   return useQuery({
-    queryKey: ["op-funnel-by-loc", range.from, range.to],
+    queryKey: ["op-funnel-by-loc", range.from, range.to, filterCacheKey(filters)],
     queryFn: async (): Promise<{ rows: LocRollupRow[] }> => {
-      const { data, error } = await supabase.rpc("reporting_op_funnel_by_loc", {
-        p_start: range.from,
-        p_end: range.to,
-      });
+      const { data, error } = filtersActive(filters)
+        ? await supabase.rpc("reporting_op_funnel_by_loc_filtered", {
+            p_start: range.from,
+            p_end: range.to,
+            ...filterArgs(filters),
+          })
+        : await supabase.rpc("reporting_op_funnel_by_loc", {
+            p_start: range.from,
+            p_end: range.to,
+          });
       if (error) throw new Error(`reporting_op_funnel_by_loc: ${error.message}`);
       return { rows: (data ?? []) as LocRollupRow[] };
     },

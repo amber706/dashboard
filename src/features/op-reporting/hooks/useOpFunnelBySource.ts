@@ -10,6 +10,8 @@ import {
   SOURCE_CATEGORY,
   type SourceCategory,
 } from "@/lib/metrics/definitions";
+import type { FilterContract } from "@/features/op-reporting/components/FilterBar";
+import { filtersActive, filterArgs, filterCacheKey } from "./filterArgs";
 
 export interface SourceRollupRow {
   source_category: SourceCategory | null;
@@ -31,14 +33,20 @@ export function labelForSource(s: SourceCategory | null): string {
   return s == null ? "Unattributed" : SOURCE_LABEL[s];
 }
 
-export function useOpFunnelBySource(range: DateRange) {
+export function useOpFunnelBySource(range: DateRange, filters?: FilterContract) {
   return useQuery({
-    queryKey: ["op-funnel-by-source", range.from, range.to],
+    queryKey: ["op-funnel-by-source", range.from, range.to, filterCacheKey(filters)],
     queryFn: async (): Promise<{ rows: SourceRollupRow[] }> => {
-      const { data, error } = await supabase.rpc("reporting_op_funnel_by_source", {
-        p_start: range.from,
-        p_end: range.to,
-      });
+      const { data, error } = filtersActive(filters)
+        ? await supabase.rpc("reporting_op_funnel_by_source_filtered", {
+            p_start: range.from,
+            p_end: range.to,
+            ...filterArgs(filters),
+          })
+        : await supabase.rpc("reporting_op_funnel_by_source", {
+            p_start: range.from,
+            p_end: range.to,
+          });
       if (error) throw new Error(`reporting_op_funnel_by_source: ${error.message}`);
       return { rows: (data ?? []) as SourceRollupRow[] };
     },
