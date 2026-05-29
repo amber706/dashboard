@@ -89,6 +89,7 @@ import AdminUsers from "@/pages/admin/users";
 import WarehouseExecutive from "@/pages/analytics/executive";
 import WarehouseFunnel from "@/pages/analytics/funnel";
 import OpFunnel from "@/pages/analytics/op-funnel";
+import OpRepActivity from "@/pages/analytics/op-rep-activity";
 import WarehouseRepMetrics from "@/pages/analytics/rep-metrics";
 import WarehouseChannel from "@/pages/analytics/channel";
 import AnalyticsChartView from "@/pages/analytics/chart-view";
@@ -180,7 +181,8 @@ function AppRoutes() {
             cascades visibility across them all. */}
         <Route path="/analytics/executive"     component={MgrMod("page_warehouse_executive",   WarehouseExecutive)} />
         <Route path="/analytics/funnel"        component={MgrMod("page_warehouse_funnel",      WarehouseFunnel)} />
-        <Route path="/analytics/op-funnel"     component={MgrMod("page_warehouse_funnel",      OpFunnel)} />
+        <Route path="/analytics/op-funnel"        component={MgrMod("page_warehouse_funnel",      OpFunnel)} />
+        <Route path="/analytics/op-rep-activity"  component={MgrMod("page_warehouse_rep_metrics", OpRepActivity)} />
         <Route path="/analytics/rep-metrics"   component={MgrMod("page_warehouse_rep_metrics", WarehouseRepMetrics)} />
         <Route path="/analytics/channel"       component={MgrMod("page_warehouse_channel",     WarehouseChannel)} />
         <Route path="/analytics/chart-view"    component={MgrMod("page_warehouse_chart_view",  AnalyticsChartView)} />
