@@ -131,6 +131,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/analytics/op-funnel",      label: "Op Funnel",           icon: <TrendingDown className="w-4 h-4" />, section: "Op Reporting", roles: ["manager", "admin"] as const },
     { href: "/analytics/op-rep-activity", label: "Op Rep Activity",    icon: <Users className="w-4 h-4" />,        section: "Op Reporting", roles: ["manager", "admin"] as const },
     { href: "/analytics/op-referrals",   label: "Op Referrals",        icon: <Calendar className="w-4 h-4" />,     section: "Op Reporting", roles: ["manager", "admin"] as const },
+    { href: "/analytics/op-payer-mix",   label: "Op Payer Mix",        icon: <Gauge className="w-4 h-4" />,        section: "Op Reporting", roles: ["manager", "admin"] as const },
 
     { href: "/analytics/executive",   label: "Executive Snapshot",  icon: <BarChart3 className="w-4 h-4" />,   section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/funnel",      label: "Funnel Analysis",     icon: <TrendingDown className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
@@ -259,6 +260,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href === "/analytics/op-funnel")       return "page_warehouse_funnel";
     if (href === "/analytics/op-rep-activity") return "page_warehouse_rep_metrics";
     if (href === "/analytics/op-referrals")    return "page_warehouse_bd_activity";
+    if (href === "/analytics/op-payer-mix")    return "page_warehouse_payer";
 
     if (href === "/analytics/executive")     return "page_warehouse_executive";
     if (href === "/analytics/funnel")        return "page_warehouse_funnel";
