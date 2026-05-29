@@ -31,6 +31,10 @@ import {
   useOpFunnelBySource,
   labelForSource,
 } from "@/features/op-reporting/hooks/useOpFunnelBySource";
+import {
+  useOpFunnelByLoc,
+  labelForLoc,
+} from "@/features/op-reporting/hooks/useOpFunnelByLoc";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -42,6 +46,7 @@ export default function OpFunnel() {
   const { data, isLoading, error } = useOpFunnel(range);
   const { data: byPipeline, isLoading: byPipelineLoading } = useOpFunnelByPipeline(range);
   const { data: bySource, isLoading: bySourceLoading } = useOpFunnelBySource(range);
+  const { data: byLoc, isLoading: byLocLoading } = useOpFunnelByLoc(range);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -232,6 +237,56 @@ export default function OpFunnel() {
                         : "—"}
                     </td>
                   </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* By level of care */}
+      <Card>
+        <CardHeader>
+          <CardTitle>By level of care</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Sorted by admits. LOC = `Unspecified` rows are lead-side observations
+            where intake didn't capture the requested LOC — a real intake-form
+            data quality gap. DUI/DV appear here AND in the by-pipeline view per
+            the orthogonality matrix.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {byLocLoading || !byLoc ? (
+            <Skeleton className="h-40 w-full" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-2 pr-4">Level of Care</th>
+                    <th className="py-2 pr-4 text-right">Leads</th>
+                    <th className="py-2 pr-4 text-right">MQLs</th>
+                    <th className="py-2 pr-4 text-right">VOBs</th>
+                    <th className="py-2 pr-4 text-right">Admits</th>
+                    <th className="py-2 pr-4 text-right">Closed Lost</th>
+                    <th className="py-2 pr-0 text-right">MQL → Admit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {byLoc.rows.map((r) => {
+                    const ratio = r.mqls_count > 0 ? r.admits_count / r.mqls_count : null;
+                    return (
+                      <tr key={r.level_of_care ?? "_"} className="border-b last:border-0">
+                        <td className="py-2 pr-4 font-medium">{labelForLoc(r.level_of_care)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.leads_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.mqls_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.vobs_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.admits_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.closed_lost_count)}</td>
+                        <td className="py-2 pr-0 text-right tabular-nums">{fmtPct(ratio)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
