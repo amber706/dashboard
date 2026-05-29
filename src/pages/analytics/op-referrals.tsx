@@ -16,15 +16,11 @@ import { Handshake, Globe, ArrowRightCircle, Users } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { useState } from "react";
 import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import { useOpReferrals } from "@/features/op-reporting/hooks/useOpReferrals";
-import {
-  FilterBar,
-  EMPTY_FILTERS,
-  type FilterContract,
-} from "@/features/op-reporting/components/FilterBar";
+import { FilterBar } from "@/features/op-reporting/components/FilterBar";
+import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -41,7 +37,7 @@ const PIPELINE_LABEL: Record<string, string> = {
 
 export default function OpReferrals() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
-  const [filters, setFilters] = useState<FilterContract>(EMPTY_FILTERS);
+  const [filters, setFilters] = useFilterUrlState();
   const { data, isLoading, error } = useOpReferrals(range, filters);
   const locFilterActive = filters.locs.length > 0;
   const bdShare =
