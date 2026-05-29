@@ -37,7 +37,8 @@ export function useOpPayerMix(range: DateRange, filters?: FilterContract) {
   // Payer mix only honors source + LOC filters; pipeline isn't a dimension
   // on reporting.leads (leads have no pipeline yet).
   const useFiltered =
-    !!filters && (filters.sources.length > 0 || filters.locs.length > 0);
+    !!filters &&
+    (filters.sources.length > 0 || filters.locs.length > 0 || filters.reps.length > 0);
 
   return useQuery({
     queryKey: ["op-payer-mix", range.from, range.to, filterCacheKey(filters)],
@@ -48,6 +49,7 @@ export function useOpPayerMix(range: DateRange, filters?: FilterContract) {
             p_end: range.to,
             p_source_categories: filters!.sources.length > 0 ? filters!.sources : null,
             p_locs: filters!.locs.length > 0 ? filters!.locs : null,
+            p_owner_user_ids: filters!.reps.length > 0 ? filters!.reps : null,
           })
         : await supabase.rpc("reporting_op_payer_mix", {
             p_start: range.from,

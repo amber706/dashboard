@@ -21,17 +21,21 @@ import {
   type SourceCategory,
   type LevelOfCare,
 } from "@/lib/metrics/definitions";
+import { useUserIdentities } from "@/features/op-reporting/hooks/useUserIdentities";
 
 export interface FilterContract {
   pipelines: Pipeline[];
   sources: SourceCategory[];
   locs: LevelOfCare[];
+  /** user_identity.id (UUIDs) of selected reps. Empty = all. */
+  reps: string[];
 }
 
 export const EMPTY_FILTERS: FilterContract = {
   pipelines: [],
   sources: [],
   locs: [],
+  reps: [],
 };
 
 const PIPELINE_LABEL: Record<Pipeline, string> = {
@@ -126,8 +130,23 @@ interface FilterBarProps {
 }
 
 export function FilterBar({ filters, onChange }: FilterBarProps) {
+  const { data: reps } = useUserIdentities();
+  const repValues = useMemo(() => reps?.map((r) => r.id) ?? [], [reps]);
+  const repLabel = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const r of reps ?? []) {
+      const role = r.role_derived === "bd_rep" ? "BD" : r.role_derived === "admissions_rep" ? "Adm" : "Other";
+      m[r.id] = `${r.full_name ?? r.id} · ${role}`;
+    }
+    return m;
+  }, [reps]);
+
   const activeCount = useMemo(
-    () => filters.pipelines.length + filters.sources.length + filters.locs.length,
+    () =>
+      filters.pipelines.length +
+      filters.sources.length +
+      filters.locs.length +
+      filters.reps.length,
     [filters],
   );
 
@@ -154,6 +173,15 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
         onChange={(locs) => onChange({ ...filters, locs })}
         labelMap={LOC_LABEL}
       />
+      {repValues.length > 0 && (
+        <MultiSelect
+          label="Rep"
+          values={repValues}
+          selected={filters.reps}
+          onChange={(reps) => onChange({ ...filters, reps })}
+          labelMap={repLabel}
+        />
+      )}
       {activeCount > 0 && (
         <Button
           variant="ghost"
