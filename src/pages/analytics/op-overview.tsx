@@ -5,6 +5,7 @@
 // and deep-links to /analytics/op-funnel, /op-rep-activity, /op-referrals
 // for the drill-downs.
 
+import { useState } from "react";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,6 +27,11 @@ import {
 } from "@/features/op-reporting/hooks/useOpFunnelByPipeline";
 import { useOpRepActivity } from "@/features/op-reporting/hooks/useOpRepActivity";
 import { useOpReferrals } from "@/features/op-reporting/hooks/useOpReferrals";
+import {
+  FilterBar,
+  EMPTY_FILTERS,
+  type FilterContract,
+} from "@/features/op-reporting/components/FilterBar";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -60,10 +66,13 @@ function DrillCard({ title, description, href, children }: DrillCardProps) {
 
 export default function OpOverview() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
-  const funnel = useOpFunnel(range);
-  const byPipeline = useOpFunnelByPipeline(range);
+  const [filters, setFilters] = useState<FilterContract>(EMPTY_FILTERS);
+  const funnel = useOpFunnel(range, filters);
+  const byPipeline = useOpFunnelByPipeline(range, filters);
   const repActivity = useOpRepActivity(range);
   const referrals = useOpReferrals(range);
+  const hasFilters =
+    filters.pipelines.length + filters.sources.length + filters.locs.length > 0;
 
   const topLine = byPipeline.data?.topLineTotals;
   const topLineMqlToAdmit =
@@ -86,6 +95,15 @@ export default function OpOverview() {
         />
         <RangePicker preset={preset} range={range} onChange={setPreset} />
       </div>
+
+      <FilterBar filters={filters} onChange={setFilters} />
+
+      {hasFilters && (
+        <div className="text-xs text-muted-foreground">
+          Funnel KPIs + Pipeline split honor the filters above. Rep activity and Referral mix cards
+          stay at the all-data totals — those rollups don't yet carry the same dimensions.
+        </div>
+      )}
 
       {firstError && (
         <Card>
