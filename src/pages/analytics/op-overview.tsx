@@ -28,6 +28,8 @@ import { useOpRepActivity } from "@/features/op-reporting/hooks/useOpRepActivity
 import { useOpReferrals } from "@/features/op-reporting/hooks/useOpReferrals";
 import { FilterBar } from "@/features/op-reporting/components/FilterBar";
 import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
+import { ExportButton } from "@/features/op-reporting/components/ExportButton";
+import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -89,7 +91,14 @@ export default function OpOverview() {
           title="Reporting overview"
           subtitle="Single-pane summary of the Phase 1B reporting pipeline. Cache rebuilds at 02:00 Phoenix; deep-link to the detail pages for slicing."
         />
-        <RangePicker preset={preset} range={range} onChange={setPreset} />
+        <div className="flex items-center gap-2">
+          <ExportButton
+            disabled={!funnel.data || funnel.data.rows.length === 0}
+            onExport={() => downloadCsv(dateStampedName("op-overview-funnel"), funnel.data?.rows ?? [])}
+            label="Export funnel"
+          />
+          <RangePicker preset={preset} range={range} onChange={setPreset} />
+        </div>
       </div>
 
       <FilterBar filters={filters} onChange={setFilters} />
