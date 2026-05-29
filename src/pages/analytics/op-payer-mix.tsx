@@ -13,7 +13,7 @@ import { ShieldCheck, CreditCard, HelpCircle, Gavel, Users } from "lucide-react"
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
+import { useUrlDateRange } from "@/features/op-reporting/hooks/useUrlDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import {
   useOpPayerMix,
@@ -40,7 +40,7 @@ const BUCKET_COLOR: Record<PayerBucket, string> = {
 };
 
 export default function OpPayerMix() {
-  const { preset, range, setPreset } = useDashboardRange("L30D");
+  const { preset, range, setPreset } = useUrlDateRange("L30D");
   const [filters, setFilters] = useFilterUrlState();
   const { data, isLoading, error } = useOpPayerMix(range, filters);
   const pipelineFilterActive = filters.pipelines.length > 0;

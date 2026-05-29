@@ -19,7 +19,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { MetricCard } from "@/components/dashboard/MetricCard";
-import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
+import { useUrlDateRange } from "@/features/op-reporting/hooks/useUrlDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import { useOpFunnel } from "@/features/op-reporting/hooks/useOpFunnel";
 import { FilterBar } from "@/features/op-reporting/components/FilterBar";
@@ -47,7 +47,7 @@ const fmtPct = (n: number | null | undefined, d = 1) =>
   n == null ? "—" : `${(n * 100).toFixed(d)}%`;
 
 export default function OpFunnel() {
-  const { preset, range, setPreset } = useDashboardRange("MTD");
+  const { preset, range, setPreset } = useUrlDateRange("MTD");
   const [filters, setFilters] = useFilterUrlState();
   const { data, isLoading, error } = useOpFunnel(range, filters);
   const { data: byPipeline, isLoading: byPipelineLoading } = useOpFunnelByPipeline(range, filters);

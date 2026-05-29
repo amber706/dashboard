@@ -16,7 +16,7 @@ import { Handshake, Globe, ArrowRightCircle, Users } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
+import { useUrlDateRange } from "@/features/op-reporting/hooks/useUrlDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import { useOpReferrals } from "@/features/op-reporting/hooks/useOpReferrals";
 import { FilterBar } from "@/features/op-reporting/components/FilterBar";
@@ -39,7 +39,7 @@ const PIPELINE_LABEL: Record<string, string> = {
 };
 
 export default function OpReferrals() {
-  const { preset, range, setPreset } = useDashboardRange("MTD");
+  const { preset, range, setPreset } = useUrlDateRange("MTD");
   const [filters, setFilters] = useFilterUrlState();
   const { data, isLoading, error } = useOpReferrals(range, filters);
   const locFilterActive = filters.locs.length > 0;

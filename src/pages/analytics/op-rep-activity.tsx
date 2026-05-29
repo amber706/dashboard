@@ -17,7 +17,7 @@ import { MetricCard } from "@/components/dashboard/MetricCard";
 import {
   PhoneIncoming, PhoneOutgoing, PhoneMissed, Clock, Calendar,
 } from "lucide-react";
-import { useDashboardRange } from "@/features/analytics-warehouse/hooks/useDateRange";
+import { useUrlDateRange } from "@/features/op-reporting/hooks/useUrlDateRange";
 import { RangePicker } from "@/features/analytics-warehouse/components/RangePicker";
 import {
   useOpRepActivity,
@@ -96,7 +96,7 @@ function RepRow({ row }: { row: RepActivityRow }) {
 }
 
 export default function OpRepActivity() {
-  const { preset, range, setPreset } = useDashboardRange("MTD");
+  const { preset, range, setPreset } = useUrlDateRange("MTD");
   const { data, isLoading, error } = useOpRepActivity(range);
   const { data: funnelByRep, isLoading: funnelByRepLoading } = useOpRepFunnel(range);
 
