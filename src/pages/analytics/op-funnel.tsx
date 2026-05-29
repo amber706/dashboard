@@ -27,6 +27,10 @@ import {
   labelForPipeline,
   isTopLine,
 } from "@/features/op-reporting/hooks/useOpFunnelByPipeline";
+import {
+  useOpFunnelBySource,
+  labelForSource,
+} from "@/features/op-reporting/hooks/useOpFunnelBySource";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -37,6 +41,7 @@ export default function OpFunnel() {
   const { preset, range, setPreset } = useDashboardRange("MTD");
   const { data, isLoading, error } = useOpFunnel(range);
   const { data: byPipeline, isLoading: byPipelineLoading } = useOpFunnelByPipeline(range);
+  const { data: bySource, isLoading: bySourceLoading } = useOpFunnelBySource(range);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -227,6 +232,58 @@ export default function OpFunnel() {
                         : "—"}
                     </td>
                   </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* By marketing channel (Source Category) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>By marketing channel</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Source Category attribution per CONFIRMED.md #13. Digital Marketing is the
+            catch-all; Business Development covers referral-in leads (Source = BD or
+            BD_Rep set); ZocDoc is its own bucket.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {bySourceLoading || !bySource ? (
+            <Skeleton className="h-40 w-full" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-2 pr-4">Channel</th>
+                    <th className="py-2 pr-4 text-right">Leads</th>
+                    <th className="py-2 pr-4 text-right">MQLs</th>
+                    <th className="py-2 pr-4 text-right">VOBs</th>
+                    <th className="py-2 pr-4 text-right">Admits</th>
+                    <th className="py-2 pr-4 text-right">Closed Lost</th>
+                    <th className="py-2 pr-4 text-right">MQL → Admit</th>
+                    <th className="py-2 pr-0 text-right">Lead → Admit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bySource.rows.map((r) => {
+                    const mqlAdmit = r.mqls_count > 0 ? r.admits_count / r.mqls_count : null;
+                    const leadAdmit = r.leads_count > 0 ? r.admits_count / r.leads_count : null;
+                    return (
+                      <tr key={r.source_category ?? "_"} className="border-b last:border-0">
+                        <td className="py-2 pr-4 font-medium">{labelForSource(r.source_category)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.leads_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.mqls_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.vobs_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.admits_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.closed_lost_count)}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtPct(mqlAdmit)}</td>
+                        <td className="py-2 pr-0 text-right tabular-nums">{fmtPct(leadAdmit)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
