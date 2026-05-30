@@ -1,7 +1,16 @@
 import { useState, useCallback, useMemo } from "react";
 import type { DateRange, DatePreset } from "../api/types";
 
-const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+// Format from LOCAL date components, not toISOString() (which serializes in
+// UTC). The app is Phoenix-local (UTC-7, no DST); every other helper here uses
+// local getters, so a UTC stringify rolls the date forward by a day in the
+// afternoon/evening — e.g. "Yesterday" at 9pm Phoenix would resolve to today.
+const isoDate = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
 
 // Week starts Monday — matches the existing copilot reporting cadence
 // (week-over-week comparisons in /me etc. use Monday as week start).
