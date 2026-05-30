@@ -13,6 +13,15 @@ export interface DrillRow {
   deal_name: string;
   stage_raw: string;
   date_key: string | null;
+  /**
+   * For admits, indicates which event the row represents:
+   *   - "Admit"          — treatment / DV admit (admit_date or closed_won_admitted)
+   *   - "Screening sold" — DUI screening sale (anchored on screening_closed_date)
+   *   - "Course sold"    — DUI course sale (anchored on closing_date)
+   *   - null             — MQL / VOB / Closed Lost rows (one event per deal)
+   * Lets the UI label why a single DUI deal can appear twice in the drill.
+   */
+  event_label: string | null;
 }
 
 /**

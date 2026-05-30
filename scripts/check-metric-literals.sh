@@ -33,6 +33,8 @@ EXEMPT_FILES=(
   "src/lib/metrics/definitions.ts"
   "src/lib/metrics/schemas.ts"
   "src/lib/metrics/__tests__/definitions.test.ts"
+  # Contract tests pass raw Zoho strings into mapping fns on purpose.
+  "src/lib/metrics/__tests__/phase_1b_contracts.test.ts"
 )
 
 # Forbidden literal strings. Each is matched as a literal substring against
