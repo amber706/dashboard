@@ -60,12 +60,15 @@ export function RepFunnelDrillModal({ open, onOpenChange, userId, userName, metr
                 <tr className="text-left text-muted-foreground border-b">
                   <th className="py-2 pr-4">Deal</th>
                   <th className="py-2 pr-4">Stage</th>
+                  {data.some((r) => r.event_label != null) && (
+                    <th className="py-2 pr-4">Event</th>
+                  )}
                   <th className="py-2 pr-0 text-right">Date</th>
                 </tr>
               </thead>
               <tbody>
-                {data.map((r) => (
-                  <tr key={r.source_deal_id} className="border-b last:border-0">
+                {data.map((r, i) => (
+                  <tr key={`${r.source_deal_id}-${r.event_label ?? ""}-${i}`} className="border-b last:border-0">
                     <td className="py-2 pr-4">
                       <a
                         href={zohoDealUrl(r.source_deal_id)}
@@ -78,14 +81,30 @@ export function RepFunnelDrillModal({ open, onOpenChange, userId, userName, metr
                       </a>
                     </td>
                     <td className="py-2 pr-4 text-muted-foreground">{r.stage_raw}</td>
+                    {data.some((row) => row.event_label != null) && (
+                      <td className="py-2 pr-4">
+                        {r.event_label && (
+                          <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border ${
+                            r.event_label === "Screening sold"
+                              ? "bg-[#5BA3D4]/10 text-[#5BA3D4] border-[#5BA3D4]/30"
+                              : r.event_label === "Course sold"
+                              ? "bg-[#8A78D4]/10 text-[#8A78D4] border-[#8A78D4]/30"
+                              : "bg-[#10B981]/10 text-[#10B981] border-[#10B981]/30"
+                          }`}>
+                            {r.event_label}
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="py-2 pr-0 text-right tabular-nums text-muted-foreground">
                       {r.date_key ?? "—"}
                     </td>
                   </tr>
                 ))}
                 <tr className="font-medium">
-                  <td className="py-2 pr-4">Total</td>
+                  <td className="py-2 pr-4">Total events</td>
                   <td className="py-2 pr-4"></td>
+                  {data.some((r) => r.event_label != null) && <td className="py-2 pr-4"></td>}
                   <td className="py-2 pr-0 text-right tabular-nums">{data.length}</td>
                 </tr>
               </tbody>
