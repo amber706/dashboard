@@ -9,7 +9,7 @@ Two `OPEN_QUESTIONS` remain open by design and are NOT blockers:
 - **#30** — `Insurance_Type` display value `PPO` stores as actual value `Unknown`. Awaits a Zoho config cleanup pass; flagged in a Phase 1B data-quality view.
 
 Two later OPEN_QUESTIONS will get resolved during Phase 1B's first sync run:
-- **#34** — Whether the hidden Source Category values (`Call Center`, `Option 1`, `Option 2`) carry any production data.
+- ~~**#34**~~ — RESOLVED 2026-05-29; see CONFIRMED.md #38.
 - **#35** — Whether the DV pipeline needs a dedicated `Close_Reasoning_DV` field.
 
 ---
@@ -577,6 +577,44 @@ This **revises CONFIRMED.md #20**, which previously said the Admit metric counts
 
 ---
 
+## #37 — `Alumni` is its own source category (revises CONFIRMED.md #17)
+
+**Source:** Amber, 2026-05-29, during BD undercount diagnosis. Surfaced when the new `op_lead_funnel_daily` cache reported BD = 67 / Digital = 247 for this week; investigation showed the `source_category_mapping` seed folded `Alumni` into `digital_marketing` under the catch-all rule from CONFIRMED.md #17.
+
+**Resolution:** The normalized `source_category` enum is **4 values**, not 3:
+
+| Normalized value | Raw Zoho `Source_Category` |
+|---|---|
+| `business_development` | `Business Development` |
+| `zocdoc` | `ZocDoc` |
+| `alumni` | `Alumni` |
+| `digital_marketing` | everything else (catch-all) |
+
+`Alumni` was previously absorbed into Digital Marketing under the catch-all. Per Amber, alumni-sourced leads are conceptually distinct from both digital outreach and BD rep outreach and must report as their own bucket on every dimension (top-line lead/MQL/VOB/admit, Payer Mix, channel breakdowns, Op Overview cards).
+
+**Consequences:**
+- Postgres `source_category` and `marketing_channel` enums each gain the value `alumni` (migration 190).
+- `reporting.source_category_mapping` re-points `Alumni` → `alumni`.
+- `definitions.ts` adds `SOURCE_CATEGORY.Alumni`, `MARKETING_CHANNEL.Alumni`, `RAW_SOURCE_ALUMNI`, and a new case in `sourceCategoryToMarketingChannel`.
+- `op_lead_funnel_daily` (and every cache keyed on `source_category`) is rebuilt after the migration applies; Alumni starts surfacing immediately.
+- All other catch-all values (`Internal`, `Call Center`, `Directory Listing`, `Organic Social`, `Paid Social`, `PPC`, `SEO`) continue to roll up to `digital_marketing` — this decision narrowly carves out Alumni only.
+
+---
+
+## #38 — `Option 1` / `Option 2` retired from Source Category picklist (resolves OPEN_QUESTION #34)
+
+**Source:** Amber, 2026-05-29. The two placeholder values in Zoho's `Source_Category` global picklist (`Option 1`, `Option 2`) are confirmed junk — never used in production, accidentally left in the picklist.
+
+**Resolution:**
+- Both rows are deleted from `reporting.source_category_mapping` (migration 190).
+- Both values will be removed from the Zoho `Source_Category` Global Picklist (manual cleanup; covered under task #48).
+- `Call Center` stays mapped to `digital_marketing` (Amber confirmed it's a digital touchpoint).
+- `Internal` stays mapped to `digital_marketing` (team-generated re-engagement; treated as digital).
+
+This closes OPEN_QUESTION #34 — `Call Center` was the only one of the three with a real classification answer; `Option 1` / `Option 2` are junk and `Internal` was already correctly mapped.
+
+---
+
 ## Document changelog
 
 - **2026-05-27** — Created alongside METRIC_DEFINITIONS.md rev 2. Seven resolutions recorded (#1–#7).
@@ -586,3 +624,4 @@ This **revises CONFIRMED.md #20**, which previously said the Admit metric counts
 - **2026-05-27 (rev 5)** — Added nine resolutions (#24–#32) batch-closing the remaining policy questions. Closes OPEN_QUESTIONS #9, #10, #13, #15, #21, #22, #24, #26, #29. OPEN_QUESTIONS #18 (test record exclusion) and #30 (PPO=Unknown anomaly) explicitly remain deferred — #18 to Phase 1B sample-data triage, #30 to Zoho cleanup.
 - **2026-05-27 (rev 6)** — Added #33 refining the VOB classifier per Amber's edge case (closed_lost without VOB fields must NOT count as VOB).
 - **2026-05-27 (rev 7)** — Added #34 (Admit priority chain, mirrors VOB), #35 (Source Category Zoho Global Picklist), #36 (Closed Lost reason capture per pipeline). Revises CONFIRMED.md #20.
+- **2026-05-29 (rev 8)** — Added #37 (Alumni split out of Digital into its own bucket; revises CONFIRMED.md #17) and #38 (Option 1 / Option 2 retired as junk; closes OPEN_QUESTION #34). Triggered by BD undercount diagnosis on /analytics/op-funnel — the cache faithfully reported what the mapping said, but the mapping incorrectly folded Alumni-sourced leads into Digital. Migration 190 implements both decisions.

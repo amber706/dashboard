@@ -105,8 +105,9 @@ describe("enum cardinality", () => {
     expect(STAGE_CATEGORY_VALUES).toHaveLength(9);
   });
 
-  it("SourceCategory has exactly 3 values", () => {
-    expect(SOURCE_CATEGORY_VALUES).toHaveLength(3);
+  it("SourceCategory has exactly 4 values (Alumni split out 2026-05-29)", () => {
+    expect(SOURCE_CATEGORY_VALUES).toHaveLength(4);
+    expect(SOURCE_CATEGORY_VALUES).toContain(SOURCE_CATEGORY.Alumni);
   });
 
   it("RepRole has exactly 3 values", () => {
@@ -900,11 +901,23 @@ describe("rawSourceToSourceCategory", () => {
     expect(rawSourceToSourceCategory("ZocDoc")).toBe(SOURCE_CATEGORY.Zocdoc);
   });
 
+  it("maps Alumni to its own bucket (CONFIRMED.md #38; split out 2026-05-29)", () => {
+    expect(rawSourceToSourceCategory("Alumni")).toBe(SOURCE_CATEGORY.Alumni);
+  });
+
   it("falls back to Digital Marketing for any other value", () => {
     expect(rawSourceToSourceCategory("Google Ads")).toBe(SOURCE_CATEGORY.DigitalMarketing);
     expect(rawSourceToSourceCategory("")).toBe(SOURCE_CATEGORY.DigitalMarketing);
     expect(rawSourceToSourceCategory(null)).toBe(SOURCE_CATEGORY.DigitalMarketing);
     expect(rawSourceToSourceCategory(undefined)).toBe(SOURCE_CATEGORY.DigitalMarketing);
+  });
+
+  it("Internal / Call Center / Directory Listing still fold into Digital", () => {
+    // OPEN_QUESTIONS #34 closed: these three stay as Digital (catch-all).
+    // Alumni was the only value split out.
+    expect(rawSourceToSourceCategory("Internal")).toBe(SOURCE_CATEGORY.DigitalMarketing);
+    expect(rawSourceToSourceCategory("Call Center")).toBe(SOURCE_CATEGORY.DigitalMarketing);
+    expect(rawSourceToSourceCategory("Directory Listing")).toBe(SOURCE_CATEGORY.DigitalMarketing);
   });
 });
 
@@ -923,6 +936,10 @@ describe("sourceCategoryToMarketingChannel", () => {
 
   it("ZocDoc → zocdoc", () => {
     expect(sourceCategoryToMarketingChannel(SOURCE_CATEGORY.Zocdoc)).toBe(MARKETING_CHANNEL.Zocdoc);
+  });
+
+  it("Alumni → alumni (CONFIRMED.md #38)", () => {
+    expect(sourceCategoryToMarketingChannel(SOURCE_CATEGORY.Alumni)).toBe(MARKETING_CHANNEL.Alumni);
   });
 });
 
