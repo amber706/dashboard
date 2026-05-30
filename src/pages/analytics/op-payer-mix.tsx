@@ -20,6 +20,7 @@ import {
   useOpPayerMix,
   type PayerBucket,
 } from "@/features/op-reporting/hooks/useOpPayerMix";
+import { useOpLeadsConversionSplit } from "@/features/op-reporting/hooks/useOpLeadsConversionSplit";
 import { FilterBar } from "@/features/op-reporting/components/FilterBar";
 import { useFilterUrlState } from "@/features/op-reporting/hooks/useFilterUrlState";
 import { ExportButton } from "@/features/op-reporting/components/ExportButton";
@@ -44,6 +45,7 @@ export default function OpPayerMix() {
   const { preset, range, setPreset } = useUrlDateRange("L30D");
   const [filters, setFilters] = useFilterUrlState();
   const { data, isLoading, error } = useOpPayerMix(range, filters);
+  const { data: conversionSplit, isLoading: conversionLoading } = useOpLeadsConversionSplit(range);
   const pipelineFilterActive = filters.pipelines.length > 0;
 
   const unclassifiedShare =
@@ -217,6 +219,89 @@ export default function OpPayerMix() {
                       <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(data.total)}</td>
                       <td className="py-2 pr-0 text-right tabular-nums">100%</td>
                     </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Converted vs not — second leads table, side by side with payer buckets above */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Converted leads</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Sourced from Zoho Analytics "Is Converted" field on the leads
+              report. Converted = lead was converted to a Deal in Zoho.
+              Filters above don't apply here (this view is on raw leads).
+            </p>
+          </CardHeader>
+          <CardContent>
+            {conversionLoading || !conversionSplit ? (
+              <Skeleton className="h-40 w-full" />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted-foreground border-b">
+                      <th className="py-2 pr-4">Status</th>
+                      <th className="py-2 pr-4 text-right">Count</th>
+                      <th className="py-2 pr-0 text-right">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b">
+                      <td className="py-2 pr-4">
+                        <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle bg-[#10B981]" />
+                        Converted
+                      </td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(conversionSplit.converted)}</td>
+                      <td className="py-2 pr-0 text-right tabular-nums">
+                        {conversionSplit.total_leads > 0
+                          ? fmtPct(conversionSplit.converted / conversionSplit.total_leads)
+                          : "—"}
+                      </td>
+                    </tr>
+                    <tr className="border-b">
+                      <td className="py-2 pr-4">
+                        <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle bg-[#6B7A95]" />
+                        Not converted
+                      </td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(conversionSplit.not_converted)}</td>
+                      <td className="py-2 pr-0 text-right tabular-nums">
+                        {conversionSplit.total_leads > 0
+                          ? fmtPct(conversionSplit.not_converted / conversionSplit.total_leads)
+                          : "—"}
+                      </td>
+                    </tr>
+                    {conversionSplit.unknown > 0 && (
+                      <tr className="border-b">
+                        <td className="py-2 pr-4">
+                          <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle bg-[#E5C879]" />
+                          Unknown <span className="text-muted-foreground text-xs">(pre-Analytics-update sync)</span>
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(conversionSplit.unknown)}</td>
+                        <td className="py-2 pr-0 text-right tabular-nums">
+                          {conversionSplit.total_leads > 0
+                            ? fmtPct(conversionSplit.unknown / conversionSplit.total_leads)
+                            : "—"}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className="border-t-2 border-[#5BA3D4]/40 font-medium">
+                      <td className="py-2 pr-4">Total leads</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(conversionSplit.total_leads)}</td>
+                      <td className="py-2 pr-0 text-right tabular-nums">100%</td>
+                    </tr>
+                    {conversionSplit.conversion_rate != null && (
+                      <tr className="font-medium text-[#10B981]">
+                        <td className="py-2 pr-4">Conversion rate <span className="text-muted-foreground text-xs">(of known)</span></td>
+                        <td className="py-2 pr-4"></td>
+                        <td className="py-2 pr-0 text-right tabular-nums">{fmtPct(conversionSplit.conversion_rate)}</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
