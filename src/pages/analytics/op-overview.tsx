@@ -69,9 +69,12 @@ export default function OpOverview() {
   const [filters, setFilters] = useFilterUrlState();
   const funnel = useOpFunnel(range, filters);
   const byPipeline = useOpFunnelByPipeline(range, filters);
-  const repActivity = useOpRepActivity(range);
-  const referrals = useOpReferrals(range);
-  const hasFilters =
+  const repActivity = useOpRepActivity(range, filters);
+  const referrals = useOpReferrals(range, filters);
+  // Pipeline / source / LOC drive the funnel + referral mix; rep activity
+  // honors only the rep selection (call/meeting rollups aren't keyed by
+  // pipeline/source/LOC — see migration 191).
+  const hasNonRepFilters =
     filters.pipelines.length + filters.sources.length + filters.locs.length > 0;
 
   const topLine = byPipeline.data?.topLineTotals;
@@ -111,10 +114,11 @@ export default function OpOverview() {
         <SavedViewsControl pageKey="op-overview" filters={filters} onApply={setFilters} />
       </div>
 
-      {hasFilters && (
+      {hasNonRepFilters && (
         <div className="text-xs text-muted-foreground">
-          Funnel KPIs + Pipeline split honor the filters above. Rep activity and Referral mix cards
-          stay at the all-data totals — those rollups don't yet carry the same dimensions.
+          Pipeline / source / LOC apply to the funnel, pipeline split, and referral mix.
+          Rep activity honors only the rep selection — call and meeting rollups aren't
+          keyed by deal pipeline.
         </div>
       )}
 

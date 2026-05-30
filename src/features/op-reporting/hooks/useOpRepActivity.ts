@@ -1,11 +1,16 @@
 // useOpRepActivity — per-rep call + meeting totals from op_rep_activity_daily.
 //
-// Backed by `reporting_op_rep_activity(p_start, p_end)`. Joins user_identity
-// so we can show full names; aggregates meetings_by_type across the window.
+// Backed by `reporting_op_rep_activity(p_start, p_end)` (unfiltered) and
+// `reporting_op_rep_activity_filtered(p_start, p_end, p_owner_user_ids)` when
+// the rep filter is active. Pipeline / source / LOC filters are intentional
+// no-ops here — op_rep_activity_daily is built from calls + meetings and
+// doesn't carry those dimensions (see migration 191 header for rationale).
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { DateRange } from "@/features/analytics-warehouse/api/types";
+import type { FilterContract } from "@/features/op-reporting/components/FilterBar";
+import { filterCacheKey } from "./filterArgs";
 
 export type RepRole = "admissions_rep" | "bd_rep" | "other";
 
@@ -44,14 +49,24 @@ function emptyTotals() {
   };
 }
 
-export function useOpRepActivity(range: DateRange) {
+export function useOpRepActivity(range: DateRange, filters?: FilterContract) {
+  // Only the `reps` filter applies to rep activity — pipeline / source / LOC
+  // aren't dimensions on op_rep_activity_daily. Route to the filtered RPC
+  // whenever a rep filter is set; the other filters are silently ignored.
+  const repIds = filters && filters.reps.length > 0 ? filters.reps : null;
   return useQuery({
-    queryKey: ["op-rep-activity", range.from, range.to],
+    queryKey: ["op-rep-activity", range.from, range.to, filterCacheKey(filters)],
     queryFn: async (): Promise<RepActivityData> => {
-      const { data, error } = await supabase.rpc("reporting_op_rep_activity", {
-        p_start: range.from,
-        p_end: range.to,
-      });
+      const { data, error } = repIds
+        ? await supabase.rpc("reporting_op_rep_activity_filtered", {
+            p_start: range.from,
+            p_end: range.to,
+            p_owner_user_ids: repIds,
+          })
+        : await supabase.rpc("reporting_op_rep_activity", {
+            p_start: range.from,
+            p_end: range.to,
+          });
       if (error) throw new Error(`reporting_op_rep_activity: ${error.message}`);
       const all = (data ?? []) as RepActivityRow[];
       const unattributed = all.find((r) => r.owner_user_id == null) ?? null;
