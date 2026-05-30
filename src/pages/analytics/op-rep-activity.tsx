@@ -28,6 +28,9 @@ import {
 import { useOpRepFunnel } from "@/features/op-reporting/hooks/useOpRepFunnel";
 import { ExportButton } from "@/features/op-reporting/components/ExportButton";
 import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
+import { useState } from "react";
+import { RepFunnelDrillModal } from "@/features/op-reporting/components/RepFunnelDrillModal";
+import type { DrillMetric } from "@/features/op-reporting/hooks/useOpRepFunnelDrill";
 
 const fmtNumber = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("en-US");
@@ -100,6 +103,16 @@ export default function OpRepActivity() {
   const { preset, range, setPreset } = useUrlDateRange("MTD");
   const { data, isLoading, error } = useOpRepActivity(range);
   const { data: funnelByRep, isLoading: funnelByRepLoading } = useOpRepFunnel(range);
+
+  // Drill state: which cell did the user click?
+  const [drill, setDrill] = useState<{
+    userId: string;
+    userName: string;
+    metric: DrillMetric;
+  } | null>(null);
+  function openDrill(userId: string, userName: string, metric: DrillMetric) {
+    setDrill({ userId, userName, metric });
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -254,33 +267,65 @@ export default function OpRepActivity() {
                   </tr>
                 </thead>
                 <tbody>
-                  {funnelByRep.rows.map((r) => (
-                    <tr key={r.owner_user_id} className="border-b last:border-0">
-                      <td className="py-2 pr-4 font-medium">
-                        <div className="flex items-center gap-2">
-                          <span>{r.full_name ?? "—"}</span>
-                          {r.role_derived && (
-                            <span className={`text-[10px] px-2 py-0.5 rounded border ${ROLE_TONE[r.role_derived]}`}>
-                              {ROLE_LABEL[r.role_derived]}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.mqls_count)}</td>
-                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.vobs_count)}</td>
-                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.admits_count)}</td>
-                      <td className="py-2 pr-4 text-right tabular-nums">{fmtNumber(r.closed_lost_count)}</td>
-                      <td className="py-2 pr-0 text-right tabular-nums">
-                        {r.mql_to_admit != null ? `${(r.mql_to_admit * 100).toFixed(1)}%` : "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {funnelByRep.rows.map((r) => {
+                    const repName = r.full_name ?? "—";
+                    const DrillCell = ({ value, metric }: { value: number; metric: DrillMetric }) =>
+                      value > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => openDrill(r.owner_user_id, repName, metric)}
+                          className="hover:underline text-[#5BA3D4] focus:outline-none focus:ring-1 focus:ring-[#5BA3D4]/40 rounded px-1 -mx-1"
+                        >
+                          {fmtNumber(value)}
+                        </button>
+                      ) : (
+                        <span>{fmtNumber(value)}</span>
+                      );
+                    return (
+                      <tr key={r.owner_user_id} className="border-b last:border-0">
+                        <td className="py-2 pr-4 font-medium">
+                          <div className="flex items-center gap-2">
+                            <span>{repName}</span>
+                            {r.role_derived && (
+                              <span className={`text-[10px] px-2 py-0.5 rounded border ${ROLE_TONE[r.role_derived]}`}>
+                                {ROLE_LABEL[r.role_derived]}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          <DrillCell value={r.mqls_count} metric="mqls" />
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          <DrillCell value={r.vobs_count} metric="vobs" />
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          <DrillCell value={r.admits_count} metric="admits" />
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          <DrillCell value={r.closed_lost_count} metric="closed_lost" />
+                        </td>
+                        <td className="py-2 pr-0 text-right tabular-nums">
+                          {r.mql_to_admit != null ? `${(r.mql_to_admit * 100).toFixed(1)}%` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </CardContent>
       </Card>
+
+      <RepFunnelDrillModal
+        open={drill !== null}
+        onOpenChange={(o) => { if (!o) setDrill(null); }}
+        userId={drill?.userId ?? null}
+        userName={drill?.userName ?? null}
+        metric={drill?.metric ?? null}
+        range={range}
+      />
     </div>
   );
 }
