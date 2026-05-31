@@ -10,3 +10,8 @@ build
 
 # Supabase CLI scratch (linked-project.json, cli-latest)
 supabase/.temp/
+
+# Agent skills / plugins installed locally (npx skills, claude plugin) — keep out of git
+.agents/
+.claude/skills/
+skills-lock.json

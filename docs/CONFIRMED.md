@@ -9,7 +9,7 @@ Two `OPEN_QUESTIONS` remain open by design and are NOT blockers:
 - **#30** — `Insurance_Type` display value `PPO` stores as actual value `Unknown`. Awaits a Zoho config cleanup pass; flagged in a Phase 1B data-quality view.
 
 Two later OPEN_QUESTIONS will get resolved during Phase 1B's first sync run:
-- **#34** — Whether the hidden Source Category values (`Call Center`, `Option 1`, `Option 2`) carry any production data.
+- ~~**#34**~~ — RESOLVED 2026-05-29; see CONFIRMED.md #38.
 - **#35** — Whether the DV pipeline needs a dedicated `Close_Reasoning_DV` field.
 
 ---
@@ -577,6 +577,97 @@ This **revises CONFIRMED.md #20**, which previously said the Admit metric counts
 
 ---
 
+## #37 — `Alumni` is its own source category (revises CONFIRMED.md #17)
+
+**Source:** Amber, 2026-05-29, during BD undercount diagnosis. Surfaced when the new `op_lead_funnel_daily` cache reported BD = 67 / Digital = 247 for this week; investigation showed the `source_category_mapping` seed folded `Alumni` into `digital_marketing` under the catch-all rule from CONFIRMED.md #17.
+
+**Resolution:** The normalized `source_category` enum is **4 values**, not 3:
+
+| Normalized value | Raw Zoho `Source_Category` |
+|---|---|
+| `business_development` | `Business Development` |
+| `zocdoc` | `ZocDoc` |
+| `alumni` | `Alumni` |
+| `digital_marketing` | everything else (catch-all) |
+
+`Alumni` was previously absorbed into Digital Marketing under the catch-all. Per Amber, alumni-sourced leads are conceptually distinct from both digital outreach and BD rep outreach and must report as their own bucket on every dimension (top-line lead/MQL/VOB/admit, Payer Mix, channel breakdowns, Op Overview cards).
+
+**Consequences:**
+- Postgres `source_category` and `marketing_channel` enums each gain the value `alumni` (migration 190).
+- `reporting.source_category_mapping` re-points `Alumni` → `alumni`.
+- `definitions.ts` adds `SOURCE_CATEGORY.Alumni`, `MARKETING_CHANNEL.Alumni`, `RAW_SOURCE_ALUMNI`, and a new case in `sourceCategoryToMarketingChannel`.
+- `op_lead_funnel_daily` (and every cache keyed on `source_category`) is rebuilt after the migration applies; Alumni starts surfacing immediately.
+- All other catch-all values (`Internal`, `Call Center`, `Directory Listing`, `Organic Social`, `Paid Social`, `PPC`, `SEO`) continue to roll up to `digital_marketing` — this decision narrowly carves out Alumni only.
+
+---
+
+## #38 — `Option 1` / `Option 2` retired from Source Category picklist (resolves OPEN_QUESTION #34)
+
+**Source:** Amber, 2026-05-29. The two placeholder values in Zoho's `Source_Category` global picklist (`Option 1`, `Option 2`) are confirmed junk — never used in production, accidentally left in the picklist.
+
+**Resolution:**
+- Both rows are deleted from `reporting.source_category_mapping` (migration 190).
+- Both values will be removed from the Zoho `Source_Category` Global Picklist (manual cleanup; covered under task #48).
+- `Call Center` stays mapped to `digital_marketing` (Amber confirmed it's a digital touchpoint).
+- `Internal` stays mapped to `digital_marketing` (team-generated re-engagement; treated as digital).
+
+This closes OPEN_QUESTION #34 — `Call Center` was the only one of the three with a real classification answer; `Option 1` / `Option 2` are junk and `Internal` was already correctly mapped.
+
+---
+
+## #39 — Insurance_Type storage drift absorbed in the sync layer (resolves OPEN_QUESTION #30)
+
+**Source:** Amber, 2026-05-30, during Phase 1B data-quality cleanup.
+
+**Observed:** Zoho's `Insurance_Type` picklist has nine actual_values in production, four of which disagree with our canonical enum (CONFIRMED.md #8 + #14):
+
+| Stored value | Rows | Canonical mapping |
+|---|---|---|
+| `Cash` (legacy actual_value) | 318 | → `Cash Pay` |
+| `Commercial Insurance` (legacy) | 76 | → `Private Insurance` |
+| `PPO` (network bleed-in) | 12 | → `Private Insurance` |
+| `Unknown` (display-vs-stored mismatch) | 217 | → null (insufficient info) |
+
+Before this fix, the leads sync's strict allowlist nulled all 623 leads' insurance_type, costing the dashboard real Commercial / Cash payer attribution.
+
+**Resolution:**
+- The leads sync edge function (`supabase/functions/reporting-sync-leads/index.ts`) carries an `INSURANCE_TYPE_DRIFT` table that translates Zoho's drifted actual_values down to the canonical enum on the way into `reporting.leads`. `normalizeInsuranceType()` applies the drift map first, then falls through to the canonical allowlist; anything still unrecognized is nulled.
+- One-time backfill UPDATE on `reporting.leads` corrected 406 historical rows (Cash → Cash Pay, Commercial Insurance / PPO → Private Insurance). 217 `Unknown` rows stay null — `Unknown` carries no payer signal.
+- The Zoho-side picklist will be cleaned up separately (rename `Cash` → `Cash Pay`, `Commercial Insurance` → `Private Insurance`, retire `PPO` and `Unknown` actual_values). No deadline; the sync layer absorbs the mismatch in the meantime.
+
+**Consequences:**
+- Our canonical 6-value insurance_type enum (CONFIRMED.md #8) stays as-is — no schema churn.
+- Payer Mix breakdowns gain 406 leads' worth of correct attribution immediately.
+- Future drift values from Zoho will fall through to null AND surface in the lead sync's debug counters (the function logs `insurance_unmapped_count`).
+
+---
+
+## #40 — DV closed-lost reasons not tracked (resolves OPEN_QUESTION #35)
+
+**Source:** Amber, 2026-05-30. With 84 DV closed-lost deals across 2025-2026, the question was whether to add a dedicated `Close_Reasoning_DV` field, fall back to the system `Reason_For_Loss__s` field, or skip entirely.
+
+**Resolution:** Skip. DV volume is low and the reason dimension is not in scope for any current dashboard. `reporting.deals.closed_lost_reason` stays null for DV closed-lost rows.
+
+**Consequences:**
+- DV closed-lost charts surface the closed-lost count without a reason breakdown.
+- Revisit if DV reporting scope expands.
+
+---
+
+## #41 — Legacy `DUI` pipeline rows accepted as un-normalized (resolves OPEN_QUESTION #36)
+
+**Source:** Amber, 2026-05-30.
+
+**Observed:** Cornerstone renamed the `DUI` pipeline → `DUI - Cash` on 2024-08-27/28. 6,891 historical deals (2023-06 to 2024-08) carry the legacy raw value `DUI` plus 1,058 deals carry `null` Pipeline (mostly pre-2022 legacy + edge OOP screening rows). Our `pipeline_mapping` only seeds `DUI - Cash`, so all 7,949 historical rows fail to normalize.
+
+**Resolution:** Accept the partial. Those rows pre-date Phase 1B's reporting window (trailing 14 days / 60 days / 365 days for the weekly rebuild) and don't affect current dashboards. No alias added to `pipeline_mapping`. No backfill in Zoho.
+
+**Consequences:**
+- Historical drill-downs into 2024 DUI - Cash pipeline performance miss the pre-rename rows.
+- If DUI historical reporting becomes a need later, we add the alias mapping then.
+
+---
+
 ## Document changelog
 
 - **2026-05-27** — Created alongside METRIC_DEFINITIONS.md rev 2. Seven resolutions recorded (#1–#7).
@@ -586,3 +677,5 @@ This **revises CONFIRMED.md #20**, which previously said the Admit metric counts
 - **2026-05-27 (rev 5)** — Added nine resolutions (#24–#32) batch-closing the remaining policy questions. Closes OPEN_QUESTIONS #9, #10, #13, #15, #21, #22, #24, #26, #29. OPEN_QUESTIONS #18 (test record exclusion) and #30 (PPO=Unknown anomaly) explicitly remain deferred — #18 to Phase 1B sample-data triage, #30 to Zoho cleanup.
 - **2026-05-27 (rev 6)** — Added #33 refining the VOB classifier per Amber's edge case (closed_lost without VOB fields must NOT count as VOB).
 - **2026-05-27 (rev 7)** — Added #34 (Admit priority chain, mirrors VOB), #35 (Source Category Zoho Global Picklist), #36 (Closed Lost reason capture per pipeline). Revises CONFIRMED.md #20.
+- **2026-05-29 (rev 8)** — Added #37 (Alumni split out of Digital into its own bucket; revises CONFIRMED.md #17) and #38 (Option 1 / Option 2 retired as junk; closes OPEN_QUESTION #34). Triggered by BD undercount diagnosis on /analytics/op-funnel — the cache faithfully reported what the mapping said, but the mapping incorrectly folded Alumni-sourced leads into Digital. Migration 190 implements both decisions.
+- **2026-05-30 (rev 9)** — Data-quality cleanup pass closes OPEN_QUESTIONS #18 (no test data exists in Cornerstone's Zoho — closed without changes), #30 (Insurance_Type storage drift — sync layer absorbs four drifted values; 406-row backfill applied), #35 (DV closed-lost reasons — skipped), and #36 (legacy `DUI` pipeline rows — accepted as un-normalized partial). Added CONFIRMED #39, #40, #41.
