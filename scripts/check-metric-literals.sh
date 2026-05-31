@@ -35,6 +35,10 @@ EXEMPT_FILES=(
   "src/lib/metrics/__tests__/definitions.test.ts"
   # Contract tests pass raw Zoho strings into mapping fns on purpose.
   "src/lib/metrics/__tests__/phase_1b_contracts.test.ts"
+  # Phase 2A admissions resolver tests use normalized LOC literals as test
+  # fixture data (mocked RPC responses). They're not feeding into reporting
+  # logic — they're verifying that the breakdown resolver groups correctly.
+  "src/lib/metrics/__tests__/admissions.test.ts"
 )
 
 # Forbidden literal strings. Each is matched as a literal substring against
