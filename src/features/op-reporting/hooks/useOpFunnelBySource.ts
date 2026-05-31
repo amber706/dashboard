@@ -27,6 +27,7 @@ const SOURCE_LABEL: Record<SourceCategory, string> = {
   [SOURCE_CATEGORY.DigitalMarketing]: "Digital Marketing",
   [SOURCE_CATEGORY.BusinessDevelopment]: "Business Development",
   [SOURCE_CATEGORY.Zocdoc]: "ZocDoc",
+  [SOURCE_CATEGORY.Alumni]: "Alumni",
 };
 
 export function labelForSource(s: SourceCategory | null): string {

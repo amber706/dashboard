@@ -179,13 +179,17 @@ export const RAW_STAGE_TO_CATEGORY: Readonly<Record<string, StageCategory>> = Ob
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// Source categories (normalized — 3 buckets)
+// Source categories (normalized — 4 buckets)
 // ────────────────────────────────────────────────────────────────────────────
+// Alumni was split out of the digital_marketing catch-all on 2026-05-29
+// (CONFIRMED.md #38). Catch-all rule otherwise unchanged: any raw picklist
+// value not explicitly mapped here rolls up to digital_marketing.
 
 export const SOURCE_CATEGORY = {
   DigitalMarketing: "digital_marketing",
   BusinessDevelopment: "business_development",
   Zocdoc: "zocdoc",
+  Alumni: "alumni",
 } as const;
 
 export type SourceCategory = (typeof SOURCE_CATEGORY)[keyof typeof SOURCE_CATEGORY];
@@ -194,10 +198,12 @@ export const SOURCE_CATEGORY_VALUES: readonly SourceCategory[] = Object.freeze([
   SOURCE_CATEGORY.DigitalMarketing,
   SOURCE_CATEGORY.BusinessDevelopment,
   SOURCE_CATEGORY.Zocdoc,
+  SOURCE_CATEGORY.Alumni,
 ]);
 
 export const RAW_SOURCE_BUSINESS_DEVELOPMENT = "Business Development";
 export const RAW_SOURCE_ZOCDOC = "ZocDoc";
+export const RAW_SOURCE_ALUMNI = "Alumni";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Insurance types (raw Zoho Lead picklist values; see CONFIRMED.md #8 + #14)
@@ -387,6 +393,7 @@ export const MARKETING_CHANNEL = {
   Digital: "digital",
   BusinessDevelopment: "business_development",
   Zocdoc: "zocdoc",
+  Alumni: "alumni",
 } as const;
 
 export type MarketingChannel = (typeof MARKETING_CHANNEL)[keyof typeof MARKETING_CHANNEL];
@@ -395,6 +402,7 @@ export const MARKETING_CHANNEL_VALUES: readonly MarketingChannel[] = Object.free
   MARKETING_CHANNEL.Digital,
   MARKETING_CHANNEL.BusinessDevelopment,
   MARKETING_CHANNEL.Zocdoc,
+  MARKETING_CHANNEL.Alumni,
 ]);
 
 export function sourceCategoryToMarketingChannel(sc: SourceCategory): MarketingChannel {
@@ -405,6 +413,8 @@ export function sourceCategoryToMarketingChannel(sc: SourceCategory): MarketingC
       return MARKETING_CHANNEL.BusinessDevelopment;
     case SOURCE_CATEGORY.Zocdoc:
       return MARKETING_CHANNEL.Zocdoc;
+    case SOURCE_CATEGORY.Alumni:
+      return MARKETING_CHANNEL.Alumni;
   }
 }
 
@@ -756,10 +766,14 @@ export function rawPipelineToPipeline(rawPipeline: string | null | undefined): P
   return null;
 }
 
-/** Source category catch-all: anything not BD/ZocDoc → Digital Marketing. */
+/**
+ * Source category catch-all: anything not BD / ZocDoc / Alumni → Digital
+ * Marketing. Alumni is its own bucket per CONFIRMED.md #38 (2026-05-29).
+ */
 export function rawSourceToSourceCategory(rawSource: string | null | undefined): SourceCategory {
   if (rawSource === RAW_SOURCE_BUSINESS_DEVELOPMENT) return SOURCE_CATEGORY.BusinessDevelopment;
   if (rawSource === RAW_SOURCE_ZOCDOC) return SOURCE_CATEGORY.Zocdoc;
+  if (rawSource === RAW_SOURCE_ALUMNI) return SOURCE_CATEGORY.Alumni;
   return SOURCE_CATEGORY.DigitalMarketing;
 }
 

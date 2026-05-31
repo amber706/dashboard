@@ -31,13 +31,20 @@ import {
   type SyncRunHandle,
 } from "./_shared/reporting-sync.ts";
 
-// Lead_Created_Time on Deal is Zoho's conversion-time snapshot of the
-// originating Lead's Created_Time. We carry it through to power sales- and
-// placement-cycle math without a Deal → Lead join (resolves OPEN_QUESTIONS
-// #37 — there is no Lead-Id lookup field on Deals).
+// Original_Created_Time on Deal is the converting Lead's Created_Time, copied
+// over by Cornerstone's Lead Conversion Mapping (Setup → Customization →
+// Modules and Fields → Leads → Convert Mapping). We carry it through to power
+// sales- and placement-cycle math without a Deal → Lead join (resolves
+// OPEN_QUESTIONS #37). Confirmed against 18 production deals 2026-05-30:
+// every Deal.Original_Created_Time exactly matches the converting Lead's
+// Created_Time, with gaps from 45 seconds up to ~14 months — proving the
+// value is the Lead's timestamp, not a copy of the Deal's own Created_Time.
+//
+// Earlier versions of this file read `Lead_Created_Time` (the standard Zoho
+// Deal field), which Cornerstone has never populated — 0 of 29,587 deals.
 const DEAL_FIELDS = [
   "id", "Stage", "Pipeline", "Owner", "Created_Time", "Modified_Time",
-  "Closing_Date", "Admit_Date", "Lead_Created_Time", "Source_Category",
+  "Closing_Date", "Admit_Date", "Original_Created_Time", "Source_Category",
   "Insurance_Type", "Level_of_Care_Requested", "Admitted_Level_of_Care",
   "DUI_or_Treatment",
   "VOB_Submitted", "VOB_Submitted_Date", "VOB_Submitted_By",
@@ -54,7 +61,7 @@ interface ZohoDeal {
   Modified_Time?: string;
   Closing_Date?: string;
   Admit_Date?: string;
-  Lead_Created_Time?: string;
+  Original_Created_Time?: string;
   Source_Category?: string;
   Insurance_Type?: string;
   Level_of_Care_Requested?: string;
@@ -160,9 +167,9 @@ async function normalizeDeal(
 
   return {
     source_deal_id: d.id,
-    // source_lead_id has no direct field on Deals (OPEN_QUESTIONS #37 resolved
-    // via lead_created_time below). Leave null until a Phase 1C Contact bridge
-    // is wired up.
+    // source_lead_id has no direct field on Deals (resolved via
+    // lead_created_time below — sourced from Original_Created_Time).
+    // Leave null until a Phase 1C Contact bridge is wired up.
     source_lead_id: null,
     owner_user_id,
     pipeline,
@@ -176,7 +183,7 @@ async function normalizeDeal(
     created_at: d.Created_Time ?? new Date().toISOString(),
     closing_date: d.Closing_Date ?? null,
     admit_date: d.Admit_Date ?? null,
-    lead_created_time: d.Lead_Created_Time ?? null,
+    lead_created_time: d.Original_Created_Time ?? null,
     closed_lost_reason: stage_category === "closed_lost" ? pickClosedLostReason(d, pipeline) : null,
     refer_out_type: d.Refer_Out_Type ?? null,
   };

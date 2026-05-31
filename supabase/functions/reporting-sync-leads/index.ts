@@ -31,10 +31,9 @@ const WORKSPACE_ID = Deno.env.get("ZOHO_ANALYTICS_WORKSPACE_ID") ?? "25738830000
 const VIEW_ID = Deno.env.get("ZOHO_ANALYTICS_LEADS_VIEW_ID") ?? "2573883000000035215";
 const ORG_ID = Deno.env.get("ZOHO_ANALYTICS_ORG_ID");
 
-// Postgres insurance_type enum values (migration 100). Anything outside this
-// set — "Unknown", "PPO", etc. — gets nulled out at normalize time so the
-// upsert RPC doesn't blow up. OPEN_QUESTIONS #30 tracks the unmapped values
-// we observe.
+// Postgres insurance_type enum values (migration 100). Any raw Zoho value
+// outside this set gets normalized via INSURANCE_TYPE_DRIFT below; anything
+// still unrecognized after that gets nulled so the upsert RPC doesn't blow up.
 const INSURANCE_TYPE_ENUM: ReadonlySet<string> = new Set([
   "AHCCCS",
   "Private Insurance",
@@ -43,6 +42,35 @@ const INSURANCE_TYPE_ENUM: ReadonlySet<string> = new Set([
   "No Insurance",
   "Out of State Medicaid",
 ]);
+
+// Resolves CONFIRMED.md #39 (Insurance_Type storage drift) — Zoho's
+// Insurance_Type picklist has actual_values that disagree with our canonical
+// enum on four fronts:
+//   - "Cash" (legacy actual_value)        → "Cash Pay"      (current canonical)
+//   - "Commercial Insurance" (legacy)     → "Private Insurance"
+//   - "PPO" (network type bleeding in)    → "Private Insurance"
+//   - "Unknown" (placeholder; the display label "PPO" stores as "Unknown" per
+//     OPEN_QUESTIONS #30) → null (insufficient info; surface as un-set)
+// Total drift in production at fix-time: 623 of 49,027 leads (~1.3%).
+// The Zoho-side picklist will be cleaned up separately (CONFIRMED.md #39); the
+// sync layer absorbs the mismatch in the meantime.
+const INSURANCE_TYPE_DRIFT: Readonly<Record<string, string | null>> = Object.freeze({
+  "Cash": "Cash Pay",
+  "Commercial Insurance": "Private Insurance",
+  "PPO": "Private Insurance",
+  "Unknown": null,
+});
+
+/** Normalize a raw Insurance_Type string into the canonical enum, or null. */
+function normalizeInsuranceType(raw: string | null): string | null {
+  if (!raw) return null;
+  // Drift map runs first — a raw value mapped to null is intentional and
+  // should NOT fall through to the allowlist check.
+  if (Object.prototype.hasOwnProperty.call(INSURANCE_TYPE_DRIFT, raw)) {
+    return INSURANCE_TYPE_DRIFT[raw];
+  }
+  return INSURANCE_TYPE_ENUM.has(raw) ? raw : null;
+}
 
 type Row = Record<string, string>;
 
@@ -248,7 +276,7 @@ Deno.serve(async (req) => {
       const sourceCategoryRaw = (r["Source_Category"] ?? r["Source Category"] ?? "").trim() || null;
       const locRaw = (r["Level_of_Care_Requested"] ?? r["Level of Care Requested"] ?? "").trim() || null;
       const insuranceRaw = (r["Insurance_Type"] ?? r["Insurance Type"] ?? "").trim() || null;
-      const insurance = insuranceRaw && INSURANCE_TYPE_ENUM.has(insuranceRaw) ? insuranceRaw : null;
+      const insurance = normalizeInsuranceType(insuranceRaw);
       const scoreRating = (r["Lead_Score_Rating"] ?? r["Lead Score Rating"] ?? "").trim() || null;
       const bdRep = (r["BD_Rep"] ?? r["BD Rep"] ?? "").trim() || null;
       const createdAt = (r["Created_Time"] ?? r["Created Time"] ?? "").trim() || new Date().toISOString();
