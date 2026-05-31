@@ -29,6 +29,7 @@ import {
   safeRatio,
   sumNullable,
   type BreakdownResult,
+  type MatrixResult,
   type MetricDefinition,
   type MetricResult,
   type ScalarResult,
@@ -450,6 +451,124 @@ async function resolveOutboundCallsByRep(range: DateRange, filters: FilterContra
   return breakdownFromRepActivity(await loadRepActivity(range, filters), "outbound_calls");
 }
 
+// ── Rep × LOC matrix loader + 3 resolvers ────────────────────────────────
+// reporting_op_funnel_by_rep_by_loc_filtered pivots op_lead_funnel_daily on
+// (owner_user_id × level_of_care). One RPC call serves all three matrix
+// metrics; the resolver picks the column. See migration 193.
+interface RepByLocRow {
+  owner_user_id: string | null;
+  full_name: string | null;
+  level_of_care: string | null;
+  mqls_count: number;
+  vobs_count: number;
+  admits_count: number;
+  closed_lost_count: number;
+}
+
+async function loadRepByLoc(
+  range: DateRange,
+  filters: FilterContract,
+): Promise<ReadonlyArray<RepByLocRow>> {
+  const args = filterArgs(range, filters);
+  const { data, error } = await supabase.rpc(
+    "reporting_op_funnel_by_rep_by_loc_filtered",
+    args,
+  );
+  if (error) throw new Error(`reporting_op_funnel_by_rep_by_loc_filtered: ${error.message}`);
+  return (data ?? []) as ReadonlyArray<RepByLocRow>;
+}
+
+type RepByLocCol =
+  | "mqls_count"
+  | "vobs_count"
+  | "admits_count"
+  | "closed_lost_count";
+
+function matrixFromRepByLoc(
+  rows: ReadonlyArray<RepByLocRow>,
+  col: RepByLocCol,
+): MatrixResult {
+  // Build the dim axes from the data — only rows with both axes set qualify
+  // (unattributed reps and null-LOC rows are surfaced as fallback labels but
+  // still rendered so totals reconcile against the by-rep / by-LOC views).
+  const repAxis = new Map<string, string>(); // dim_value -> label
+  const locAxis = new Map<string, string>();
+  const cells: Array<{ row_dim_value: string; col_dim_value: string; value: number | null }> = [];
+
+  for (const r of rows) {
+    const repDim = r.owner_user_id ?? "(unattributed)";
+    const repLabel = r.full_name ?? "(unattributed)";
+    const locDim = r.level_of_care ?? "(none)";
+    const locLabel = r.level_of_care ?? "(none)";
+    repAxis.set(repDim, repLabel);
+    locAxis.set(locDim, locLabel);
+    cells.push({
+      row_dim_value: repDim,
+      col_dim_value: locDim,
+      value: r[col] ?? 0,
+    });
+  }
+
+  return {
+    kind: "matrix",
+    rows: Array.from(repAxis.entries())
+      .map(([row_dim_value, row_label]) => ({ row_dim_value, row_label }))
+      .sort((a, b) => a.row_label.localeCompare(b.row_label)),
+    cols: Array.from(locAxis.entries())
+      .map(([col_dim_value, col_label]) => ({ col_dim_value, col_label }))
+      .sort((a, b) => a.col_label.localeCompare(b.col_label)),
+    cells,
+  };
+}
+
+async function resolveMqlsByRepByLoc(range: DateRange, filters: FilterContract) {
+  return matrixFromRepByLoc(await loadRepByLoc(range, filters), "mqls_count");
+}
+async function resolveVobsByRepByLoc(range: DateRange, filters: FilterContract) {
+  return matrixFromRepByLoc(await loadRepByLoc(range, filters), "vobs_count");
+}
+async function resolveAdmitsByRepByLoc(range: DateRange, filters: FilterContract) {
+  return matrixFromRepByLoc(await loadRepByLoc(range, filters), "admits_count");
+}
+
+// ── Closed-lost-by-reason resolver ────────────────────────────────────────
+// Reads through the new reporting_op_closed_lost_by_reason_filtered RPC.
+async function resolveClosedLostByReason(
+  range: DateRange,
+  filters: FilterContract,
+): Promise<MetricResult> {
+  const args = filterArgs(range, filters);
+  const { data, error } = await supabase.rpc(
+    "reporting_op_closed_lost_by_reason_filtered",
+    args,
+  );
+  if (error) throw new Error(`reporting_op_closed_lost_by_reason_filtered: ${error.message}`);
+  const rows = ((data ?? []) as ReadonlyArray<{ closed_lost_reason: string; count: number }>)
+    .map((r) => ({
+      dimension_value: r.closed_lost_reason,
+      label: r.closed_lost_reason,
+      value: r.count ?? 0,
+    }))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  return {
+    kind: "breakdown",
+    rows,
+    total: sumNullable(rows.map((r) => r.value)),
+  };
+}
+
+/**
+ * admissions.closed_lost_by_rep — trivially derives from the existing
+ * reporting_op_rep_funnel RPC, which already returns closed_lost_count.
+ */
+async function resolveClosedLostByRep(range: DateRange, filters: FilterContract) {
+  return breakdownFromRepFunnel(
+    await loadRepFunnel(range),
+    "closed_lost_count",
+    filters,
+  );
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // The catalog. Order mirrors the Phase 2 brief for easy review.
 // ────────────────────────────────────────────────────────────────────────────
@@ -592,7 +711,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "deals_admitted" },
-    resolve: notYetWired("admissions.admits_by_rep_by_loc"),
+    resolve: resolveAdmitsByRepByLoc,
   },
   {
     key: "admissions.vobs_by_rep_by_loc",
@@ -601,7 +720,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "deals_vob_submitted" },
-    resolve: notYetWired("admissions.vobs_by_rep_by_loc"),
+    resolve: resolveVobsByRepByLoc,
   },
   {
     key: "admissions.mqls_by_rep_by_loc",
@@ -610,7 +729,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "all_deals" },
-    resolve: notYetWired("admissions.mqls_by_rep_by_loc"),
+    resolve: resolveMqlsByRepByLoc,
   },
   // ── Call activity (5) ───────────────────────────────────────────────────
   {
@@ -683,7 +802,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     supports_rep_scope: true,
     inverse: true,
     drilldown: { source: "reporting.deals", scope: "deals_closed_lost" },
-    resolve: notYetWired("admissions.closed_lost_by_reason"),
+    resolve: resolveClosedLostByReason,
   },
   {
     key: "admissions.closed_lost_by_rep",
@@ -693,7 +812,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     supports_rep_scope: true,
     inverse: true,
     drilldown: { source: "reporting.deals", scope: "deals_closed_lost" },
-    resolve: notYetWired("admissions.closed_lost_by_rep"),
+    resolve: resolveClosedLostByRep,
   },
 ];
 
@@ -712,9 +831,7 @@ export type AdmissionsMetricKey = (typeof ADMISSIONS_METRICS)[number]["key"];
 // (not a TS literal type) so reorderings during review don't churn the diff.
 export const ADMISSIONS_METRIC_COUNT = ADMISSIONS_METRICS.length;
 
-// Status of resolver wiring — read by docs/tests so we can audit progress.
-// 18 of 23 resolvers wired; the remaining 5 need new op_* RPCs (task #58):
-// mqls/vobs/admits_by_rep_by_loc (matrix), closed_lost_by_reason, closed_lost_by_rep.
+// All 23 admissions resolvers are wired (Phase 2A complete on the resolver side).
 export const ADMISSIONS_WIRED_KEYS: ReadonlyArray<string> = Object.freeze([
   // Conversion ratios (3/3)
   "admissions.mql_to_vob_rate",
@@ -732,12 +849,18 @@ export const ADMISSIONS_WIRED_KEYS: ReadonlyArray<string> = Object.freeze([
   "admissions.admits_by_rep",
   "admissions.vobs_by_rep",
   "admissions.mqls_by_rep",
+  // Rep × LOC matrix (3/3) — via reporting_op_funnel_by_rep_by_loc_filtered (mig 193)
+  "admissions.admits_by_rep_by_loc",
+  "admissions.vobs_by_rep_by_loc",
+  "admissions.mqls_by_rep_by_loc",
   // Call activity (5/5)
   "admissions.missed_call_pct_team",
   "admissions.inbound_calls_team",
   "admissions.inbound_calls_by_rep",
   "admissions.outbound_calls_team",
   "admissions.outbound_calls_by_rep",
-  // Closed lost (1/3) — total wired; by_reason + by_rep need new RPCs
+  // Closed lost (3/3) — total + by_reason via mig 193; by_rep via rep_funnel
   "admissions.closed_lost_total",
+  "admissions.closed_lost_by_reason",
+  "admissions.closed_lost_by_rep",
 ]);

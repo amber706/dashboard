@@ -52,7 +52,7 @@ and lets Phase 3 / 4 add new pages without churn on the substrate.
 
 ## Status of admissions resolvers
 
-23 metric keys total. **18 of 23 wired (78%); 5 remaining need new RPCs.**
+**23 of 23 wired (100%).** Task #58 complete.
 
 ### ✓ Wired (18)
 
@@ -71,23 +71,25 @@ All 18 are backed by existing op_* RPCs:
 |---|---|
 | `reporting_op_funnel_daily_filtered` | 6 (3 totals + 3 ratios + closed_lost_total) |
 | `reporting_op_funnel_by_loc_filtered` | 3 by-LOC breakdowns |
-| `reporting_op_rep_funnel` | 3 by-rep breakdowns |
+| `reporting_op_rep_funnel` | 4 by-rep breakdowns (3 funnel + closed_lost_by_rep) |
 | `reporting_op_rep_activity` / `_filtered` | 5 call-activity metrics |
+| `reporting_op_funnel_by_rep_by_loc_filtered` (new, mig 193) | 3 matrix metrics |
+| `reporting_op_closed_lost_by_reason_filtered` (new, mig 193) | closed_lost_by_reason |
 
-### ⏳ Stubbed (5) — task #58
+### Final 5 resolvers shipped in migration 193
 
-Each throws a typed `not_yet_wired` error pointing here.
-
-- `admissions.{mqls,vobs,admits}_by_rep_by_loc` — matrix; needs
-  `reporting_op_funnel_by_rep_by_loc_filtered` pivoting
-  `op_lead_funnel_daily` on `(owner_user_id × level_of_care)`.
-- `admissions.closed_lost_by_reason` — needs
-  `reporting_op_closed_lost_by_reason_filtered` reading from
-  `reporting.deals.closed_lost_reason` (CONFIRMED.md #36).
-- `admissions.closed_lost_by_rep` — can derive from
-  `reporting_op_rep_funnel` (already returns `closed_lost_count`); just
-  needs the resolver wired analogously to the other by_rep metrics.
-  *Note: this one is actually trivial — flagging for cleanup.*
+- `admissions.{mqls,vobs,admits}_by_rep_by_loc` — matrix via new
+  `reporting_op_funnel_by_rep_by_loc_filtered`; pivots
+  `op_lead_funnel_daily` on `(owner_user_id × level_of_care)`. One RPC
+  call serves all three matrix metrics — the resolver picks the column.
+- `admissions.closed_lost_by_reason` — breakdown via new
+  `reporting_op_closed_lost_by_reason_filtered`; reads from
+  `reporting.deals.closed_lost_reason` directly (the brief permits
+  reason-style queries to bypass op_* cached tables, similar to
+  drill-downs).
+- `admissions.closed_lost_by_rep` — derives from existing
+  `reporting_op_rep_funnel.closed_lost_count`; no new RPC needed, just
+  a thin resolver-side wrapper over the rep-funnel loader.
 
 ### Test coverage
 

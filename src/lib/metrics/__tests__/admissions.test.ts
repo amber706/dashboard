@@ -27,6 +27,7 @@ import {
   registerMetrics,
   safeRatio,
   sumNullable,
+  type MatrixResult,
   type MetricResult,
   type ScalarResult,
   type BreakdownResult,
@@ -257,25 +258,7 @@ describe("admissions.missed_call_pct_team — wired derived ratio (rep_activity)
   });
 });
 
-// ── stubbed resolvers ─────────────────────────────────────────────────────
-
-const STUBBED_KEYS = [
-  "admissions.mqls_by_rep_by_loc",
-  "admissions.vobs_by_rep_by_loc",
-  "admissions.admits_by_rep_by_loc",
-  "admissions.closed_lost_by_reason",
-  "admissions.closed_lost_by_rep",
-];
-
-describe("stubbed resolvers (await new op_* RPCs — task #58)", () => {
-  it("there are exactly 5 stubbed resolvers", () => {
-    expect(STUBBED_KEYS).toHaveLength(5);
-  });
-
-  it.each(STUBBED_KEYS)("%s throws not_yet_wired with the docs pointer", async (key) => {
-    await expect(resolve(key)).rejects.toThrow(/not yet wired/);
-  });
-});
+// All 23 admissions resolvers wired as of Phase 2A complete — no stubs remain.
 
 // ── Newly wired in this slice ─────────────────────────────────────────────
 
