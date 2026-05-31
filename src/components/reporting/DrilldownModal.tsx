@@ -3,10 +3,11 @@
  * records" button. Shows the underlying record list bounded at 100 rows
  * (the Phase 2 brief's drill-down page-size cap).
  *
- * MVP for Phase 2B: dialog shell + title + placeholder table. The real
- * record fetch happens via the resolver's `drilldown` config — wiring it
- * to live data is a follow-up once each metric's drill-down query is
- * confirmed against seed.
+ * Two modes:
+ *   1. Smart (recommended): pass `metric` + `range` + `filters`. The modal
+ *      calls `useDrilldown` internally and handles loading / error / empty.
+ *   2. Dumb: pass pre-fetched `rows`. Used by callers that already have the
+ *      records on hand (e.g. matrix-cell drill-downs that pre-narrow).
  */
 
 import {
@@ -18,12 +19,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { downloadCsv, dateStampedName } from "@/lib/exportCsv";
 
-import { EmptyState } from "./EmptyState";
+import type { DateRange } from "@/features/analytics-warehouse/api/types";
+import type { FilterContract } from "@/features/op-reporting/components/FilterBar";
 
-export interface DrilldownRow {
-  /** Each row is a plain object — keys become column headers. */
-  [key: string]: string | number | boolean | null;
-}
+import { EmptyState } from "./EmptyState";
+import { LoadingSkeleton } from "./LoadingSkeleton";
+import { useDrilldown, type DrilldownRow } from "./use-drilldown";
+
+export type { DrilldownRow };
 
 interface DrilldownModalProps {
   open: boolean;
@@ -32,7 +35,11 @@ interface DrilldownModalProps {
   title: string;
   /** Subtitle for context — e.g. the active filter chips summary. */
   subtitle?: string;
-  /** The rows to render. MVP renders a basic table. */
+  /** Smart mode: metric_key + window + filters → modal fetches records itself. */
+  metric?: string;
+  range?: DateRange;
+  filters?: FilterContract;
+  /** Dumb mode: caller pre-fetched rows. Takes precedence over the smart-mode fields. */
   rows?: ReadonlyArray<DrilldownRow>;
   /** Optional CSV export filename stem. */
   exportName?: string;
@@ -43,10 +50,26 @@ export function DrilldownModal({
   onOpenChange,
   title,
   subtitle,
-  rows,
+  metric,
+  range,
+  filters,
+  rows: rowsOverride,
   exportName,
 }: DrilldownModalProps) {
-  const data = rows ?? [];
+  // Smart-mode hook is conditionally enabled — runs only when the modal is
+  // open AND no caller-supplied rows take precedence.
+  const smartEnabled = open && !rowsOverride && !!metric && !!range && !!filters;
+  const query = useDrilldown(
+    smartEnabled ? metric! : null,
+    range ?? { from: "1970-01-01", to: "1970-01-01" },
+    filters ?? { pipelines: [], sources: [], locs: [], reps: [] },
+    smartEnabled,
+  );
+
+  const isLoading = smartEnabled && (query.isLoading || query.isFetching);
+  const error = smartEnabled ? query.error : null;
+  const notes = smartEnabled ? query.data?.notes ?? null : null;
+  const data = rowsOverride ?? query.data?.rows ?? [];
   const columns = data.length > 0 ? Object.keys(data[0]) : [];
 
   return (
@@ -59,14 +82,24 @@ export function DrilldownModal({
           )}
         </DialogHeader>
 
-        {data.length === 0 ? (
+        {isLoading ? (
+          <LoadingSkeleton variant="matrix" />
+        ) : error ? (
+          <EmptyState title="Could not load records." hint={error.message} />
+        ) : notes ? (
+          <EmptyState title="Drill-down coming soon." hint={notes} />
+        ) : data.length === 0 ? (
           <EmptyState
             title="No records to show."
             hint="Try adjusting the filters or expanding the time range."
           />
         ) : (
           <>
-            <div className="flex justify-end mb-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">
+                Showing {data.length} record{data.length === 1 ? "" : "s"}
+                {data.length === 100 ? " (capped at 100 — narrow the filters for more)" : ""}
+              </span>
               <Button
                 variant="outline"
                 size="sm"
@@ -77,7 +110,7 @@ export function DrilldownModal({
                   )
                 }
               >
-                Export CSV ({data.length} rows)
+                Export CSV
               </Button>
             </div>
             <div className="max-h-[60vh] overflow-auto border rounded-md">
@@ -96,10 +129,7 @@ export function DrilldownModal({
                 </thead>
                 <tbody>
                   {data.map((r, i) => (
-                    <tr
-                      key={i}
-                      className="border-t hover:bg-muted/20"
-                    >
+                    <tr key={i} className="border-t hover:bg-muted/20">
                       {columns.map((c) => (
                         <td key={c} className="px-3 py-1.5 tabular-nums">
                           {r[c] == null ? "" : String(r[c])}

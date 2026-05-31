@@ -140,7 +140,10 @@ export function KPICard({
         onOpenChange={setOpen}
         title={def!.label}
         subtitle={def!.description}
-        rows={[]} // Live drill-down wiring is a follow-up (task in PHASE_2B_NOTES).
+        metric={metric}
+        range={range}
+        filters={filters}
+        exportName={`drilldown-${metric.replace(/\./g, "-")}`}
       />
     </>
   );

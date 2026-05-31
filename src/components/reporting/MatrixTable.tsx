@@ -72,7 +72,15 @@ export function MatrixTable({
             ? `${def.label} — ${drilldownCell.row} × ${drilldownCell.col}`
             : def.label
         }
-        rows={[]}
+        subtitle={
+          drilldownCell
+            ? `Drill-down narrows by rep + LOC. Note: matrix-cell scoping is approximate — page-wide filters still apply.`
+            : undefined
+        }
+        metric={metric}
+        range={range}
+        filters={filters}
+        exportName={`drilldown-${metric.replace(/\./g, "-")}`}
       />
     </ChartContainer>
   );
