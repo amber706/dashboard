@@ -95,6 +95,9 @@ import OpOverview from "@/pages/analytics/op-overview";
 import OpPayerMix from "@/pages/analytics/op-payer-mix";
 import OpDataQuality from "@/pages/analytics/op-data-quality";
 import OpSalesCycle from "@/pages/analytics/op-sales-cycle";
+
+// Phase 2 reporting pages — substrate via /src/lib/metrics + /src/components/reporting.
+import AdmissionsReportingPage from "@/pages/reporting/admissions";
 import WarehouseRepMetrics from "@/pages/analytics/rep-metrics";
 import WarehouseChannel from "@/pages/analytics/channel";
 import AnalyticsChartView from "@/pages/analytics/chart-view";
@@ -190,6 +193,9 @@ function AppRoutes() {
         <Route path="/analytics/op-rep-activity"  component={MgrMod("page_warehouse_rep_metrics", OpRepActivity)} />
         <Route path="/analytics/op-overview"      component={MgrMod("page_warehouse_executive",   OpOverview)} />
         <Route path="/analytics/op-referrals"     component={MgrMod("page_warehouse_bd_activity", OpReferrals)} />
+
+        {/* Phase 2 reporting pages — visible to all roles; RLS handles scope. */}
+        <Route path="/reporting/admissions"       component={Mod("page_reporting_admissions",     AdmissionsReportingPage)} />
         <Route path="/analytics/op-payer-mix"     component={MgrMod("page_warehouse_payer",       OpPayerMix)} />
         <Route path="/analytics/op-data-quality"  component={MgrMod("page_warehouse_executive",   OpDataQuality)} />
         <Route path="/analytics/op-sales-cycle"   component={MgrMod("page_warehouse_executive",   OpSalesCycle)} />
