@@ -260,35 +260,150 @@ describe("admissions.missed_call_pct_team — wired derived ratio (rep_activity)
 // ── stubbed resolvers ─────────────────────────────────────────────────────
 
 const STUBBED_KEYS = [
-  "admissions.mql_to_vob_rate",
-  "admissions.vob_to_admit_rate",
-  "admissions.admits_total",
-  "admissions.vobs_total",
-  "admissions.vobs_by_requested_loc",
-  "admissions.mqls_by_requested_loc",
-  "admissions.admits_by_rep",
-  "admissions.vobs_by_rep",
-  "admissions.mqls_by_rep",
-  "admissions.admits_by_rep_by_loc",
-  "admissions.vobs_by_rep_by_loc",
   "admissions.mqls_by_rep_by_loc",
-  "admissions.inbound_calls_team",
-  "admissions.inbound_calls_by_rep",
-  "admissions.outbound_calls_team",
-  "admissions.outbound_calls_by_rep",
+  "admissions.vobs_by_rep_by_loc",
+  "admissions.admits_by_rep_by_loc",
   "admissions.closed_lost_by_reason",
   "admissions.closed_lost_by_rep",
 ];
 
-describe("stubbed resolvers", () => {
-  it("there are exactly 18 stubbed resolvers (locks the wired/stubbed split)", () => {
-    expect(STUBBED_KEYS).toHaveLength(18);
+describe("stubbed resolvers (await new op_* RPCs — task #58)", () => {
+  it("there are exactly 5 stubbed resolvers", () => {
+    expect(STUBBED_KEYS).toHaveLength(5);
   });
 
   it.each(STUBBED_KEYS)("%s throws not_yet_wired with the docs pointer", async (key) => {
-    await expect(resolve(key)).rejects.toThrow(
-      /not yet wired/,
-    );
+    await expect(resolve(key)).rejects.toThrow(/not yet wired/);
+  });
+});
+
+// ── Newly wired in this slice ─────────────────────────────────────────────
+
+describe("admissions.{admits,vobs}_total — funnel scalars", () => {
+  it("admits_total sums admits_count", async () => {
+    rpcReturns(SAMPLE_FUNNEL);
+    const r = (await resolve("admissions.admits_total")) as ScalarResult;
+    expect(r.value).toBe(35);
+  });
+  it("vobs_total sums vobs_count", async () => {
+    rpcReturns(SAMPLE_FUNNEL);
+    const r = (await resolve("admissions.vobs_total")) as ScalarResult;
+    expect(r.value).toBe(64);
+  });
+});
+
+describe("admissions.{mql_to_vob,vob_to_admit}_rate — derived ratios", () => {
+  it("mql_to_vob_rate = vobs / mqls", async () => {
+    rpcReturns(SAMPLE_FUNNEL);
+    const r = (await resolve("admissions.mql_to_vob_rate")) as ScalarResult;
+    expect(r.value).toBeCloseTo(64 / 110, 5);
+  });
+  it("vob_to_admit_rate = admits / vobs", async () => {
+    rpcReturns(SAMPLE_FUNNEL);
+    const r = (await resolve("admissions.vob_to_admit_rate")) as ScalarResult;
+    expect(r.value).toBeCloseTo(35 / 64, 5);
+  });
+  it("both ratios return null when their denominator is zero", async () => {
+    rpcReturns([
+      { date: "2026-05-30", leads_count: 0, mqls_count: 0, vobs_count: 0, admits_count: 0, closed_lost_count: 0 },
+    ]);
+    const r1 = (await resolve("admissions.mql_to_vob_rate")) as ScalarResult;
+    expect(r1.value).toBeNull();
+    rpcReturns([
+      { date: "2026-05-30", leads_count: 5, mqls_count: 5, vobs_count: 0, admits_count: 0, closed_lost_count: 0 },
+    ]);
+    const r2 = (await resolve("admissions.vob_to_admit_rate")) as ScalarResult;
+    expect(r2.value).toBeNull();
+  });
+});
+
+describe("admissions.{mqls,vobs}_by_requested_loc — funnel-by-LOC breakdowns", () => {
+  it("mqls_by_requested_loc rolls up mqls_count by level_of_care, sorted desc", async () => {
+    rpcReturns([
+      { date: "d1", level_of_care: "iop3", mqls_count: 5, vobs_count: 0, admits_count: 0 },
+      { date: "d2", level_of_care: "iop3", mqls_count: 3, vobs_count: 0, admits_count: 0 },
+      { date: "d1", level_of_care: "php",  mqls_count: 9, vobs_count: 0, admits_count: 0 },
+    ]);
+    const r = (await resolve("admissions.mqls_by_requested_loc")) as BreakdownResult;
+    expect(r.rows.map((x) => x.dimension_value)).toEqual(["php", "iop3"]);
+    expect(r.rows.map((x) => x.value)).toEqual([9, 8]);
+    expect(r.total).toBe(17);
+  });
+  it("vobs_by_requested_loc uses vobs_count column", async () => {
+    rpcReturns([
+      { date: "d1", level_of_care: "iop3", mqls_count: 100, vobs_count: 4, admits_count: 0 },
+      { date: "d1", level_of_care: "php",  mqls_count: 200, vobs_count: 11, admits_count: 0 },
+    ]);
+    const r = (await resolve("admissions.vobs_by_requested_loc")) as BreakdownResult;
+    expect(r.rows.map((x) => ({ d: x.dimension_value, v: x.value }))).toEqual([
+      { d: "php", v: 11 },
+      { d: "iop3", v: 4 },
+    ]);
+  });
+});
+
+describe("admissions.{mqls,vobs,admits}_by_rep — rep funnel breakdowns", () => {
+  const SAMPLE_REP_FUNNEL = [
+    { owner_user_id: "u1", full_name: "Alice", mqls_count: 30, vobs_count: 18, admits_count: 9, closed_lost_count: 4 },
+    { owner_user_id: "u2", full_name: "Bob",   mqls_count: 25, vobs_count: 15, admits_count: 12, closed_lost_count: 3 },
+    { owner_user_id: "u3", full_name: "Cara",  mqls_count: 40, vobs_count: 22, admits_count: 7, closed_lost_count: 5 },
+  ];
+
+  it("mqls_by_rep returns one row per rep sorted descending", async () => {
+    rpcReturns(SAMPLE_REP_FUNNEL);
+    const r = (await resolve("admissions.mqls_by_rep")) as BreakdownResult;
+    expect(r.rows.map((x) => x.label)).toEqual(["Cara", "Alice", "Bob"]);
+    expect(r.rows.map((x) => x.value)).toEqual([40, 30, 25]);
+    expect(r.total).toBe(95);
+  });
+  it("admits_by_rep uses admits_count column", async () => {
+    rpcReturns(SAMPLE_REP_FUNNEL);
+    const r = (await resolve("admissions.admits_by_rep")) as BreakdownResult;
+    expect(r.rows.map((x) => ({ l: x.label, v: x.value }))).toEqual([
+      { l: "Bob", v: 12 },
+      { l: "Alice", v: 9 },
+      { l: "Cara", v: 7 },
+    ]);
+  });
+  it("honors the `reps` filter client-side", async () => {
+    rpcReturns(SAMPLE_REP_FUNNEL);
+    const r = (await getMetric("admissions.vobs_by_rep").resolve(DEFAULT_RANGE, {
+      ...DEFAULT_FILTERS,
+      reps: ["u1", "u3"],
+    })) as BreakdownResult;
+    expect(r.rows.map((x) => x.label).sort()).toEqual(["Alice", "Cara"]);
+  });
+});
+
+describe("admissions call-volume metrics (4) — via rep_activity", () => {
+  const SAMPLE_ACTIVITY = [
+    { owner_user_id: "u1", full_name: "Alice", inbound_calls: 30, outbound_calls: 12, missed_calls: 2, meetings_count: 0 },
+    { owner_user_id: "u2", full_name: "Bob",   inbound_calls: 40, outbound_calls: 18, missed_calls: 5, meetings_count: 0 },
+    { owner_user_id: null, full_name: null,    inbound_calls: 5,  outbound_calls: 1,  missed_calls: 0, meetings_count: 0 },
+  ];
+
+  it("inbound_calls_team sums across all rows (incl. unattributed)", async () => {
+    rpcReturns(SAMPLE_ACTIVITY);
+    const r = (await resolve("admissions.inbound_calls_team")) as ScalarResult;
+    expect(r.value).toBe(75);
+  });
+  it("outbound_calls_team sums outbound_calls", async () => {
+    rpcReturns(SAMPLE_ACTIVITY);
+    const r = (await resolve("admissions.outbound_calls_team")) as ScalarResult;
+    expect(r.value).toBe(31);
+  });
+  it("inbound_calls_by_rep drops the unattributed row + sorts desc", async () => {
+    rpcReturns(SAMPLE_ACTIVITY);
+    const r = (await resolve("admissions.inbound_calls_by_rep")) as BreakdownResult;
+    expect(r.rows.map((x) => ({ l: x.label, v: x.value }))).toEqual([
+      { l: "Bob", v: 40 },
+      { l: "Alice", v: 30 },
+    ]);
+  });
+  it("outbound_calls_by_rep uses outbound_calls", async () => {
+    rpcReturns(SAMPLE_ACTIVITY);
+    const r = (await resolve("admissions.outbound_calls_by_rep")) as BreakdownResult;
+    expect(r.rows[0]).toEqual({ dimension_value: "u2", label: "Bob", value: 18 });
   });
 });
 

@@ -198,20 +198,44 @@ async function resolveAdmitsByAdmittedLoc(
   };
 }
 
+// ── Rep-activity loader (shared by 5 metrics) ─────────────────────────────
+// op_rep_activity_daily is not keyed by pipeline/source/LOC (calls + meetings
+// don't carry those dims — see migration 191 comments). We honor the `reps`
+// filter via the _filtered RPC; other filters are intentional no-ops here.
+interface RepActivityRow {
+  owner_user_id: string | null;
+  full_name: string | null;
+  inbound_calls: number;
+  outbound_calls: number;
+  missed_calls: number;
+  meetings_count: number;
+}
+
+async function loadRepActivity(
+  range: DateRange,
+  filters: FilterContract,
+): Promise<ReadonlyArray<RepActivityRow>> {
+  const repIds = filters.reps.length > 0 ? filters.reps : null;
+  const { data, error } = repIds
+    ? await supabase.rpc("reporting_op_rep_activity_filtered", {
+        p_start: range.from,
+        p_end: range.to,
+        p_owner_user_ids: repIds,
+      })
+    : await supabase.rpc("reporting_op_rep_activity", {
+        p_start: range.from,
+        p_end: range.to,
+      });
+  if (error) throw new Error(`reporting_op_rep_activity: ${error.message}`);
+  return (data ?? []) as ReadonlyArray<RepActivityRow>;
+}
+
 /** admissions.missed_call_pct_team — wired, derived from rep_activity. */
 async function resolveMissedCallPctTeam(
   range: DateRange,
-  _filters: FilterContract,
+  filters: FilterContract,
 ): Promise<MetricResult> {
-  const { data, error } = await supabase.rpc("reporting_op_rep_activity", {
-    p_start: range.from,
-    p_end: range.to,
-  });
-  if (error) throw new Error(`reporting_op_rep_activity: ${error.message}`);
-  const rows = (data ?? []) as ReadonlyArray<{
-    inbound_calls: number;
-    missed_calls: number;
-  }>;
+  const rows = await loadRepActivity(range, filters);
   const inbound = sumNullable(rows.map((r) => r.inbound_calls));
   const missed = sumNullable(rows.map((r) => r.missed_calls));
   return {
@@ -220,6 +244,210 @@ async function resolveMissedCallPctTeam(
     series: [],
     prior_period_value: null,
   };
+}
+
+// ── Funnel-derived resolvers (4 more on top of mqls_total / closed_lost) ──
+
+/** admissions.admits_total — wired. */
+async function resolveAdmitsTotal(
+  range: DateRange,
+  filters: FilterContract,
+): Promise<MetricResult> {
+  const { rows } = await loadFunnelDaily(range, filters);
+  return scalarFromFunnel(rows, "admits_count");
+}
+
+/** admissions.vobs_total — wired. */
+async function resolveVobsTotal(
+  range: DateRange,
+  filters: FilterContract,
+): Promise<MetricResult> {
+  const { rows } = await loadFunnelDaily(range, filters);
+  return scalarFromFunnel(rows, "vobs_count");
+}
+
+/** admissions.mql_to_vob_rate — wired derived ratio. */
+async function resolveMqlToVobRate(
+  range: DateRange,
+  filters: FilterContract,
+): Promise<MetricResult> {
+  const { totals } = await loadFunnelDaily(range, filters);
+  return {
+    kind: "scalar",
+    value: safeRatio(totals.vobs, totals.mqls),
+    series: [],
+    prior_period_value: null,
+  };
+}
+
+/** admissions.vob_to_admit_rate — wired derived ratio. */
+async function resolveVobToAdmitRate(
+  range: DateRange,
+  filters: FilterContract,
+): Promise<MetricResult> {
+  const { totals } = await loadFunnelDaily(range, filters);
+  return {
+    kind: "scalar",
+    value: safeRatio(totals.admits, totals.vobs),
+    series: [],
+    prior_period_value: null,
+  };
+}
+
+// ── By-LOC breakdowns (2 more on top of admits_by_admitted_loc) ───────────
+
+type FunnelByLocCol = "mqls_count" | "vobs_count" | "admits_count";
+
+/** Shared logic: aggregate `reporting_op_funnel_by_loc_filtered` rows by LOC. */
+async function resolveBreakdownByLoc(
+  range: DateRange,
+  filters: FilterContract,
+  col: FunnelByLocCol,
+): Promise<MetricResult> {
+  const args = filterArgs(range, filters);
+  const { data, error } = await supabase.rpc(
+    "reporting_op_funnel_by_loc_filtered",
+    args,
+  );
+  if (error) throw new Error(`reporting_op_funnel_by_loc_filtered: ${error.message}`);
+  const byLoc = new Map<string, number>();
+  for (const r of (data ?? []) as ReadonlyArray<
+    { level_of_care: string | null } & Record<FunnelByLocCol, number | null>
+  >) {
+    const key = r.level_of_care ?? "(none)";
+    byLoc.set(key, (byLoc.get(key) ?? 0) + (r[col] ?? 0));
+  }
+  const rows = Array.from(byLoc.entries())
+    .map(([dim, v]) => ({ dimension_value: dim, label: dim, value: v }))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  return {
+    kind: "breakdown",
+    rows,
+    total: sumNullable(rows.map((r) => r.value)),
+  };
+}
+
+async function resolveMqlsByRequestedLoc(range: DateRange, filters: FilterContract) {
+  return resolveBreakdownByLoc(range, filters, "mqls_count");
+}
+async function resolveVobsByRequestedLoc(range: DateRange, filters: FilterContract) {
+  return resolveBreakdownByLoc(range, filters, "vobs_count");
+}
+
+// ── By-rep breakdowns (3 metrics) ─────────────────────────────────────────
+// reporting_op_rep_funnel returns one row per rep with MQL/VOB/Admit/Closed-Lost
+// counts — single RPC call serves all four by-rep metrics. The function does
+// not yet take a filter contract (pipeline/source/LOC). Filter wiring on this
+// surface is a follow-up; see PHASE_2A_NOTES.md.
+interface RepFunnelRow {
+  owner_user_id: string | null;
+  full_name: string | null;
+  mqls_count: number;
+  vobs_count: number;
+  admits_count: number;
+  closed_lost_count: number;
+}
+
+async function loadRepFunnel(range: DateRange): Promise<ReadonlyArray<RepFunnelRow>> {
+  const { data, error } = await supabase.rpc("reporting_op_rep_funnel", {
+    p_start: range.from,
+    p_end: range.to,
+  });
+  if (error) throw new Error(`reporting_op_rep_funnel: ${error.message}`);
+  return (data ?? []) as ReadonlyArray<RepFunnelRow>;
+}
+
+type RepFunnelCol =
+  | "mqls_count"
+  | "vobs_count"
+  | "admits_count"
+  | "closed_lost_count";
+
+function breakdownFromRepFunnel(
+  rows: ReadonlyArray<RepFunnelRow>,
+  col: RepFunnelCol,
+  filters: FilterContract,
+): BreakdownResult {
+  // The rep_funnel RPC isn't filter-aware yet — we honor the `reps` filter
+  // client-side so the page reflects the user's chip selection.
+  const repFilter = new Set(filters.reps);
+  const filtered = rows.filter((r) => {
+    if (repFilter.size === 0) return true;
+    return r.owner_user_id !== null && repFilter.has(r.owner_user_id);
+  });
+  const breakdown = filtered
+    .map((r) => ({
+      dimension_value: r.owner_user_id ?? "(unattributed)",
+      label: r.full_name ?? "(unattributed)",
+      value: r[col] ?? 0,
+    }))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  return {
+    kind: "breakdown",
+    rows: breakdown,
+    total: sumNullable(breakdown.map((r) => r.value)),
+  };
+}
+
+async function resolveMqlsByRep(range: DateRange, filters: FilterContract) {
+  return breakdownFromRepFunnel(await loadRepFunnel(range), "mqls_count", filters);
+}
+async function resolveVobsByRep(range: DateRange, filters: FilterContract) {
+  return breakdownFromRepFunnel(await loadRepFunnel(range), "vobs_count", filters);
+}
+async function resolveAdmitsByRep(range: DateRange, filters: FilterContract) {
+  return breakdownFromRepFunnel(await loadRepFunnel(range), "admits_count", filters);
+}
+
+// ── Call-volume resolvers (4 metrics) ─────────────────────────────────────
+
+type CallVolumeCol = "inbound_calls" | "outbound_calls";
+
+function scalarFromRepActivity(
+  rows: ReadonlyArray<RepActivityRow>,
+  col: CallVolumeCol,
+): ScalarResult {
+  return {
+    kind: "scalar",
+    value: sumNullable(rows.map((r) => r[col])),
+    // op_rep_activity_daily is keyed by date but the RPC already aggregates
+    // away the date dimension. Empty series; Phase 2B can extend the RPC to
+    // return a daily series if the UI wants sparklines on call totals.
+    series: [],
+    prior_period_value: null,
+  };
+}
+
+function breakdownFromRepActivity(
+  rows: ReadonlyArray<RepActivityRow>,
+  col: CallVolumeCol,
+): BreakdownResult {
+  const breakdown = rows
+    .filter((r) => r.owner_user_id !== null) // drop the unattributed row from the per-rep view
+    .map((r) => ({
+      dimension_value: r.owner_user_id ?? "(unattributed)",
+      label: r.full_name ?? "(unattributed)",
+      value: r[col] ?? 0,
+    }))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  return {
+    kind: "breakdown",
+    rows: breakdown,
+    total: sumNullable(breakdown.map((r) => r.value)),
+  };
+}
+
+async function resolveInboundCallsTeam(range: DateRange, filters: FilterContract) {
+  return scalarFromRepActivity(await loadRepActivity(range, filters), "inbound_calls");
+}
+async function resolveOutboundCallsTeam(range: DateRange, filters: FilterContract) {
+  return scalarFromRepActivity(await loadRepActivity(range, filters), "outbound_calls");
+}
+async function resolveInboundCallsByRep(range: DateRange, filters: FilterContract) {
+  return breakdownFromRepActivity(await loadRepActivity(range, filters), "inbound_calls");
+}
+async function resolveOutboundCallsByRep(range: DateRange, filters: FilterContract) {
+  return breakdownFromRepActivity(await loadRepActivity(range, filters), "outbound_calls");
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -239,7 +467,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
       scope: "all_deals",
       conversion_denominator: "mqls",
     },
-    resolve: notYetWired("admissions.mql_to_vob_rate"),
+    resolve: resolveMqlToVobRate,
   },
   {
     key: "admissions.vob_to_admit_rate",
@@ -252,7 +480,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
       scope: "deals_vob_submitted",
       conversion_denominator: "vobs",
     },
-    resolve: notYetWired("admissions.vob_to_admit_rate"),
+    resolve: resolveVobToAdmitRate,
   },
   {
     key: "admissions.mql_to_admit_rate",
@@ -275,7 +503,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "deals_admitted" },
-    resolve: notYetWired("admissions.admits_total"),
+    resolve: resolveAdmitsTotal,
   },
   {
     key: "admissions.vobs_total",
@@ -284,7 +512,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "deals_vob_submitted" },
-    resolve: notYetWired("admissions.vobs_total"),
+    resolve: resolveVobsTotal,
   },
   {
     key: "admissions.mqls_total",
@@ -314,7 +542,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "deals_vob_submitted" },
-    resolve: notYetWired("admissions.vobs_by_requested_loc"),
+    resolve: resolveVobsByRequestedLoc,
   },
   {
     key: "admissions.mqls_by_requested_loc",
@@ -323,7 +551,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "all_deals" },
-    resolve: notYetWired("admissions.mqls_by_requested_loc"),
+    resolve: resolveMqlsByRequestedLoc,
   },
   // ── Volume by Rep (3) ───────────────────────────────────────────────────
   {
@@ -333,7 +561,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "deals_admitted" },
-    resolve: notYetWired("admissions.admits_by_rep"),
+    resolve: resolveAdmitsByRep,
   },
   {
     key: "admissions.vobs_by_rep",
@@ -342,7 +570,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "deals_vob_submitted" },
-    resolve: notYetWired("admissions.vobs_by_rep"),
+    resolve: resolveVobsByRep,
   },
   {
     key: "admissions.mqls_by_rep",
@@ -351,7 +579,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_lead_funnel_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.deals", scope: "all_deals" },
-    resolve: notYetWired("admissions.mqls_by_rep"),
+    resolve: resolveMqlsByRep,
   },
   // ── Rep × LOC matrix (3) ────────────────────────────────────────────────
   // These three need a new RPC (`reporting_op_funnel_by_rep_by_loc_filtered`)
@@ -404,7 +632,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_rep_activity_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.calls", scope: "calls_inbound" },
-    resolve: notYetWired("admissions.inbound_calls_team"),
+    resolve: resolveInboundCallsTeam,
   },
   {
     key: "admissions.inbound_calls_by_rep",
@@ -413,7 +641,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_rep_activity_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.calls", scope: "calls_inbound" },
-    resolve: notYetWired("admissions.inbound_calls_by_rep"),
+    resolve: resolveInboundCallsByRep,
   },
   {
     key: "admissions.outbound_calls_team",
@@ -422,7 +650,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_rep_activity_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.calls", scope: "calls_outbound" },
-    resolve: notYetWired("admissions.outbound_calls_team"),
+    resolve: resolveOutboundCallsTeam,
   },
   {
     key: "admissions.outbound_calls_by_rep",
@@ -431,7 +659,7 @@ const ADMISSIONS_METRICS: ReadonlyArray<MetricDefinition> = [
     source_table: "reporting.op_rep_activity_daily",
     supports_rep_scope: true,
     drilldown: { source: "reporting.calls", scope: "calls_outbound" },
-    resolve: notYetWired("admissions.outbound_calls_by_rep"),
+    resolve: resolveOutboundCallsByRep,
   },
   // ── Closed lost (3) ─────────────────────────────────────────────────────
   {
@@ -485,10 +713,31 @@ export type AdmissionsMetricKey = (typeof ADMISSIONS_METRICS)[number]["key"];
 export const ADMISSIONS_METRIC_COUNT = ADMISSIONS_METRICS.length;
 
 // Status of resolver wiring — read by docs/tests so we can audit progress.
+// 18 of 23 resolvers wired; the remaining 5 need new op_* RPCs (task #58):
+// mqls/vobs/admits_by_rep_by_loc (matrix), closed_lost_by_reason, closed_lost_by_rep.
 export const ADMISSIONS_WIRED_KEYS: ReadonlyArray<string> = Object.freeze([
-  "admissions.mqls_total",
+  // Conversion ratios (3/3)
+  "admissions.mql_to_vob_rate",
+  "admissions.vob_to_admit_rate",
   "admissions.mql_to_admit_rate",
+  // Team totals (3/3)
+  "admissions.admits_total",
+  "admissions.vobs_total",
+  "admissions.mqls_total",
+  // By LOC (3/3)
   "admissions.admits_by_admitted_loc",
+  "admissions.vobs_by_requested_loc",
+  "admissions.mqls_by_requested_loc",
+  // By rep (3/3) — via reporting_op_rep_funnel + client-side rep filter
+  "admissions.admits_by_rep",
+  "admissions.vobs_by_rep",
+  "admissions.mqls_by_rep",
+  // Call activity (5/5)
   "admissions.missed_call_pct_team",
+  "admissions.inbound_calls_team",
+  "admissions.inbound_calls_by_rep",
+  "admissions.outbound_calls_team",
+  "admissions.outbound_calls_by_rep",
+  // Closed lost (1/3) — total wired; by_reason + by_rep need new RPCs
   "admissions.closed_lost_total",
 ]);

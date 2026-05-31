@@ -52,46 +52,61 @@ and lets Phase 3 / 4 add new pages without churn on the substrate.
 
 ## Status of admissions resolvers
 
-23 metric keys total. The first PR ships:
+23 metric keys total. **18 of 23 wired (78%); 5 remaining need new RPCs.**
 
-- ✓ **Substrate** — `resolver.ts`, `use-metric.ts`, full catalog with metadata
-  + drill-down config for all 23 keys.
-- ✓ **5 wired resolvers** representing each shape variant:
-  - `admissions.mqls_total` — scalar via `reporting_op_funnel_daily_filtered`
-  - `admissions.closed_lost_total` — scalar (same RPC, different column)
-  - `admissions.mql_to_admit_rate` — derived ratio (validates null-on-zero-denom)
-  - `admissions.admits_by_admitted_loc` — breakdown via
-    `reporting_op_funnel_by_loc_filtered`
-  - `admissions.missed_call_pct_team` — derived ratio via
-    `reporting_op_rep_activity`
-- ✓ **Tests** — registry shape, drill-down config presence, inverse-flag set,
-  numeric correctness for all 5 wired resolvers, null-on-zero-denominator
-  spec case, "stub raises" contract test for the 18 not-yet-wired keys.
+### ✓ Wired (18)
 
-The remaining 18 are mechanical fill-in once Amber greenlights the approach:
-
-### Maps to existing RPCs (13 resolvers, ~1 hour of typing)
-
-| Key | RPC |
+| Group | Keys |
 |---|---|
-| `admissions.admits_total`, `vobs_total` | `reporting_op_funnel_daily_filtered` |
-| `admissions.mql_to_vob_rate`, `vob_to_admit_rate` | same (derived) |
-| `admissions.{mqls,vobs}_by_requested_loc` | `reporting_op_funnel_by_loc_filtered` |
-| `admissions.{mqls,vobs,admits}_by_rep` | `reporting_op_rep_funnel` |
-| `admissions.{inbound,outbound}_calls_team` | `reporting_op_rep_activity` |
-| `admissions.{inbound,outbound}_calls_by_rep` | same |
+| Conversion ratios | `mql_to_vob_rate`, `vob_to_admit_rate`, `mql_to_admit_rate` |
+| Team totals | `mqls_total`, `vobs_total`, `admits_total` |
+| By LOC | `mqls_by_requested_loc`, `vobs_by_requested_loc`, `admits_by_admitted_loc` |
+| By rep | `mqls_by_rep`, `vobs_by_rep`, `admits_by_rep` |
+| Call activity | `missed_call_pct_team`, `inbound_calls_team`, `outbound_calls_team`, `inbound_calls_by_rep`, `outbound_calls_by_rep` |
+| Closed Lost (partial) | `closed_lost_total` |
 
-### Needs new RPCs (5 resolvers, task #58)
+All 18 are backed by existing op_* RPCs:
+
+| RPC | Metrics |
+|---|---|
+| `reporting_op_funnel_daily_filtered` | 6 (3 totals + 3 ratios + closed_lost_total) |
+| `reporting_op_funnel_by_loc_filtered` | 3 by-LOC breakdowns |
+| `reporting_op_rep_funnel` | 3 by-rep breakdowns |
+| `reporting_op_rep_activity` / `_filtered` | 5 call-activity metrics |
+
+### ⏳ Stubbed (5) — task #58
+
+Each throws a typed `not_yet_wired` error pointing here.
 
 - `admissions.{mqls,vobs,admits}_by_rep_by_loc` — matrix; needs
   `reporting_op_funnel_by_rep_by_loc_filtered` pivoting
-  `op_lead_funnel_daily` on (owner_user_id × level_of_care).
+  `op_lead_funnel_daily` on `(owner_user_id × level_of_care)`.
 - `admissions.closed_lost_by_reason` — needs
   `reporting_op_closed_lost_by_reason_filtered` reading from
-  `reporting.deals.closed_lost_reason`.
+  `reporting.deals.closed_lost_reason` (CONFIRMED.md #36).
 - `admissions.closed_lost_by_rep` — can derive from
-  `reporting_op_rep_funnel` if it already returns `closed_lost_count`;
-  otherwise needs a small additive RPC.
+  `reporting_op_rep_funnel` (already returns `closed_lost_count`); just
+  needs the resolver wired analogously to the other by_rep metrics.
+  *Note: this one is actually trivial — flagging for cleanup.*
+
+### Test coverage
+
+| Test bucket | Count |
+|---|---|
+| Helper / registry / contract | 7 |
+| Wired resolvers (numeric correctness + edge cases) | 25 |
+| Stubbed `not_yet_wired` contract | 6 |
+| **Total** | **38** |
+
+### Known gaps surfaced during wiring
+
+- **`reporting_op_rep_funnel` is not filter-aware.** The 3 by-rep metrics
+  honor the `reps` filter client-side; pipeline / source / LOC filters are
+  silent no-ops on this surface. Building a `_filtered` variant is a follow-up.
+- **Call totals have no daily series.** `reporting_op_rep_activity` already
+  aggregates away the date dimension; sparklines for call metrics need
+  either a new RPC or a client-side re-aggregation off the per-day cache.
+  Phase 2B decision.
 
 ## Acceptance gate (per the brief)
 
