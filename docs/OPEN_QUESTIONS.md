@@ -110,11 +110,9 @@ Moved to `CONFIRMED.md` #17. 13 picklist values pulled via Zoho API. Catch-all r
 
 ---
 
-## #18 — Test record exclusion rule (DEFERRED to Phase 1B)
+## ~~#18 — Test record exclusion rule~~ — RESOLVED
 
-**Status:** Amber explicitly deferred this to Phase 1B sample-data triage. We sample raw production data during the first sync, identify the test rows by inspection, and write the exclusion rule based on what's actually there. Until then, no test-exclusion filter is applied.
-
-**Risk:** raw counts in Phase 1B include test data until this is closed.
+Closed 2026-05-30 (Phase 1B data-quality pass). Test-row audit found essentially no test data in Cornerstone's Zoho: 2 names containing "test", 0 example.com / test.com / mailinator emails, 0 junk phones, and the `Dev Test` field turned out to be a mis-named conversion-tracking flag on real PPC leads. The bigger signal was `Lead Score Rating = ⭐ Junk/Spam` (1,675 leads, 1 conversion) — but those are real unqualified callers, not test data. No exclusion rule shipped; headline counts unchanged. Documented in CONFIRMED.md changelog rev 9. Revisit if a real test workflow ever emerges.
 
 ---
 
@@ -189,12 +187,9 @@ Moved to `CONFIRMED.md` #32. Deferred to Phase 2 as a separate Network filter. P
 
 ---
 
-## #30 — `Insurance_Type` value "PPO" → stored "Unknown" (NEW)
+## ~~#30 — `Insurance_Type` value "PPO" → stored "Unknown"~~ — RESOLVED
 
-**Where:** discovered via Zoho `getFields`.
-**Question:** the `Insurance_Type` picklist has a display value `PPO` whose **actual stored value is `Unknown`**. This is either a Zoho rename gone wrong or a deliberate workaround. Either way, leads with the value will hit our sync as the literal string `Unknown`, which is not in the canonical enum.
-
-**How to resolve:** check Zoho CRM Setup → Customization → Leads → Insurance Type field; either fix the actual_value to `PPO` or confirm `Unknown` is intentional. If intentional, decide whether `Unknown` should be a separate insurance type (e.g., for unverified payer leads).
+Closed 2026-05-30 (Phase 1B data-quality pass). Moved to CONFIRMED.md #39. Bigger than just PPO/Unknown — Insurance_Type has four drift values in production (`Cash`, `Commercial Insurance`, `PPO`, `Unknown`) totaling 623 leads. Sync layer absorbs the mismatch via a drift map (`Cash → Cash Pay`, `Commercial Insurance → Private Insurance`, `PPO → Private Insurance`, `Unknown → null`); 406 historical rows backfilled. Zoho-side picklist cleanup deferred without deadline.
 
 ---
 
@@ -235,6 +230,7 @@ Moved to `CONFIRMED.md` #29. Phase 1B adds `op_placement_cycle_daily` alongside 
 - **2026-05-27 (rev 7)** — VOB priority chain refined; closed_lost removed from backup set (CONFIRMED.md #33).
 - **2026-05-27 (rev 8)** — Admit priority chain mirrors VOB. Source Category confirmed as Zoho Global Picklist. Closed Lost reason capture added per pipeline. "Placement" renamed to "Referred Out Closed" under new "Refer Outs" parent category. New OPEN_QUESTIONS: #34 (4 hidden Source Category values — Call Center / Option 1 / Option 2 — Phase 1B sync logs whether any production data carries them), #35 (DV pipeline has no dedicated closed-lost reason field — confirm if needed).
 - **2026-05-29 (rev 9)** — BD undercount diagnosis on /analytics/op-funnel. Resolved #34 (Call Center stays Digital; Option 1/Option 2 are junk → removed from Zoho picklist). Alumni split into its own source category was added as a separate decision — see CONFIRMED.md #37.
+- **2026-05-30 (rev 10)** — Phase 1B data-quality cleanup pass. Resolved #18 (no test data exists), #30 (Insurance_Type drift absorbed in sync layer + backfill), #35 (DV closed-lost reasons skipped), #36 (legacy DUI / null-pipeline accepted as un-normalized). See CONFIRMED.md #39-#41. Only OPEN_QUESTION #37 (Lead_Created_Time conversion workflow) remains pending — Amber's Zoho action.
 
 ---
 
@@ -244,33 +240,15 @@ Moved to `CONFIRMED.md` #38 (2026-05-29). Amber's call: `Call Center` stays mapp
 
 ---
 
-## #35 — DV closed-lost reason field (NEW)
+## ~~#35 — DV closed-lost reason field~~ — RESOLVED
 
-**Where:** `METRIC_DEFINITIONS.md` §10.
-**Question:** Treatment closed-lost has `Lost_Reasoning` (45 values); DUI has `Close_Reasoning_DUI` (6 values). DV - Cash pipeline has no dedicated closed-lost reason field.
-
-Should we:
-- (a) Add a custom `Close_Reasoning_DV` field to the Zoho DV pipeline layout,
-- (b) Fall back to the Zoho system `Reason_For_Loss__s` field for DV closed-lost,
-- (c) Not track DV closed-lost reasons at all (low volume?)
-
-**Recommended default:** (b) for Phase 1; revisit if DV volume grows.
+Closed 2026-05-30. Moved to CONFIRMED.md #40. Decision: skip — `reporting.deals.closed_lost_reason` stays null for DV closed-lost rows. Revisit if DV reporting scope expands.
 
 ---
 
-## #36 — Pipeline null on legacy Deals (NEW)
+## ~~#36 — Pipeline null on legacy Deals~~ — RESOLVED
 
-**Where:** `reporting-sync-deals` smoke test (2026-05-28, run `06652bea-3458-47ba-8378-91be7ad33257`).
-**Observed:** 1,058 of 29,493 Deals (3.6%) have `Pipeline = null` in Zoho's COQL response and are rejected with `schema_mismatch`. Distribution by Created year: 2022 = 1,032, 2023 = 22, 2024 = 3, 2025 = 1.
-
-The 2022 rows are pre-Pipeline-field legacy. The 26 post-2022 rows are all OOP screening/class stages (`Closed - Sold Screening`, `Closed - Sold Classes`, `Closed - Sold Screening & Class`) where Zoho appears not to populate Pipeline even on current records.
-
-**Decision needed:**
-- (a) Backfill Pipeline in Zoho for legacy rows (one-time mass update)
-- (b) Treat `Pipeline = null` as `oop_screening_class` when Stage matches an OOP class stage; drop the rest as pre-Pipeline legacy
-- (c) Accept the partial — these 1,058 deals predate Phase 1B's reporting window (trailing 14 days) and won't affect op_metrics
-
-**Recommended default:** (c) for Phase 1B chunk 2 sign-off. Revisit if any historical-period drill-down needs them.
+Closed 2026-05-30. Moved to CONFIRMED.md #41. Decision: accept the partial. Broader than initially observed — 6,891 deals carry the pre-rename legacy raw value `DUI` (2023-06 to 2024-08) plus 1,058 null-pipeline rows, all pre-2024-08 and outside the active reporting window. No backfill, no `pipeline_mapping` alias. Revisit if 2024-or-earlier historical reporting becomes a need.
 
 ---
 
