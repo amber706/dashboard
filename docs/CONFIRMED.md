@@ -668,6 +668,37 @@ Before this fix, the leads sync's strict allowlist nulled all 623 leads' insuran
 
 ---
 
+## #42 — Deal.`Original_Created_Time` is the Lead-time signal (resolves OPEN_QUESTION #37)
+
+**Source:** Amber, 2026-05-30. Verified via 18-record cross-check (COQL on Leads joined to converted Deals) that the value on `Deal.Original_Created_Time` is the converting Lead's `Created_Time`, not the Deal's own.
+
+**Background:** Migration 142 introduced `reporting.deals.lead_created_time` intending to source it from Zoho's standard `Lead_Created_Time` field — which Cornerstone has never populated (0 of 29,587 deals). The real signal lives on the Deal's `Original_Created_Time` field, copied over at conversion time by Cornerstone's Lead Conversion Mapping. The mapping has been in place for years.
+
+**Evidence (2026-05-30 sample):**
+
+| Deal | Deal Created_Time | Original_Created_Time | Gap |
+|---|---|---|---|
+| Symone Johnson | 2026-05-30 11:59 | **2025-03-31 09:47** | **~14 months** |
+| Dana Weathers | 2026-05-30 09:47 | 2026-04-16 04:07 | 6 weeks |
+| Lance Begay | 2026-05-30 11:12 | 2026-05-20 11:44 | 10 days |
+| Skyelar Wilson | 2026-05-30 11:24 | 2026-05-23 12:05 | 7 days |
+| Andrew Lerma | 2026-05-30 19:46:22 | 2026-05-30 19:45:37 | 45 sec |
+
+The Symone Johnson 14-month gap rules out any chance of `Original_Created_Time` being a copy of the Deal's own `Created_Time`.
+
+**Resolution:**
+- `reporting-sync-deals/index.ts` reads `Original_Created_Time` from the Zoho COQL response (replaces the unused `Lead_Created_Time` field).
+- Migration 192 backfills `reporting.deals.lead_created_time` from `raw_zoho_crm_deals.raw_payload->>'Original_Created_Time'` — ~16,239 historical deals in the raw mirror.
+- The `reporting.deals.lead_created_time` column name stays — semantics were always "the lead's created time," only the source-field name in the Zoho payload was wrong.
+- `op_sales_cycle_daily` + `op_placement_cycle_daily` start populating immediately after the next op_metric rebuild — they were not "waiting on a Zoho workflow setup" as Migration 142's comments incorrectly stated, just on this read-side fix.
+
+**Consequences:**
+- Sales-cycle + placement-cycle metrics now have real data across the full reporting window.
+- No Zoho-side action needed; the Convert Mapping was already in place.
+- Migration 142's comments describing the source field are stale but the schema is correct — left as-is to preserve migration history.
+
+---
+
 ## Document changelog
 
 - **2026-05-27** — Created alongside METRIC_DEFINITIONS.md rev 2. Seven resolutions recorded (#1–#7).
@@ -679,3 +710,4 @@ Before this fix, the leads sync's strict allowlist nulled all 623 leads' insuran
 - **2026-05-27 (rev 7)** — Added #34 (Admit priority chain, mirrors VOB), #35 (Source Category Zoho Global Picklist), #36 (Closed Lost reason capture per pipeline). Revises CONFIRMED.md #20.
 - **2026-05-29 (rev 8)** — Added #37 (Alumni split out of Digital into its own bucket; revises CONFIRMED.md #17) and #38 (Option 1 / Option 2 retired as junk; closes OPEN_QUESTION #34). Triggered by BD undercount diagnosis on /analytics/op-funnel — the cache faithfully reported what the mapping said, but the mapping incorrectly folded Alumni-sourced leads into Digital. Migration 190 implements both decisions.
 - **2026-05-30 (rev 9)** — Data-quality cleanup pass closes OPEN_QUESTIONS #18 (no test data exists in Cornerstone's Zoho — closed without changes), #30 (Insurance_Type storage drift — sync layer absorbs four drifted values; 406-row backfill applied), #35 (DV closed-lost reasons — skipped), and #36 (legacy `DUI` pipeline rows — accepted as un-normalized partial). Added CONFIRMED #39, #40, #41.
+- **2026-05-30 (rev 10)** — Closes OPEN_QUESTION #37 with the source-field correction. Migration 142 plumbing was right; only the Zoho payload field name read by reporting-sync-deals was wrong (`Lead_Created_Time` → `Original_Created_Time`). Migration 192 + sync-function update fix it. Sales-cycle + placement-cycle metrics start populating. Added CONFIRMED #42.

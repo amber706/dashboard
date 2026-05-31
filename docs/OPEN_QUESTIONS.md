@@ -231,6 +231,7 @@ Moved to `CONFIRMED.md` #29. Phase 1B adds `op_placement_cycle_daily` alongside 
 - **2026-05-27 (rev 8)** — Admit priority chain mirrors VOB. Source Category confirmed as Zoho Global Picklist. Closed Lost reason capture added per pipeline. "Placement" renamed to "Referred Out Closed" under new "Refer Outs" parent category. New OPEN_QUESTIONS: #34 (4 hidden Source Category values — Call Center / Option 1 / Option 2 — Phase 1B sync logs whether any production data carries them), #35 (DV pipeline has no dedicated closed-lost reason field — confirm if needed).
 - **2026-05-29 (rev 9)** — BD undercount diagnosis on /analytics/op-funnel. Resolved #34 (Call Center stays Digital; Option 1/Option 2 are junk → removed from Zoho picklist). Alumni split into its own source category was added as a separate decision — see CONFIRMED.md #37.
 - **2026-05-30 (rev 10)** — Phase 1B data-quality cleanup pass. Resolved #18 (no test data exists), #30 (Insurance_Type drift absorbed in sync layer + backfill), #35 (DV closed-lost reasons skipped), #36 (legacy DUI / null-pipeline accepted as un-normalized). See CONFIRMED.md #39-#41. Only OPEN_QUESTION #37 (Lead_Created_Time conversion workflow) remains pending — Amber's Zoho action.
+- **2026-05-30 (rev 11)** — Resolved #37 in a different way than rev 10 expected. The Convert Mapping was already in place years ago; the source-of-truth field is `Original_Created_Time` on Deals (not `Lead_Created_Time`). Migration 142's plumbing was correct; only the Zoho field name read by reporting-sync-deals was wrong. Migration 192 + sync-function update fix it. See CONFIRMED.md #42.
 
 ---
 
@@ -252,18 +253,12 @@ Closed 2026-05-30. Moved to CONFIRMED.md #41. Decision: accept the partial. Broa
 
 ---
 
-## #37 — Deal → Lead linkage field name (PARTIAL)
+## ~~#37 — Deal → Lead linkage field name~~ — RESOLVED 2026-05-30
 
-**Status (2026-05-28):**
-- `getFields(Deals)` confirmed there is **no** Lead-Id lookup field on Deals.
-- Zoho's standard `Lead_Created_Time` (date) field exists on the Deal schema, which is exactly what sales-/placement-cycle math needs. Migration 142 plumbs it through end to end (column, upsert RPC, sync function, op_metric builder).
-- **However:** Cornerstone's Zoho returns `Lead_Created_Time = null` on all 29,524 current Deals. The field exists in the schema but isn't auto-populated by Zoho — it requires a CRM workflow that copies the Lead's Created Time to the Deal at conversion.
+The Zoho standard `Lead_Created_Time` field that Migration 142 originally targeted is unused at Cornerstone (0 of 29,587 deals populated). The actual conversion-time Lead Created Time lives on the Deal's **`Original_Created_Time`** field, copied over by Cornerstone's pre-existing Lead Conversion Mapping (Setup → Customization → Modules and Fields → Leads → Convert Mapping → Deals tab).
 
-**Action for Amber:** in Zoho CRM, add a workflow:
-- Trigger: "On Lead Conversion"
-- Action: Field Update → set Deal.Lead_Created_Time to the Lead's Created Time
-- Apply to all five pipelines.
+**Verified 2026-05-30** against 18 production deals: every `Deal.Original_Created_Time` exactly matches the converting Lead's `Created_Time`, with gaps from 45 seconds (fresh same-day conversion of Andrew Lerma) up to ~14 months (long-tail conversion of Symone Johnson's 2025-03-31 lead on 2026-05-30). The 14-month gap rules out any chance of `Original_Created_Time` being a copy of the Deal's own `Created_Time`.
 
-Once set up, every new conversion populates the field automatically. Historical deals remain null unless mass-backfilled (low priority — Phase 1B's reporting window is trailing-14 days; only deals admitted/closed in that window need the value for cycle math).
+**Fix shipped:** reporting-sync-deals reads `Original_Created_Time` from the Zoho payload (replaces the unused `Lead_Created_Time` field); migration 192 backfills the 16,239 historical deals already in the raw mirror. The `reporting.deals.lead_created_time` column name + downstream consumers stay as-is — semantics were always correct, only the source-field name was wrong.
 
-`op_sales_cycle_daily` + `op_placement_cycle_daily` return zero rows until this workflow is in place. The TS predicates and SQL builder are correct; they're just waiting on data.
+See CONFIRMED.md #42.
