@@ -135,6 +135,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/analytics/op-sales-cycle", label: "Op Sales Cycle",      icon: <Hourglass className="w-4 h-4" />,    section: "Op Reporting", roles: ["manager", "admin"] as const },
     { href: "/analytics/op-data-quality", label: "Op Data Quality",    icon: <ShieldAlert className="w-4 h-4" />,  section: "Op Reporting", roles: ["manager", "admin"] as const },
 
+    // Phase 2 reporting pages — substrate via /src/lib/metrics + /src/components/reporting.
+    // Visible to all three roles; RLS scopes data server-side.
+    { href: "/reporting/admissions",  label: "Admissions",          icon: <BarChart3 className="w-4 h-4" />,   section: "Reporting", roles: ["rep", "manager", "admin"] as const },
+
     { href: "/analytics/executive",   label: "Executive Snapshot",  icon: <BarChart3 className="w-4 h-4" />,   section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/funnel",      label: "Funnel Analysis",     icon: <TrendingDown className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/rep-metrics", label: "Rep Metrics",         icon: <Trophy className="w-4 h-4" />,       section: "Analytics", roles: ["manager", "admin"] as const },
@@ -265,6 +269,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href === "/analytics/op-payer-mix")    return "page_warehouse_payer";
     if (href === "/analytics/op-data-quality") return "page_warehouse_executive";
     if (href === "/analytics/op-sales-cycle")  return "page_warehouse_executive";
+
+    // Phase 2 reporting pages — each has its own dedicated page_reporting_* flag.
+    if (href === "/reporting/admissions")      return "page_reporting_admissions";
 
     if (href === "/analytics/executive")     return "page_warehouse_executive";
     if (href === "/analytics/funnel")        return "page_warehouse_funnel";
