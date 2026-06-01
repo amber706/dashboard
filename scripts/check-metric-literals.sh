@@ -39,6 +39,10 @@ EXEMPT_FILES=(
   # fixture data (mocked RPC responses). They're not feeding into reporting
   # logic — they're verifying that the breakdown resolver groups correctly.
   "src/lib/metrics/__tests__/admissions.test.ts"
+  # The args-verification suite asserts each resolver passes the right
+  # filter literals to the RPC, so it intentionally references the
+  # normalized enum values inline.
+  "src/lib/metrics/__tests__/admissions-args.test.ts"
 )
 
 # Forbidden literal strings. Each is matched as a literal substring against

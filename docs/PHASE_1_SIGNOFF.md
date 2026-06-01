@@ -117,6 +117,8 @@ part of Phase 2A's hybrid path rather than retroactively expanding 1c.
 The Phase 1 work itself — taxonomy, data layer, op-reporting dashboards
 — is complete and live.
 
-**Signed off:** 2026-05-31 (retrospectively).
-**Next:** Phase 2 admissions dashboard. See `docs/PHASE_2A_NOTES.md` for
-the substrate path + `docs/PHASE_2_PAGE_GUIDE.md` for the page template.
+**Signed off:** Amber Vaughan, CMO, 2026-06-01 (confirming the
+retrospective sign-off from 2026-05-31).
+
+**Next:** Phase 2 admissions dashboard signed off the same day —
+see `docs/PHASE_2_SIGNOFF.md`. Phase 3 unblocked.

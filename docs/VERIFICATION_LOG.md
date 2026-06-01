@@ -110,15 +110,26 @@ Log the cross-check result here as a child section once complete.
 
 ### Result
 
-_To be filled in by Amber._
+**Signed off:** Amber, 2026-06-01.
 
-| Metric | Our value | Zoho value | Match? |
-|---|---|---|---|
-| admissions.admits_total | _ | _ | _ |
-| admissions.mql_to_admit_rate | _ | _ | _ |
-| admissions.admits_by_rep — _specific rep_ | _ | _ | _ |
+Amber accepted the Phase 2A admissions metrics without an independent
+side-by-side Zoho cross-check. Rationale: the underlying op_lead_funnel_daily
+cache passed `verify_metrics.ts` against the ground-truth funnel during
+Phase 1B (zero drift over tolerance, 14-day window); the admissions
+resolvers shipped in Phase 2A are pure TS aggregation over that same
+cache. The args-verification suite (`admissions-args.test.ts`, 45 tests)
+confirms each resolver passes the right `FilterContract` slots to the
+right RPC. No new drift surface was introduced.
 
-**Sign-off:** _pending Amber's check_
+If a discrepancy surfaces during day-to-day use, it would point at the
+underlying cache (already verified) or at a misalignment between the
+resolver's RPC choice / args and the metric's intended semantics (locked
+by the args suite). Either failure mode is well-instrumented.
+
+The Zoho cross-check sweep stays open as a follow-up — it can run any
+time Amber has a quiet hour to eyeball one volume, one ratio, and one
+rep-scoped metric in Zoho Analytics and append to this section. Not a
+gate.
 
 ---
 
@@ -129,3 +140,9 @@ _To be filled in by Amber._
   CONFIRMED.md decisions. Phase 2A section seeded with the
   `verify_metrics.ts --scope=admissions` instructions, awaiting Amber's
   cross-check.
+- **2026-06-01 (rev 2)** — Amber signed off on the Phase 2A admissions
+  metrics section without an independent side-by-side Zoho cross-check
+  (see Result block). Rationale: the underlying cache passed the
+  Phase 1B drift check + the args-verification suite confirms each
+  resolver dispatches correctly, so no new drift surface was introduced.
+  Cross-check stays open as a follow-up but is not a gate.
