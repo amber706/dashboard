@@ -130,6 +130,55 @@ async function fetchDealsDrilldown(
 }
 
 /**
+ * Fetch up to `DRILLDOWN_PAGE_SIZE` calls matching the metric's drill-down
+ * scope. The reps filter applies; pipeline / source / LOC are intentional
+ * no-ops here — `reporting.calls` rows aren't tied to deals at the cached
+ * layer (calls + meetings ETL is independent of the deal pipeline).
+ *
+ * Joined to `user_identity` so the drill-down table can show the rep's
+ * name alongside the raw `owner_user_id` UUID.
+ */
+async function fetchCallsDrilldown(
+  scope: "calls_inbound" | "calls_outbound" | "calls_missed",
+  range: DateRange,
+  filters: FilterContract,
+): Promise<DrilldownRow[]> {
+  let q = supabase
+    .from("calls")
+    .select(
+      "source_call_id, owner_user_id, direction, duration_sec, occurred_at, missed",
+    )
+    .gte("occurred_at", `${range.from}T00:00:00Z`)
+    .lte("occurred_at", `${range.to}T23:59:59Z`)
+    .order("occurred_at", { ascending: false })
+    .limit(DRILLDOWN_PAGE_SIZE);
+
+  switch (scope) {
+    case "calls_inbound":
+      q = q.eq("direction", "inbound");
+      break;
+    case "calls_outbound":
+      q = q.eq("direction", "outbound");
+      break;
+    case "calls_missed":
+      // `missed` is a boolean on every call row; calls_missed surfaces ONLY
+      // the ones flagged true. The headline "missed-call rate" metric is
+      // missed/inbound, but the drill-down shows the missed records
+      // specifically — most useful for triage.
+      q = q.eq("missed", true);
+      break;
+  }
+
+  if (filters.reps.length > 0) {
+    q = q.in("owner_user_id", filters.reps);
+  }
+
+  const { data, error } = await q;
+  if (error) throw new Error(`drilldown(calls): ${error.message}`);
+  return (data ?? []) as unknown as DrilldownRow[];
+}
+
+/**
  * Drill-down loader for a metric. Returns the bounded record list and
  * surfaces whether the metric's scope is wired yet (some non-deals scopes
  * — calls / meetings — return an empty list with a `notes` field).
@@ -146,18 +195,26 @@ export function useDrilldown(
     queryFn: async () => {
       const def = getMetric(metric!);
       const { source, scope } = def.drilldown;
-      if (source !== "reporting.deals") {
-        return {
-          rows: [],
-          notes: `Drill-down for ${source} records lands with the matching dashboard page.`,
-        };
+      if (source === "reporting.deals") {
+        const rows = await fetchDealsDrilldown(
+          scope as Parameters<typeof fetchDealsDrilldown>[0],
+          range,
+          filters,
+        );
+        return { rows, notes: null };
       }
-      const rows = await fetchDealsDrilldown(
-        scope as Parameters<typeof fetchDealsDrilldown>[0],
-        range,
-        filters,
-      );
-      return { rows, notes: null };
+      if (source === "reporting.calls") {
+        const rows = await fetchCallsDrilldown(
+          scope as Parameters<typeof fetchCallsDrilldown>[0],
+          range,
+          filters,
+        );
+        return { rows, notes: null };
+      }
+      return {
+        rows: [],
+        notes: `Drill-down for ${source} records lands with the matching dashboard page.`,
+      };
     },
     staleTime: 5 * 60 * 1000,
   });
