@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -18,5 +19,13 @@ export default defineConfig({
   server: {
     port: 5173,
     host: "localhost",
+  },
+  test: {
+    // jsdom environment for component tests via @testing-library/react.
+    // Pure-logic test files don't pay for the jsdom overhead — vitest
+    // creates the environment lazily per file.
+    environment: "jsdom",
+    globals: false,
+    setupFiles: ["./vitest.setup.ts"],
   },
 });
