@@ -181,7 +181,7 @@ export default function BdStrategy() {
       eyebrow="BUSINESS DEVELOPMENT"
       title="Strategy Command Center"
       subtitle="Pick a growth goal — the engine ranks accounts by where BD attention will move the needle. Segments, scores, and recommended actions are derived from 18 months of meeting / referral / admit history."
-      maxWidth={1700}
+      maxWidth={1400}
       actions={
         <div className="flex items-center gap-2">
           <Link href="/bd"><Button variant="outline" size="sm" className="gap-1.5 h-9"><ArrowLeft className="w-3.5 h-3.5" /> Performance</Button></Link>

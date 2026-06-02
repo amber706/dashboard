@@ -378,7 +378,7 @@ export default function Admin() {
                       </div>
                       {rep.specialty_tags && rep.specialty_tags.length > 0 && (
                         <div className="pt-2 flex flex-wrap gap-1 mt-2 border-t">
-                          {rep.specialty_tags.map(tag => (
+                          {rep.specialty_tags.map((tag: string) => (
                             <Badge key={tag} variant="secondary" className="text-[10px] px-1 py-0">{tag}</Badge>
                           ))}
                         </div>
@@ -510,7 +510,7 @@ export default function Admin() {
                           <td className="p-3 font-mono text-xs">{log.ctm_call_id}</td>
                           <td className="p-3">
                             <div className="flex flex-wrap gap-1">
-                              {log.fields?.map(f => (
+                              {log.fields?.map((f: string) => (
                                 <Badge key={f} variant="secondary" className="text-[10px] px-1 py-0">{f}</Badge>
                               ))}
                             </div>
@@ -736,7 +736,7 @@ export default function Admin() {
                           <td className="p-3 font-medium">{rule.rule_name}</td>
                           <td className="p-3">
                             <div className="flex flex-wrap gap-1">
-                              {rule.keywords?.map(kw => (
+                              {rule.keywords?.map((kw: string) => (
                                 <Badge key={kw} variant="outline" className="text-[10px] px-1 py-0">{kw}</Badge>
                               ))}
                             </div>
