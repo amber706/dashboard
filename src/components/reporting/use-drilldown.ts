@@ -42,6 +42,7 @@ const WIRED_DEAL_SCOPES: ReadonlySet<string> = new Set([
   "deals_admitted",
   "deals_vob_submitted",
   "deals_closed_lost",
+  "deals_referred_out",
 ]);
 
 /** Uniform record shape rendered by `DrilldownModal`. */
@@ -74,7 +75,8 @@ async function fetchDealsDrilldown(
     | "all_deals"
     | "deals_admitted"
     | "deals_vob_submitted"
-    | "deals_closed_lost",
+    | "deals_closed_lost"
+    | "deals_referred_out",
   range: DateRange,
   filters: FilterContract,
 ): Promise<DrilldownRow[]> {
@@ -120,6 +122,20 @@ async function fetchDealsDrilldown(
     case "deals_closed_lost":
       q = q
         .eq("stage_category", "closed_lost")
+        .gte("closing_date", range.from)
+        .lte("closing_date", range.to)
+        .order("closing_date", { ascending: false });
+      break;
+    case "deals_referred_out":
+      // Closed refer-outs — mirrors op_referrals_daily.referred_out_closed_count
+      // (migration 184): the unattached win, the coming-back disposition, OR a
+      // closed_lost deal whose reason starts "Referred Out". Anchored on
+      // closing_date so it reconciles with executive.referred_out_total.
+      q = q
+        .or(
+          "stage_category.in.(closed_won_referred_out_unattached,referred_out_coming_back)," +
+            "and(stage_category.eq.closed_lost,closed_lost_reason.ilike.Referred Out*)",
+        )
         .gte("closing_date", range.from)
         .lte("closing_date", range.to)
         .order("closing_date", { ascending: false });
@@ -193,6 +209,41 @@ async function fetchCallsDrilldown(
 }
 
 /**
+ * Fetch up to `DRILLDOWN_PAGE_SIZE` leads for the payer-mix drill-down.
+ * Leads are pre-pipeline, so this mirrors `reporting_op_payer_mix_filtered`'s
+ * filter set — source_category + requested LOC + owner — and intentionally
+ * does NOT apply a pipeline filter. We surface insurance_type + star_rating
+ * so the user can eyeball which payer bucket each lead falls in (the bucket
+ * CASE lives in the RPC; the drill-down shows the raw inputs).
+ */
+async function fetchLeadsDrilldown(
+  scope: "leads_all",
+  range: DateRange,
+  filters: FilterContract,
+): Promise<DrilldownRow[]> {
+  void scope; // single scope today — param kept for symmetry with the others.
+  let q = supabase
+    .from("leads")
+    .select(
+      "source_lead_id, owner_user_id, source_category, level_of_care_requested, " +
+        "insurance_type, lead_score_rating, star_rating, bd_rep_inbound, created_at",
+      { count: "exact" },
+    )
+    .gte("created_at", `${range.from}T00:00:00Z`)
+    .lte("created_at", `${range.to}T23:59:59Z`)
+    .order("created_at", { ascending: false })
+    .limit(DRILLDOWN_PAGE_SIZE);
+
+  if (filters.sources.length > 0) q = q.in("source_category", filters.sources);
+  if (filters.locs.length > 0) q = q.in("level_of_care_requested", filters.locs);
+  if (filters.reps.length > 0) q = q.in("owner_user_id", filters.reps);
+
+  const { data, error } = await q;
+  if (error) throw new Error(`drilldown(leads): ${error.message}`);
+  return (data ?? []) as unknown as DrilldownRow[];
+}
+
+/**
  * Drill-down loader for a metric. Returns the bounded record list and
  * surfaces whether the metric's scope is wired yet (some non-deals scopes
  * — calls / meetings — return an empty list with a `notes` field).
@@ -226,6 +277,14 @@ export function useDrilldown(
       if (source === "reporting.calls") {
         const rows = await fetchCallsDrilldown(
           scope as Parameters<typeof fetchCallsDrilldown>[0],
+          range,
+          filters,
+        );
+        return { rows, notes: null };
+      }
+      if (source === "reporting.leads") {
+        const rows = await fetchLeadsDrilldown(
+          scope as Parameters<typeof fetchLeadsDrilldown>[0],
           range,
           filters,
         );

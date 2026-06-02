@@ -29,7 +29,15 @@ the breakdown RPCs `RAISE` for non-managers).
   `@/components/reporting` library across all 14 metrics.
 - `src/components/reporting/use-drilldown.ts` — added a `WIRED_DEAL_SCOPES`
   guard so an unwired deal scope returns an honest "coming soon" note rather
-  than silently-unfiltered rows.
+  than silently-unfiltered rows. Then wired both new scopes:
+  - `deals_referred_out` — deal-level predicate mirrors
+    `op_referrals_daily.referred_out_closed_count` exactly (migration 184:
+    unattached win + coming-back + closed-lost-with-"Referred Out" reason,
+    anchored on `closing_date`), so the drill-down reconciles with
+    `executive.referred_out_total`.
+  - `leads_all` — `fetchLeadsDrilldown` for the payer-mix tile, filtering on
+    source_category + requested LOC + owner (no pipeline — leads are
+    pre-pipeline), mirroring `reporting_op_payer_mix_filtered`.
 - Route registered: `/reporting/executive` behind feature flag
   `page_reporting_executive` (`MgrMod`).
 - Nav entry under the "Reporting" parent menu (manager/admin only).
@@ -79,7 +87,7 @@ the full picture. Both honor an explicit pipeline filter.
 | Hand-verification logged in `VERIFICATION_LOG.md` | ☐ pending | New "Phase 3 — Executive Metrics" section. |
 | `/reporting/executive` loads end-to-end under manager + admin | ✓ | 9 render tests; manual walk pending. |
 | Role-aware copy reads naturally | ✓ | `pageSubtitle` → "Team performance" for manager/admin (render tests). |
-| Drill-downs return the right records | ◑ partial | Deals scopes (`all_deals`, `deals_admitted`, `deals_vob_submitted`) live. `deals_referred_out` + `leads_all` return an honest "coming soon" note pending their predicates (follow-up). |
+| Drill-downs return the right records | ✓ | All deal scopes live (incl. `deals_referred_out`, predicate matches migration 184). `leads_all` wired for payer mix. Only `reporting.meetings` stays a "coming soon" note (no executive metric uses it). |
 | Filters behave (URL persistence, multi-select) | ✓ | Reuses Phase 1c FilterBar + useFilterUrlState. |
 | Empty + loading states | ✓ | Shared `LoadingSkeleton` + `EmptyState` across every component. |
 | Performance | ✓ | TanStack Query shared cache key over `(range, FilterContract)`. MoM adds one prior-window RPC per top-line KPI — cached independently. |
@@ -124,10 +132,9 @@ about the header copy + section presence._
 **Open follow-ups (not gate blockers):**
 - Enable the `page_reporting_executive` feature flag at `/admin/settings`.
 - Run the Zoho cross-check and log it in `VERIFICATION_LOG.md`.
-- Wire the `deals_referred_out` drill-down predicate (refer-out-unattached
-  deals) and a `leads_all` leads drill-down when those surfaces are needed.
-- Add Alumni as a `source_category` (taxonomy + ETL + CONFIRMED.md) when the
-  Marketing page lands, then widen the channel split to 4-way.
+- Add Alumni as a `source_category` (taxonomy + ETL + CONFIRMED.md) via the
+  open PR #46, then the channel split widens to 4-way automatically (the
+  resolver humanizes whatever source categories the RPC returns).
 
 **What's unlocked:** Phase 3+ — the next dashboard page (BD or Marketing).
 Same scaffold; see `docs/PHASE_2_PAGE_GUIDE.md`.
@@ -139,3 +146,8 @@ Same scaffold; see `docs/PHASE_2_PAGE_GUIDE.md`.
 - **2026-06-02 (rev 1)** — File created alongside the Phase 3 Executive build.
   Substrate + page + tests + verifier shipped; acceptance-gate checklist and
   role walk-through seeded, awaiting Amber's review.
+- **2026-06-02 (rev 2)** — Production-hardening pass: wired both remaining
+  drill-downs (`deals_referred_out` predicate matching migration 184, and
+  `leads_all` for payer mix). Drill-down gate item now ✓. Remaining open
+  items are all human/external: Amber's walk-through, the Zoho cross-check,
+  and sign-off.
