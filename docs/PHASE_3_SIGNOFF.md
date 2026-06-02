@@ -95,6 +95,41 @@ the full picture. Both honor an explicit pipeline filter.
 
 ---
 
+## Live data validation (2026-06-02)
+
+Ran all six Executive RPCs against `cornerstone-admissions-dev` for the
+2026-05-01 → 2026-05-31 window (read-only). This proves the arg signatures
+end-to-end — the one runtime failure mode the mocked unit tests can't catch.
+
+- **Top-line:** leads 0¹, MQLs 815, VOBs 603, admits 168. Prior window
+  (MoM): admits 155 → +8.4% delta renders.
+- **Reconciliation:** top-line admits 168 = pipeline split
+  (commercial 34 + ahcccs 134 + zocdoc 0). DUI 136 + DV 3 appear only in the
+  all-pipelines chart, as designed.
+- **Refer-out:** total **224** = destinations breakdown sum (Residential
+  Unattached 106 + Psych 90 + Detox 24 + Detox Attached 3 + Residential
+  Attached 1). The `deals_referred_out` drill-down predicate targets this set.
+- **Payer mix:** 6 buckets, sums to 100% (AHCCCS 38% / Unclassified 35% /
+  Commercial 11% / DUI 11% / Other 4% / DV 1%).
+
+¹ `leads_count` is 0 on the top-line funnel because leads carry no pipeline;
+lead counts surface via payer mix / the conversion-funnel's leads row instead.
+
+**Findings (not Phase 3 blockers):**
+- **`alumni` is already a live `source_category`** on dev (24 May admits),
+  ahead of `definitions.ts`. The channel split is data-driven so the page
+  renders it as a 4th bar today; `FilterBar`'s source dropdown won't offer it
+  until PR #46 updates the frontend taxonomy. Left `definitions.ts` untouched
+  to avoid conflicting with #46.
+- **35% of payer-mix leads classify as "Unclassified"** — surfaced by the
+  `payer_mix` RPC (pre-Phase-3). Worth a data-quality look before this page
+  goes to leadership.
+
+The remaining Zoho cross-check is now narrowed to comparing these (internally
+reconciled) numbers against Zoho Analytics' own totals for the same window.
+
+---
+
 ## Role-by-role walk-through
 
 _Pending Amber's review. Executive is manager/admin only and has no by-rep /
