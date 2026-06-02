@@ -32,7 +32,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { writeFileSync } from "node:fs";
 
-type Scope = "all" | "admissions";
+type Scope = "all" | "admissions" | "executive";
 
 interface Args {
   start: string;
@@ -58,8 +58,8 @@ function parseArgs(argv: string[]): Args {
     else if (k === "--tolerance" && v) { args.tolerance = parseFloat(v); i++; }
     else if (k === "--out" && v) { args.out = v; i++; }
     else if (k === "--scope" && v) {
-      if (v !== "all" && v !== "admissions") {
-        console.error(`ERROR: --scope must be "all" or "admissions"; got "${v}".`);
+      if (v !== "all" && v !== "admissions" && v !== "executive") {
+        console.error(`ERROR: --scope must be "all", "admissions", or "executive"; got "${v}".`);
         process.exit(2);
       }
       args.scope = v;
@@ -68,7 +68,7 @@ function parseArgs(argv: string[]): Args {
       console.log(
         "Usage: tsx scripts/verify_metrics.ts " +
           "--start YYYY-MM-DD --end YYYY-MM-DD " +
-          "[--scope all|admissions] [--tolerance 0.005] [--out drift.csv]",
+          "[--scope all|admissions|executive] [--tolerance 0.005] [--out drift.csv]",
       );
       process.exit(0);
     }
@@ -201,6 +201,9 @@ async function main() {
   if (args.scope === "admissions") {
     await printAdmissionsSpotCheck();
   }
+  if (args.scope === "executive") {
+    await printExecutiveSpotCheck();
+  }
 }
 
 /**
@@ -320,6 +323,126 @@ async function printAdmissionsSpotCheck(): Promise<void> {
   console.error("  2. Cross-check each against Zoho Analytics for the same window.");
   console.error("  3. Log the comparison in docs/VERIFICATION_LOG.md under a new");
   console.error("     'Phase 2a — Admissions Metrics' section.");
+}
+
+/**
+ * --scope=executive extension: pretty-print every executive.* metric over
+ * the same window for hand-verification against Zoho Analytics / the legacy
+ * /analytics/executive page. Like the admissions spot-check, these values
+ * flow through the same op_lead_funnel_daily cache the funnel drift check
+ * already verifies — no new drift surface, just convenience formatting for
+ * the Phase 3 acceptance gate. The one extra surface is the month-over-month
+ * prior-window total, so we print it explicitly for sanity.
+ */
+async function printExecutiveSpotCheck(): Promise<void> {
+  console.error("\n=== Phase 3 executive spot-check ===");
+  console.error(`Window: ${args.start} → ${args.end}`);
+  console.error("Cross-check these against Zoho Analytics for the same window.\n");
+
+  const TOP_LINE = ["commercial_cash", "ahcccs", "zocdoc"];
+  const safeRatio = (n: number, d: number): string =>
+    d === 0 ? "—" : `${((n / d) * 100).toFixed(2)}%`;
+
+  // Prior window = equal-length window immediately preceding `start`.
+  const MS = 86_400_000;
+  const startMs = new Date(`${args.start}T00:00:00Z`).getTime();
+  const endMs = new Date(`${args.end}T00:00:00Z`).getTime();
+  const lenDays = Math.round((endMs - startMs) / MS) + 1;
+  const priorEnd = new Date(startMs - MS).toISOString().slice(0, 10);
+  const priorStart = new Date(startMs - lenDays * MS).toISOString().slice(0, 10);
+
+  const sumCol = (rows: Array<Record<string, unknown>>, k: string) =>
+    rows.reduce((acc, r) => acc + Number(r[k] ?? 0), 0);
+
+  async function funnelTotals(start: string, end: string) {
+    const { data, error } = await supa.rpc("reporting_op_funnel_daily_filtered", {
+      p_start: start,
+      p_end: end,
+      p_pipelines: TOP_LINE,
+      p_source_categories: null,
+      p_locs: null,
+      p_owner_user_ids: null,
+    });
+    if (error) {
+      console.error(`(funnel ${start}→${end}) RPC error: ${error.message}`);
+      return null;
+    }
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    return {
+      leads: sumCol(rows, "leads_count"),
+      mqls: sumCol(rows, "mqls_count"),
+      vobs: sumCol(rows, "vobs_count"),
+      admits: sumCol(rows, "admits_count"),
+    };
+  }
+
+  const cur = await funnelTotals(args.start, args.end);
+  const prior = await funnelTotals(priorStart, priorEnd);
+  if (cur) {
+    console.error("Top-line (Commercial-Cash + AHCCCS + ZocDoc):");
+    console.error(`  executive.mqls_total        = ${cur.mqls}`);
+    console.error(`  executive.vobs_total        = ${cur.vobs}`);
+    console.error(`  executive.admits_total      = ${cur.admits}`);
+    console.error(`  executive.mql_to_admit_rate = ${safeRatio(cur.admits, cur.mqls)}`);
+    console.error("\nConversion funnel (Leads → MQL → VOB → Admit):");
+    console.error(`  ${cur.leads} → ${cur.mqls} → ${cur.vobs} → ${cur.admits}`);
+  }
+  if (cur && prior) {
+    console.error(`\nMonth-over-month (prior window ${priorStart} → ${priorEnd}):`);
+    const delta = (now: number, was: number) =>
+      `${now} vs ${was} (${was === 0 ? "—" : `${(((now - was) / was) * 100).toFixed(1)}%`})`;
+    console.error(`  admits  ${delta(cur.admits, prior.admits)}`);
+    console.error(`  mqls    ${delta(cur.mqls, prior.mqls)}`);
+  }
+
+  // Pipeline split — ALL pipelines (matches the page default for this chart).
+  const { data: byPipe, error: bpErr } = await supa.rpc(
+    "reporting_op_funnel_by_pipeline_filtered",
+    { p_start: args.start, p_end: args.end, p_pipelines: null, p_source_categories: null, p_locs: null, p_owner_user_ids: null },
+  );
+  if (bpErr) {
+    console.error(`\n(by_pipeline) RPC error: ${bpErr.message}`);
+  } else {
+    console.error("\nexecutive.admits_by_pipeline:");
+    for (const r of (byPipe ?? []) as Array<{ pipeline: string | null; admits_count: number }>) {
+      console.error(`  ${String(r.pipeline ?? "(unassigned)").padEnd(20)} ${r.admits_count}`);
+    }
+  }
+
+  // Channel split — BD / Digital / ZocDoc.
+  const { data: bySrc, error: bsErr } = await supa.rpc(
+    "reporting_op_funnel_by_source_filtered",
+    { p_start: args.start, p_end: args.end, p_pipelines: TOP_LINE, p_source_categories: null, p_locs: null, p_owner_user_ids: null },
+  );
+  if (bsErr) {
+    console.error(`\n(by_source) RPC error: ${bsErr.message}`);
+  } else {
+    console.error("\nexecutive.admits_by_channel:");
+    for (const r of (bySrc ?? []) as Array<{ source_category: string | null; admits_count: number }>) {
+      console.error(`  ${String(r.source_category ?? "(none)").padEnd(20)} ${r.admits_count}`);
+    }
+  }
+
+  // Payer mix.
+  const { data: payer, error: pErr } = await supa.rpc(
+    "reporting_op_payer_mix_filtered",
+    { p_start: args.start, p_end: args.end, p_source_categories: null, p_locs: null, p_owner_user_ids: null },
+  );
+  if (pErr) {
+    console.error(`\n(payer_mix) RPC error: ${pErr.message}`);
+  } else {
+    console.error("\nexecutive.payer_mix:");
+    for (const r of (payer ?? []) as Array<{ bucket: string; count: number; share: number }>) {
+      console.error(`  ${String(r.bucket).padEnd(20)} ${String(r.count).padStart(5)}  ${(Number(r.share) * 100).toFixed(1)}%`);
+    }
+  }
+
+  console.error("\n=== End executive spot-check ===\n");
+  console.error("To finish closing the Phase 3 acceptance gate:");
+  console.error("  1. Pick 3 values (one top-line total, one MoM delta, one breakdown).");
+  console.error("  2. Cross-check each against Zoho Analytics for the same window.");
+  console.error("  3. Log the comparison in docs/VERIFICATION_LOG.md under a new");
+  console.error("     'Phase 3 — Executive Metrics' section.");
 }
 
 main().catch((err) => {
