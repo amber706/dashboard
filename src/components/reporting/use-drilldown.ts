@@ -30,6 +30,20 @@ import type { FilterContract } from "@/features/op-reporting/components/FilterBa
 /** Page size cap for drill-downs per the Phase 2 brief. */
 export const DRILLDOWN_PAGE_SIZE = 100;
 
+/**
+ * Deal scopes with a real predicate in `fetchDealsDrilldown`. A metric whose
+ * `drilldown.scope` is a deals source but NOT in this set returns an honest
+ * "coming soon" note rather than silently falling through the predicate
+ * switch and returning unfiltered deals. (Phase 3's `deals_referred_out`
+ * lives here until its predicate is wired — see PHASE_3_SIGNOFF.md.)
+ */
+const WIRED_DEAL_SCOPES: ReadonlySet<string> = new Set([
+  "all_deals",
+  "deals_admitted",
+  "deals_vob_submitted",
+  "deals_closed_lost",
+]);
+
 /** Uniform record shape rendered by `DrilldownModal`. */
 export interface DrilldownRow {
   [key: string]: string | number | boolean | null;
@@ -196,6 +210,12 @@ export function useDrilldown(
       const def = getMetric(metric!);
       const { source, scope } = def.drilldown;
       if (source === "reporting.deals") {
+        if (!WIRED_DEAL_SCOPES.has(scope)) {
+          return {
+            rows: [],
+            notes: `Drill-down for the "${scope}" scope lands in a follow-up.`,
+          };
+        }
         const rows = await fetchDealsDrilldown(
           scope as Parameters<typeof fetchDealsDrilldown>[0],
           range,

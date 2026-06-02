@@ -86,6 +86,8 @@ export interface DrilldownConfig {
     | "deals_admitted"
     | "deals_vob_submitted"
     | "deals_closed_lost"
+    | "deals_referred_out"
+    | "leads_all"
     | "calls_inbound"
     | "calls_outbound"
     | "calls_missed";
@@ -186,4 +188,25 @@ export function safeRatio(numerator: number, denominator: number): number | null
 /** Sum a sequence ignoring null/undefined entries. */
 export function sumNullable(values: ReadonlyArray<number | null | undefined>): number {
   return values.reduce<number>((acc, v) => acc + (v ?? 0), 0);
+}
+
+/**
+ * The immediately-preceding window of equal length, for month-over-month
+ * delta arrows. A 31-day range ending 2026-05-31 returns the 31 days ending
+ * 2026-04-30 (the day before `from`). Both bounds are inclusive ISO dates.
+ *
+ * The Executive page uses this so each top-line KPI can populate
+ * `prior_period_value` with a second RPC call over the prior window — the
+ * Phase 2B Admissions resolvers left that null. Date math runs in UTC to
+ * avoid timezone drift on the date-only strings.
+ */
+export function priorRange(range: DateRange): DateRange {
+  const MS_PER_DAY = 86_400_000;
+  const from = new Date(`${range.from}T00:00:00Z`).getTime();
+  const to = new Date(`${range.to}T00:00:00Z`).getTime();
+  const lengthDays = Math.round((to - from) / MS_PER_DAY) + 1; // inclusive
+  const priorTo = from - MS_PER_DAY;
+  const priorFrom = priorTo - (lengthDays - 1) * MS_PER_DAY;
+  const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  return { from: iso(priorFrom), to: iso(priorTo) };
 }
