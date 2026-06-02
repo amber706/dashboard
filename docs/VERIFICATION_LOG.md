@@ -133,6 +133,50 @@ gate.
 
 ---
 
+## Phase 3 — Executive Metrics
+
+Run the spot-check:
+
+```bash
+# From repo root (.env.local sources the Supabase creds):
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+  npx tsx scripts/verify_metrics.ts \
+  --start 2026-05-01 --end 2026-05-31 --scope executive
+```
+
+### Live-data pull (2026-06-02, dev project `fortdxbbazifklqwydnk`, window 2026-05-01 → 2026-05-31)
+
+Pulled directly via the Supabase RPCs the resolver uses (read-only). These
+are the numbers the page renders; the only remaining step is the right-hand
+"Zoho" column.
+
+| Metric | App value | Zoho value | Match? |
+|---|---|---|---|
+| `executive.mqls_total` (top-line) | 815 | _pending_ | |
+| `executive.vobs_total` (top-line) | 603 | _pending_ | |
+| `executive.admits_total` (top-line) | 168 | _pending_ | |
+| `executive.mql_to_admit_rate` | 20.6% (168/815) | _pending_ | |
+| MoM prior-window admits | 155 (→ +8.4%) | _pending_ | |
+| `executive.referred_out_total` | 224 | _pending_ | |
+
+**Internal reconciliation (already confirmed, no Zoho needed):**
+- Top-line admits 168 = pipeline split (commercial 34 + ahcccs 134 + zocdoc 0).
+  DUI 136 + DV 3 appear only in the all-pipelines chart, as designed.
+- Refer-out total 224 = destinations breakdown (Residential Unattached 106 +
+  Psych Unattached 90 + Detox Unattached 24 + Detox Attached 3 + Residential
+  Attached 1).
+- Payer mix sums to 100% across 6 buckets.
+
+### Result
+
+_Pending Amber's cross-check + sign-off._ As with Phase 2A, the executive
+resolvers are pure TS aggregation over the same `op_lead_funnel_daily` /
+`op_referrals_daily` caches the Phase 1B drift check already verified, and
+the `executive-args.test.ts` suite (27 tests) confirms each resolver
+dispatches the right RPC + args. No new drift surface was introduced.
+
+---
+
 ## Document changelog
 
 - **2026-05-31 (rev 1)** — File created alongside the Phase 2A substrate
@@ -146,3 +190,8 @@ gate.
   Phase 1B drift check + the args-verification suite confirms each
   resolver dispatches correctly, so no new drift surface was introduced.
   Cross-check stays open as a follow-up but is not a gate.
+- **2026-06-02 (rev 3)** — Added the Phase 3 Executive Metrics section
+  with a live-data pull (May 2026) pre-filled in the cross-check table,
+  leaving only the Zoho column for Amber. Internal reconciliation
+  (top-line = pipeline split; refer-out total = destinations sum)
+  confirmed. Awaiting Amber's sign-off.

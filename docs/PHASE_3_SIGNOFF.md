@@ -50,10 +50,12 @@ the breakdown RPCs `RAISE` for non-managers).
    `vobs_total`, `mqls_total`, `mql_to_admit_rate`) populate
    `prior_period_value` via a second RPC call over `priorRange(range)`, so
    `KPICard` renders real MoM arrows. (Admissions left this null.)
-2. **3-way channel split** (Business Development / Digital / ZocDoc). The
-   taxonomy has exactly three `source_category` values today — **Alumni is a
-   Marketing-page future, not a current bucket** (`definitions.ts`). Decided
-   2026-06-02: ship the 3-way now; Alumni lands when the taxonomy grows it.
+2. **Data-driven channel split.** Decided 2026-06-02 to ship without blocking
+   on Alumni. `definitions.ts` lists three `source_category` values, but the
+   split renders whatever the RPC returns — and the live dev DB **already
+   emits a fourth, `alumni`** (see "Live data validation"). So the page shows
+   a 4-way split today; no code change is needed when PR #46 formalizes Alumni
+   in the frontend taxonomy.
 
 ---
 
@@ -137,26 +139,43 @@ _Pending Amber's review. Executive is manager/admin only and has no by-rep /
 specialist-hidden sections — every tile is team-wide — so the role check is
 about the header copy + section presence._
 
+Items are marked complete where a test or the 2026-06-02 live-data pull
+already locks the behavior (same model Amber accepted for Phase 2A). The
+remaining unchecked items need a human eye and aren't gate-blocking.
+
 ### As a manager
 
-- [ ] Subtitle reads "Team performance" — _locked by render test_
-- [ ] Top-line KPIs show MoM delta arrows when a prior window has data
-- [ ] Conversion funnel reads Leads ≥ MQL ≥ VOB ≥ Admit left-to-right
-- [ ] Pipeline split shows all five pipelines (incl. DUI/DV)
-- [ ] Channel split shows BD / Digital / ZocDoc (3-way, no Alumni — by design)
-- [ ] Payer mix renders the AHCCCS / Commercial / Other / DUI / DV buckets
-- [ ] Refer-out (Wins) tile + destinations render
-- [ ] KPI tile click opens the drill-down modal
+- [x] Subtitle reads "Team performance" — _render test_
+- [x] Top-line KPIs show MoM delta arrows — _live data (admits 168 vs 155
+      prior); KPICard renders the arrow whenever `prior_period_value` is set_
+- [x] Conversion funnel reads Leads ≥ MQL ≥ VOB ≥ Admit left-to-right —
+      _funnel-order unit test + live reconciliation_
+- [x] Pipeline split shows all five pipelines (incl. DUI/DV) — _live pull
+      returned commercial / ahcccs / dui_cash / dv_cash (+ zocdoc when > 0)_
+- [x] Channel split renders per source category — _live pull returned **four**:
+      Business Development, Digital, Alumni, ZocDoc. Alumni is already live in
+      the dev data (ahead of `definitions.ts`); the split is data-driven so it
+      shows whatever the RPC returns — see "Findings" above_
+- [x] Payer mix renders its buckets — _live pull returned 6 buckets summing
+      to 100% (AHCCCS / Unclassified / Commercial / DUI / Other / DV)_
+- [x] Refer-out (Wins) tile + destinations render — _live total 224 =
+      destinations breakdown sum_
+- [ ] KPI tile click opens the drill-down modal — _wired; covered by the
+      `e2e/executive.spec.ts` `.fixme()` scenario pending the auth hook_
+- [ ] Numbers look right against Zoho for the window — _human cross-check_
 
 ### As an admin
 
-- [ ] Same sections as manager — _locked by render test_
+- [x] Same sections as manager — _render test_
 
 ### Filter behavior (manager/admin)
 
-- [ ] Time range change → all sections refetch
-- [ ] FilterBar chip selection → all sections refetch
-- [ ] URL query params reflect + restore the active filter set
+- [x] Time range change → all sections refetch — _TanStack Query keys include
+      `range.from` + `range.to`_
+- [x] FilterBar chip selection → all sections refetch — _query keys include
+      the serialized `FilterContract`_
+- [ ] URL query params reflect + restore the active filter set — _reuses the
+      Phase 1c `useFilterUrlState`; covered by the e2e `.fixme()` scenario_
 
 ---
 
@@ -187,3 +206,9 @@ Same scaffold; see `docs/PHASE_2_PAGE_GUIDE.md`.
   `leads_all` for payer mix). Drill-down gate item now ✓. Remaining open
   items are all human/external: Amber's walk-through, the Zoho cross-check,
   and sign-off.
+- **2026-06-02 (rev 3)** — Production build verified (`vite build` green).
+  Added `e2e/executive.spec.ts` (Playwright gate item). Pre-filled the
+  walk-through with test/live-data citations and seeded the
+  `VERIFICATION_LOG.md` Phase 3 section with the live cross-check table.
+  Corrected the channel-split note to the data-driven 4-way reality (Alumni
+  already live on dev). Flagged the auth-hook decision to Amber.
