@@ -156,7 +156,7 @@ export function SpecialistOverview() {
     return (
       <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-6 py-4 text-sm text-rose-600 dark:text-rose-400">
         Couldn't load dashboard — {error ?? "unknown error"}.
-        <Button size="sm" variant="ghost" onClick={load} className="ml-2 h-7 text-xs">Retry</Button>
+        <Button size="sm" variant="ghost" onClick={() => load(filters)} className="ml-2 h-7 text-xs">Retry</Button>
       </div>
     );
   }

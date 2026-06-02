@@ -61,6 +61,7 @@ export type PageKey =
   | "page_bd_stuck_accounts"
   | "page_bd_top_accounts"
   | "page_bd_account_intel"
+  | "page_bd_account_trends"
   | "page_bd_meetings"
   | "page_bd_refer_out"
   | "page_bd_strategy"

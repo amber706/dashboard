@@ -18,7 +18,9 @@ type QueryResult<T> = {
 };
 
 type MutationOptions = {
-  onSuccess?: () => void;
+  // Optional `data` lets call sites read the mutation result (e.g. the
+  // admin replay action). No-arg handlers remain valid.
+  onSuccess?: (data?: unknown) => void;
   onError?: (error: Error) => void;
 };
 
@@ -212,7 +214,7 @@ export function useListCallSessions(opts?: { limit?: number }) {
         .limit(limit);
       if (error) return { data: undefined, error: new Error(error.message) };
       const sessions = (data ?? []).map((row) => {
-        const rep = row.rep as { full_name: string | null; email: string | null } | null;
+        const rep = row.rep as unknown as { full_name: string | null; email: string | null } | null;
         return {
           id: row.id,
           ctm_call_id: row.ctm_call_id,
@@ -270,11 +272,19 @@ export function useListKbDocuments() {
   );
 }
 
-export const useListRoutingEvents = (..._args: any[]) => emptyListQuery<any>();
-export const useGetWriteLog = (..._args: any[]) => emptyListQuery<any>();
-export const useListFailedWrites = () => emptyListQuery<any>();
-export const useListFieldAuditLog = (..._args: any[]) => emptyListQuery<any>();
-export const useGetRepRankings = (..._args: any[]) => emptyListQuery<any>();
+// These stubs return object-shaped payloads (not bare lists) because the
+// admin page reads named keys off them (`.events`, `.logs`, `.audit_logs`,
+// etc.) and renders empty states. Typing the empty shape keeps the page's
+// optional-chaining reads type-safe until the real endpoints land.
+export const useListRoutingEvents = (..._args: any[]) =>
+  emptyQuery<{ events: any[] }>();
+export const useGetWriteLog = (..._args: any[]) => emptyQuery<{ logs: any[] }>();
+export const useListFailedWrites = (..._args: any[]) =>
+  emptyQuery<{ total: number; failed_writes: any[] }>();
+export const useListFieldAuditLog = (..._args: any[]) =>
+  emptyQuery<{ audit_logs: any[] }>();
+export const useGetRepRankings = (..._args: any[]) =>
+  emptyQuery<{ rankings: any[] }>();
 export const useGetThresholds = () => emptyQuery<any>();
 
 // No `escalation_rules` table exists in the v3 schema yet; this is a
@@ -288,7 +298,8 @@ export const useListEscalationRules = (): QueryResult<{ rules: any[] }> => ({
   refetch: async () => {},
 });
 
-export const useListDuplicates = () => emptyListQuery<any>();
+export const useListDuplicates = (..._args: any[]) =>
+  emptyQuery<{ total: number; duplicates: any[] }>();
 export const useGetFullTranscript = (_id?: string) => emptyQuery<any>();
 // Semantic KB search via the kb-search Edge Function: embeds the query
 // through OpenAI and returns the highest-similarity approved chunks
