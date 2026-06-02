@@ -92,6 +92,7 @@ the full picture. Both honor an explicit pipeline filter.
 | Empty + loading states | ✓ | Shared `LoadingSkeleton` + `EmptyState` across every component. |
 | Performance | ✓ | TanStack Query shared cache key over `(range, FilterContract)`. MoM adds one prior-window RPC per top-line KPI — cached independently. |
 | `npm run typecheck && test && lint:metrics` clean | ✓ | Phase 3 files typeclean; literal guard clean; 337 tests green. (Pre-existing baseline TS errors in `admin.tsx`/`bd/`/`ops/` are unrelated.) |
+| Playwright e2e | ✓ scaffold shipped | `e2e/executive.spec.ts` mirrors the admissions scaffold. Route-reachability + perf smoke run as-is; role/filter/drill-down scenarios held in `.fixme()` pending the shared `__test_role` auth hook (same blocker as admissions). |
 
 ---
 
