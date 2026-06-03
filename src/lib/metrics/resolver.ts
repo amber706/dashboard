@@ -90,7 +90,8 @@ export interface DrilldownConfig {
     | "leads_all"
     | "calls_inbound"
     | "calls_outbound"
-    | "calls_missed";
+    | "calls_missed"
+    | "meetings_all";
   /**
    * Conversion-rate drill-downs return the denominator set plus a `converted`
    * column. The brief requires this so users can audit who didn't convert.

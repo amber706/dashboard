@@ -32,7 +32,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { writeFileSync } from "node:fs";
 
-type Scope = "all" | "admissions" | "executive";
+type Scope = "all" | "admissions" | "executive" | "bd";
 
 interface Args {
   start: string;
@@ -58,8 +58,8 @@ function parseArgs(argv: string[]): Args {
     else if (k === "--tolerance" && v) { args.tolerance = parseFloat(v); i++; }
     else if (k === "--out" && v) { args.out = v; i++; }
     else if (k === "--scope" && v) {
-      if (v !== "all" && v !== "admissions" && v !== "executive") {
-        console.error(`ERROR: --scope must be "all", "admissions", or "executive"; got "${v}".`);
+      if (v !== "all" && v !== "admissions" && v !== "executive" && v !== "bd") {
+        console.error(`ERROR: --scope must be "all", "admissions", "executive", or "bd"; got "${v}".`);
         process.exit(2);
       }
       args.scope = v;
@@ -68,7 +68,7 @@ function parseArgs(argv: string[]): Args {
       console.log(
         "Usage: tsx scripts/verify_metrics.ts " +
           "--start YYYY-MM-DD --end YYYY-MM-DD " +
-          "[--scope all|admissions|executive] [--tolerance 0.005] [--out drift.csv]",
+          "[--scope all|admissions|executive|bd] [--tolerance 0.005] [--out drift.csv]",
       );
       process.exit(0);
     }
@@ -203,6 +203,9 @@ async function main() {
   }
   if (args.scope === "executive") {
     await printExecutiveSpotCheck();
+  }
+  if (args.scope === "bd") {
+    await printBdSpotCheck();
   }
 }
 
@@ -443,6 +446,67 @@ async function printExecutiveSpotCheck(): Promise<void> {
   console.error("  2. Cross-check each against Zoho Analytics for the same window.");
   console.error("  3. Log the comparison in docs/VERIFICATION_LOG.md under a new");
   console.error("     'Phase 3 — Executive Metrics' section.");
+}
+
+/**
+ * --scope=bd extension: pretty-print the BD dashboard metrics over the window
+ * for hand-verification. Same drift posture as the other scopes — reads the
+ * op_referrals_daily / op_lead_funnel_daily / op_rep_activity caches already
+ * verified by the Phase 1B/1C checks; no new drift surface.
+ */
+async function printBdSpotCheck(): Promise<void> {
+  console.error("\n=== Phase 4 BD spot-check ===");
+  console.error(`Window: ${args.start} → ${args.end}`);
+  console.error("Cross-check these against Zoho Analytics for the same window.\n");
+
+  const TOP_LINE = ["commercial_cash", "ahcccs", "zocdoc"];
+  const sumCol = (rows: Array<Record<string, unknown>>, k: string) =>
+    rows.reduce((acc, r) => acc + Number(r[k] ?? 0), 0);
+
+  const { data: refs, error: refErr } = await supa.rpc(
+    "reporting_op_referrals_daily_filtered",
+    { p_start: args.start, p_end: args.end, p_pipelines: TOP_LINE, p_source_categories: null, p_owner_user_ids: null },
+  );
+  if (refErr) {
+    console.error(`(referrals) RPC error: ${refErr.message}`);
+  } else {
+    const r = (refs ?? []) as Array<Record<string, unknown>>;
+    console.error("Referral inflow + refer-out:");
+    console.error(`  bd.referrals_in_total   = ${sumCol(r, "bd_referrals_in")}`);
+    console.error(`  bd.referred_out_total   = ${sumCol(r, "referred_out_closed_count")}`);
+  }
+
+  const { data: src, error: srcErr } = await supa.rpc(
+    "reporting_op_funnel_by_source_filtered",
+    { p_start: args.start, p_end: args.end, p_pipelines: TOP_LINE, p_source_categories: ["business_development"], p_locs: null, p_owner_user_ids: null },
+  );
+  if (srcErr) {
+    console.error(`\n(funnel_by_source) RPC error: ${srcErr.message}`);
+  } else {
+    const s = (src ?? []) as Array<Record<string, unknown>>;
+    const mqls = sumCol(s, "mqls_count");
+    const admits = sumCol(s, "admits_count");
+    console.error("\nBD-sourced funnel:");
+    console.error(`  bd.mqls_from_bd         = ${mqls}`);
+    console.error(`  bd.admits_from_bd       = ${admits}`);
+    console.error(`  bd.bd_mql_to_admit_rate = ${mqls === 0 ? "—" : `${((admits / mqls) * 100).toFixed(2)}%`}`);
+  }
+
+  const { data: ra, error: raErr } = await supa.rpc(
+    "reporting_op_rep_activity",
+    { p_start: args.start, p_end: args.end },
+  );
+  if (raErr) {
+    console.error(`\n(rep_activity) RPC error: ${raErr.message}`);
+  } else {
+    const bdReps = ((ra ?? []) as Array<Record<string, unknown>>).filter(
+      (r) => r.role_derived === "bd_rep",
+    );
+    console.error("\nBD rep activity:");
+    console.error(`  bd.meetings_total       = ${sumCol(bdReps, "meetings_count")} (across ${bdReps.length} BD reps)`);
+  }
+
+  console.error("\n=== End BD spot-check ===\n");
 }
 
 main().catch((err) => {
