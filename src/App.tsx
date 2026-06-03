@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -13,100 +14,111 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { RequireRole } from "@/components/require-role";
 import { RequireFeature } from "@/components/require-feature";
 
+// Eagerly imported — first-paint home, the pre-auth screens (rendered by
+// AuthGate before the lazy route tree mounts), and the lightweight specialist
+// workflow pages on the hot path (pre-call → live → wrap-up → lead). None of
+// these pull `recharts`, so keeping them in the entry chunk stays cheap.
 import Home from "@/pages/home-v2";
-import LegacyHome from "@/pages/home";
 import LiveCall from "@/pages/live-call-v2";
-import Admin from "@/pages/admin";
 import PreCall from "@/pages/pre-call";
 import WrapUp from "@/pages/wrap-up";
-import Analytics from "@/pages/analytics";
 import Onboarding from "@/pages/onboarding";
-import SettingsPage from "@/pages/settings";
 import LoginPage from "@/pages/login";
 import ResetPasswordPage from "@/pages/reset-password";
-import CTMCalls from "@/pages/ctm-calls";
-import CTMAgents from "@/pages/ctm-agents";
-import CTMAttribution from "@/pages/ctm-attribution";
-import ExecutiveOverview from "@/pages/executive-overview";
-import ExecutiveAnalytics from "@/pages/executive/analytics";
-import KnowledgeReview from "@/pages/knowledge-review";
-import KnowledgeBase from "@/pages/kb";
-import TrainingScenarios from "@/pages/training";
-import TrainingSession from "@/pages/training-session";
-import SuggestionDetail from "@/pages/suggestion-detail";
-import OpsOverview from "@/pages/ops/overview";
-import OpsSuggestions from "@/pages/ops/suggestions";
-import OpsWorkload from "@/pages/ops/workload";
-import OpsAttribution from "@/pages/ops/attribution";
-import OpsSupervisorReview from "@/pages/ops/supervisor-review";
-import OpsKnowledge from "@/pages/ops/knowledge";
-import OpsAlerts from "@/pages/ops/alerts";
-import OpsKBDrafts from "@/pages/ops/kb-drafts";
-import OpsScenarioReview from "@/pages/ops/scenario-review";
-import OpsTrainingAnalytics from "@/pages/ops/training-analytics";
-import OpsTrainingAssignments from "@/pages/ops/training-assignments";
-import OpsQAReview from "@/pages/ops/qa-review";
-import OpsCoaching from "@/pages/ops/coaching";
-import OpsOutreach from "@/pages/ops/outreach";
-import OpsStuckLeads from "@/pages/ops/stuck-leads";
-import OpsVOB from "@/pages/ops/vob";
-import OpsIntakes from "@/pages/ops/intakes";
-import OpsTrainingPaths from "@/pages/ops/training-paths";
-import QueuePage from "@/pages/queue";
-import OpsFunnel from "@/pages/ops/funnel";
-import OpsObjections from "@/pages/ops/objections";
-import OpsDispositions from "@/pages/ops/dispositions";
-import SpecialistDeepDive from "@/pages/ops/specialist/[id]";
-import RepLeadsDrilldown from "@/pages/ops/rep-leads/[id]";
+import LeadDetail from "@/pages/leads/[id]";
 import AdminLeads from "@/pages/admin/leads";
 import MasterTabComingSoon from "@/pages/master-tab-coming-soon";
-import BdDashboard from "@/pages/bd/dashboard";
-import BdAccountIntelligence from "@/pages/bd/account";
-import BdMeetings from "@/pages/bd/meetings";
-import BdTopAccounts from "@/pages/bd/top-accounts";
-import BdAccountTrends from "@/pages/bd/account-trends";
-import BdStrategy from "@/pages/bd/strategy";
-import BdReferOutStrategy from "@/pages/bd/refer-out-strategy";
-import AllVobs from "@/pages/vobs";
-import BdReferrals from "@/pages/bd/referrals";
-import BdStuckAccounts from "@/pages/bd/stuck-accounts";
-import OpsAbandonedCalls from "@/pages/ops/abandoned-calls";
-import OpsAIBotFeedback from "@/pages/ops/ai-bot-feedback";
-import OpsOutcomes from "@/pages/ops/outcomes";
-import MyCoaching from "@/pages/me";
-import LeadDetail from "@/pages/leads/[id]";
-import OpsCallbacks from "@/pages/ops/callbacks";
-import HealthPage from "@/pages/admin/health";
-import OpsTeam from "@/pages/ops/team";
-import AuditPage from "@/pages/admin/audit";
-import OpsStaffing from "@/pages/ops/staffing";
-import AdminSettings from "@/pages/admin/settings";
-import AdminUsers from "@/pages/admin/users";
+
+// Everything below is route-level code-split via React.lazy so each page (and
+// its deps — `recharts` is the heaviest) ships in its own chunk, loaded on
+// demand. The gating helpers (Mgr/Mod/MgrMod/AdminOnly) render these inside a
+// single <Suspense> in AppRoutes. Keep this list lazy: the analytics /
+// reporting / bd dashboards are large and the entry bundle should not carry
+// them. See the perf budget in the Phase 2 brief (<2s FMP).
+const LegacyHome = lazy(() => import("@/pages/home"));
+const Admin = lazy(() => import("@/pages/admin"));
+const Analytics = lazy(() => import("@/pages/analytics"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const CTMCalls = lazy(() => import("@/pages/ctm-calls"));
+const CTMAgents = lazy(() => import("@/pages/ctm-agents"));
+const CTMAttribution = lazy(() => import("@/pages/ctm-attribution"));
+const ExecutiveOverview = lazy(() => import("@/pages/executive-overview"));
+const ExecutiveAnalytics = lazy(() => import("@/pages/executive/analytics"));
+const KnowledgeReview = lazy(() => import("@/pages/knowledge-review"));
+const KnowledgeBase = lazy(() => import("@/pages/kb"));
+const TrainingScenarios = lazy(() => import("@/pages/training"));
+const TrainingSession = lazy(() => import("@/pages/training-session"));
+const SuggestionDetail = lazy(() => import("@/pages/suggestion-detail"));
+const OpsOverview = lazy(() => import("@/pages/ops/overview"));
+const OpsSuggestions = lazy(() => import("@/pages/ops/suggestions"));
+const OpsWorkload = lazy(() => import("@/pages/ops/workload"));
+const OpsAttribution = lazy(() => import("@/pages/ops/attribution"));
+const OpsSupervisorReview = lazy(() => import("@/pages/ops/supervisor-review"));
+const OpsKnowledge = lazy(() => import("@/pages/ops/knowledge"));
+const OpsAlerts = lazy(() => import("@/pages/ops/alerts"));
+const OpsKBDrafts = lazy(() => import("@/pages/ops/kb-drafts"));
+const OpsScenarioReview = lazy(() => import("@/pages/ops/scenario-review"));
+const OpsTrainingAnalytics = lazy(() => import("@/pages/ops/training-analytics"));
+const OpsTrainingAssignments = lazy(() => import("@/pages/ops/training-assignments"));
+const OpsQAReview = lazy(() => import("@/pages/ops/qa-review"));
+const OpsCoaching = lazy(() => import("@/pages/ops/coaching"));
+const OpsOutreach = lazy(() => import("@/pages/ops/outreach"));
+const OpsStuckLeads = lazy(() => import("@/pages/ops/stuck-leads"));
+const OpsVOB = lazy(() => import("@/pages/ops/vob"));
+const OpsIntakes = lazy(() => import("@/pages/ops/intakes"));
+const OpsTrainingPaths = lazy(() => import("@/pages/ops/training-paths"));
+const QueuePage = lazy(() => import("@/pages/queue"));
+const OpsFunnel = lazy(() => import("@/pages/ops/funnel"));
+const OpsObjections = lazy(() => import("@/pages/ops/objections"));
+const OpsDispositions = lazy(() => import("@/pages/ops/dispositions"));
+const SpecialistDeepDive = lazy(() => import("@/pages/ops/specialist/[id]"));
+const RepLeadsDrilldown = lazy(() => import("@/pages/ops/rep-leads/[id]"));
+const BdDashboard = lazy(() => import("@/pages/bd/dashboard"));
+const BdAccountIntelligence = lazy(() => import("@/pages/bd/account"));
+const BdMeetings = lazy(() => import("@/pages/bd/meetings"));
+const BdTopAccounts = lazy(() => import("@/pages/bd/top-accounts"));
+const BdAccountTrends = lazy(() => import("@/pages/bd/account-trends"));
+const BdStrategy = lazy(() => import("@/pages/bd/strategy"));
+const BdReferOutStrategy = lazy(() => import("@/pages/bd/refer-out-strategy"));
+const AllVobs = lazy(() => import("@/pages/vobs"));
+const BdReferrals = lazy(() => import("@/pages/bd/referrals"));
+const BdStuckAccounts = lazy(() => import("@/pages/bd/stuck-accounts"));
+const OpsAbandonedCalls = lazy(() => import("@/pages/ops/abandoned-calls"));
+const OpsAIBotFeedback = lazy(() => import("@/pages/ops/ai-bot-feedback"));
+const OpsOutcomes = lazy(() => import("@/pages/ops/outcomes"));
+const MyCoaching = lazy(() => import("@/pages/me"));
+const OpsCallbacks = lazy(() => import("@/pages/ops/callbacks"));
+const HealthPage = lazy(() => import("@/pages/admin/health"));
+const OpsTeam = lazy(() => import("@/pages/ops/team"));
+const AuditPage = lazy(() => import("@/pages/admin/audit"));
+const OpsStaffing = lazy(() => import("@/pages/ops/staffing"));
+const AdminSettings = lazy(() => import("@/pages/admin/settings"));
+const AdminUsers = lazy(() => import("@/pages/admin/users"));
 
 // Warehouse-backed analytics dashboards ported from cornerstone-dashboard.
 // Each page reads from fact_*/dim_* tables in Supabase (populated by the
 // ETL in admissions-copilot/etl/).
-import WarehouseExecutive from "@/pages/analytics/executive";
-import WarehouseFunnel from "@/pages/analytics/funnel";
-import OpFunnel from "@/pages/analytics/op-funnel";
-import OpRepActivity from "@/pages/analytics/op-rep-activity";
-import OpReferrals from "@/pages/analytics/op-referrals";
-import OpOverview from "@/pages/analytics/op-overview";
-import OpPayerMix from "@/pages/analytics/op-payer-mix";
-import OpDataQuality from "@/pages/analytics/op-data-quality";
-import OpSalesCycle from "@/pages/analytics/op-sales-cycle";
+const WarehouseExecutive = lazy(() => import("@/pages/analytics/executive"));
+const WarehouseFunnel = lazy(() => import("@/pages/analytics/funnel"));
+const OpFunnel = lazy(() => import("@/pages/analytics/op-funnel"));
+const OpRepActivity = lazy(() => import("@/pages/analytics/op-rep-activity"));
+const OpReferrals = lazy(() => import("@/pages/analytics/op-referrals"));
+const OpOverview = lazy(() => import("@/pages/analytics/op-overview"));
+const OpPayerMix = lazy(() => import("@/pages/analytics/op-payer-mix"));
+const OpDataQuality = lazy(() => import("@/pages/analytics/op-data-quality"));
+const OpSalesCycle = lazy(() => import("@/pages/analytics/op-sales-cycle"));
 
 // Phase 2 reporting pages — substrate via /src/lib/metrics + /src/components/reporting.
-import AdmissionsReportingPage from "@/pages/reporting/admissions";
-import ExecutiveReportingPage from "@/pages/reporting/executive";
-import WarehouseRepMetrics from "@/pages/analytics/rep-metrics";
-import WarehouseChannel from "@/pages/analytics/channel";
-import AnalyticsChartView from "@/pages/analytics/chart-view";
-import WarehousePayer from "@/pages/analytics/payer";
-import WarehouseTeam from "@/pages/analytics/team";
-import WarehouseCensus from "@/pages/analytics/census";
-import WarehouseBdActivity from "@/pages/analytics/bd-activity";
-import WarehouseHold from "@/pages/analytics/hold";
+const AdmissionsReportingPage = lazy(() => import("@/pages/reporting/admissions"));
+const ExecutiveReportingPage = lazy(() => import("@/pages/reporting/executive"));
+const WarehouseRepMetrics = lazy(() => import("@/pages/analytics/rep-metrics"));
+const WarehouseChannel = lazy(() => import("@/pages/analytics/channel"));
+const AnalyticsChartView = lazy(() => import("@/pages/analytics/chart-view"));
+const WarehousePayer = lazy(() => import("@/pages/analytics/payer"));
+const WarehouseTeam = lazy(() => import("@/pages/analytics/team"));
+const WarehouseCensus = lazy(() => import("@/pages/analytics/census"));
+const WarehouseBdActivity = lazy(() => import("@/pages/analytics/bd-activity"));
+const WarehouseHold = lazy(() => import("@/pages/analytics/hold"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -117,18 +129,26 @@ const queryClient = new QueryClient({
   },
 });
 
+// Page components reach these helpers either eagerly imported or wrapped in
+// React.lazy(); both are valid JSX element types, so the gating helpers accept
+// either. (LazyExoticComponent isn't assignable to React.ComponentType, hence
+// the union.)
+type PageComponent =
+  | React.ComponentType
+  | React.LazyExoticComponent<React.ComponentType<any>>;
+
 // Role-gating helpers. RequireRole renders an "unauthorized" screen
 // (with a back-to-dashboard CTA) when the current user's role isn't in
 // the allowed list. The two helpers below cover the common cases —
 // any path that needs a different shape (admin-only, etc.) wraps
 // inline. Defined at module scope so React doesn't re-create the
 // wrapper on every render.
-const Mgr = (Component: React.ComponentType) => () => (
+const Mgr = (Component: PageComponent) => () => (
   <RequireRole roles={["manager", "admin"]}>
     <Component />
   </RequireRole>
 );
-const AdminOnly = (Component: React.ComponentType) => () => (
+const AdminOnly = (Component: PageComponent) => () => (
   <RequireRole roles={["admin"]}>
     <Component />
   </RequireRole>
@@ -137,12 +157,12 @@ const AdminOnly = (Component: React.ComponentType) => () => (
 // (so admins can turn the whole module off via /admin/settings) AND
 // the role check. Use Mod() for staff-visible modules and MgrMod()
 // for manager-and-up modules.
-const Mod = (feature: FeatureKey, Component: React.ComponentType) => () => (
+const Mod = (feature: FeatureKey, Component: PageComponent) => () => (
   <RequireFeature feature={feature}>
     <Component />
   </RequireFeature>
 );
-const MgrMod = (feature: FeatureKey, Component: React.ComponentType) => () => (
+const MgrMod = (feature: FeatureKey, Component: PageComponent) => () => (
   <RequireFeature feature={feature}>
     <RequireRole roles={["manager", "admin"]}>
       <Component />
@@ -150,10 +170,22 @@ const MgrMod = (feature: FeatureKey, Component: React.ComponentType) => () => (
   </RequireFeature>
 );
 
+// Shown while a lazily-loaded route chunk is in flight. Mirrors the AuthGate
+// loading shell, but sized for the content area — it renders inside <Layout>,
+// which already paints the sidebar/header chrome.
+function RouteLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center py-24">
+      <div className="animate-pulse text-slate-400 text-sm">Loading…</div>
+    </div>
+  );
+}
+
 function AppRoutes() {
   return (
     <Layout>
       <ErrorBoundary>
+      <Suspense fallback={<RouteLoadingFallback />}>
       <Switch>
         {/* Open to every authenticated role (staff + manager + admin). */}
         <Route path="/" component={Home} />
@@ -281,6 +313,7 @@ function AppRoutes() {
         <Route path="/marketing" component={MasterTabComingSoon} />
         <Route component={NotFound} />
       </Switch>
+      </Suspense>
       </ErrorBoundary>
     </Layout>
   );
