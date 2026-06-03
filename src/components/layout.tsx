@@ -140,6 +140,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/reporting/admissions",  label: "Admissions",          icon: <BarChart3 className="w-4 h-4" />,   section: "Reporting", roles: ["rep", "manager", "admin"] as const },
     // Phase 3 Executive — manager/admin only (breakdown RPCs are manager-gated).
     { href: "/reporting/executive",   label: "Executive",           icon: <TrendingUp className="w-4 h-4" />,  section: "Reporting", roles: ["manager", "admin"] as const },
+    // Phase 4 BD — manager/admin only (funnel/referral RPCs are manager-gated).
+    { href: "/reporting/bd",          label: "Business Development", icon: <Target className="w-4 h-4" />,      section: "Reporting", roles: ["manager", "admin"] as const },
 
     { href: "/analytics/executive",   label: "Executive Snapshot",  icon: <BarChart3 className="w-4 h-4" />,   section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/funnel",      label: "Funnel Analysis",     icon: <TrendingDown className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
@@ -274,6 +276,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
     // Phase 2 reporting pages — each has its own dedicated page_reporting_* flag.
     if (href === "/reporting/admissions")      return "page_reporting_admissions";
+    if (href === "/reporting/executive")       return "page_reporting_executive";
+    if (href === "/reporting/bd")              return "page_reporting_bd";
 
     if (href === "/analytics/executive")     return "page_warehouse_executive";
     if (href === "/analytics/funnel")        return "page_warehouse_funnel";
