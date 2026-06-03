@@ -69,6 +69,7 @@ FORBIDDEN=(
   # Normalized source_category enum values
   '"digital_marketing"'
   '"business_development"'
+  '"alumni"'
 
   # Raw Zoho pipeline strings
   '"Commercial-Cash"'
@@ -94,6 +95,7 @@ FORBIDDEN=(
 
   # Raw source category strings
   '"Business Development"'
+  '"Alumni"'
 
   # Insurance type strings — stored ACTUAL values from Zoho
   # (Cornerstone picklist; CONFIRMED.md #8 + #14)

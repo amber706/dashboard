@@ -49,6 +49,7 @@ const SOURCE_LABEL: Record<SourceCategory, string> = {
   digital_marketing: "Digital",
   business_development: "BD",
   zocdoc: "ZocDoc",
+  alumni: "Alumni",
 };
 const LOC_LABEL: Record<LevelOfCare, string> = {
   bhrf: "BHRF",

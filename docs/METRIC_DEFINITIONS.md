@@ -269,12 +269,13 @@ Notably absent from the brief's draft: Residential (Cornerstone uses BHRF — Ar
 
 Where the Lead or Deal came from. **`Source_Category` is a Zoho Global Picklist** — the same picklist values are shared across Lead and Deal modules (CONFIRMED.md #35). Updating a value in Zoho updates both surfaces simultaneously.
 
-### Raw picklist (13 values via API; 9 active in UI)
+### Raw picklist (active values; `Option 1` / `Option 2` retired 2026-05-29 per CONFIRMED.md #38)
 
 | Active in Deal UI | Value |
 |:-:|---|
 | ✓ | Alumni |
 | ✓ | Business Development |
+| ✓ | Call Center |
 | ✓ | Directory Listing |
 | ✓ | Internal |
 | ✓ | Organic Social |
@@ -282,19 +283,18 @@ Where the Lead or Deal came from. **`Source_Category` is a Zoho Global Picklist*
 | ✓ | PPC |
 | ✓ | SEO |
 | ✓ | ZocDoc |
-| — | Call Center (in API but hidden in Deal UI) |
-| — | Option 1, Option 2 (placeholder values; see OPEN_QUESTION #34) |
 | — | -None- (default empty state) |
 
-### Normalized buckets
+### Normalized buckets (4 values, per CONFIRMED.md #37)
 
 | Normalized name | Rule | Notes |
 |---|---|---|
 | `business_development` | Raw source category = "Business Development" | BD reps' outreach |
 | `zocdoc` | Raw source category = "ZocDoc" | ZocDoc-sourced |
-| `digital_marketing` | Raw source category ∉ {Business Development, ZocDoc} | **Catch-all.** Every Lead/Deal that is not BD or ZocDoc rolls up to Digital Marketing (Alumni, Call Center, Internal, SEO, PPC, etc. all fall here). |
+| `alumni` | Raw source category = "Alumni" | Alumni-sourced. Split out of the digital catch-all 2026-05-29 per CONFIRMED.md #37 — Alumni is conceptually distinct from both digital and BD outreach. |
+| `digital_marketing` | Raw source category ∉ {Business Development, ZocDoc, Alumni} | **Catch-all.** Every Lead/Deal that is not BD, ZocDoc, or Alumni rolls up to Digital Marketing (Call Center, Internal, Directory Listing, Organic Social, Paid Social, SEO, PPC all fall here). |
 
-Source Category is computed via the *negative* rule for Digital Marketing — any new raw source string Zoho introduces automatically falls into Digital Marketing unless explicitly mapped otherwise. Phase 1B's `source_category_mapping` is seeded ONCE from the global picklist and serves both Leads and Deals.
+Source Category is computed via the *negative* rule for Digital Marketing — any new raw source string Zoho introduces automatically falls into Digital Marketing unless explicitly mapped otherwise. Phase 1B's `source_category_mapping` is the seed table and serves both Leads and Deals.
 
 ---
 
@@ -426,7 +426,7 @@ A single Deal can be classified along multiple orthogonal dimensions simultaneou
 | Dimension | Values |
 |---|---|
 | Pipeline | commercial_cash, ahcccs, zocdoc, dui_cash, dv_cash |
-| Source Category | digital_marketing, business_development, zocdoc |
+| Source Category | digital_marketing, business_development, zocdoc, alumni |
 | Stage Category | (the 9 values in §3) |
 | LOC | (LOC enum) |
 | Rep Role (of owner) | admissions_rep, bd_rep, other |
@@ -450,7 +450,7 @@ Every dashboard page in Phase 1C and beyond accepts the same filter set:
 - **Time:** Today, Current Week, Previous Week, This Month, This Quarter, Last Month, Last 3 Months, Last 6 Months, Last Year, Custom range. Default for trend charts: this month + the prior two months.
 - **Level of Care:** multi-select from the LOC enum.
 - **Pipeline:** multi-select. Default: top-line pipelines only (Commercial-Cash, AHCCCS, ZocDoc). User can opt DUI / DV in.
-- **Marketing Channel:** multi-select (Digital, BD, ZocDoc) — derived from Source Category.
+- **Marketing Channel:** multi-select (Digital, BD, ZocDoc, Alumni) — derived from Source Category.
 - **Sales Rep:** multi-select user_identity, role-aware (admissions reps see only themselves via RLS).
 
 The Zod `FilterContractSchema` in `src/lib/metrics/schemas.ts` is the runtime contract.
@@ -465,3 +465,4 @@ The Zod `FilterContractSchema` in `src/lib/metrics/schemas.ts` is the runtime co
 - **2026-05-27 (rev 4)** — Insurance Type stored values ("Private Insurance", "Cash Pay") replace display labels. Profile names corrected ("TREATMENT Standard" caps, "Administrator" not "Admin"); "Call Center AHCCCS" added as a fourth admissions-rep profile.
 - **2026-05-27 (rev 5)** — Zoho Deals `getFields` corrections: VOB uses both `VOB_Submitted` boolean AND stage; Admit metric counts on `Admit_Date` strictly; `Admitted_Level_of_Care` exists and is the Admit-side LOC source; `DUI_or_Treatment` field (display "Treatment or Court Services") is the Deal-side pipeline router; stage canonical = display labels (sync translates actual_value → display).
 - **2026-05-27 (rev 6)** — Final policy closeout. Insurance-wins precedence on AHCCCS × Commercial overlap (mutually exclusive now). Referral In rule = `source_category=BD OR BD_Rep set`. Top-line MQL matches Admit (Commercial-Cash + AHCCCS + ZocDoc). Orthogonality clarified (distinct counts in totals, orthogonal across per-dimension charts). Orphan deals fall back to Deal `Created_Time`. Placement cycle metric scheduled. DUI rolls up with drill-down. Lead `Created_Time` = intake moment. Insurance_Policy_Type deferred to Phase 2.
+- **2026-05-29 (rev 7)** — `Alumni` split out of the Digital catch-all into its own normalized source category (per CONFIRMED.md #37). Source Category enum is now 4 values: `digital_marketing`, `business_development`, `zocdoc`, `alumni`. Marketing Channel filter gains an `alumni` option. `Option 1` / `Option 2` retired from the Zoho picklist as junk (per CONFIRMED.md #38). All other catch-all values (Call Center, Internal, Directory Listing) keep mapping to `digital_marketing`.

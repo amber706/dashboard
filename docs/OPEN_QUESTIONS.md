@@ -234,22 +234,13 @@ Moved to `CONFIRMED.md` #29. Phase 1B adds `op_placement_cycle_daily` alongside 
 - **2026-05-27 (rev 6)** — Batch closeout. Resolved: #9, #10, #12, #13, #15, #21, #22, #24, #26, #27, #29. Only two questions remain open by design: #18 (test record exclusion, deferred to Phase 1B sample-data triage) and #30 (PPO=Unknown anomaly, awaits Zoho cleanup).
 - **2026-05-27 (rev 7)** — VOB priority chain refined; closed_lost removed from backup set (CONFIRMED.md #33).
 - **2026-05-27 (rev 8)** — Admit priority chain mirrors VOB. Source Category confirmed as Zoho Global Picklist. Closed Lost reason capture added per pipeline. "Placement" renamed to "Referred Out Closed" under new "Refer Outs" parent category. New OPEN_QUESTIONS: #34 (4 hidden Source Category values — Call Center / Option 1 / Option 2 — Phase 1B sync logs whether any production data carries them), #35 (DV pipeline has no dedicated closed-lost reason field — confirm if needed).
+- **2026-05-29 (rev 9)** — BD undercount diagnosis on /analytics/op-funnel. Resolved #34 (Call Center stays Digital; Option 1/Option 2 are junk → removed from Zoho picklist). Alumni split into its own source category was added as a separate decision — see CONFIRMED.md #37.
 
 ---
 
-## #34 — Hidden Source Category values: Call Center / Option 1 / Option 2 (NEW)
+## ~~#34 — Hidden Source Category values: Call Center / Option 1 / Option 2~~ — RESOLVED
 
-**Where:** Zoho `Source_Category` global picklist returns 13 values via API; the Deal UI dropdown shows only 9.
-
-**Question:** the 4 hidden values are:
-- `-None-` (default empty state — fine to leave hidden)
-- `Call Center`
-- `Option 1`
-- `Option 2`
-
-Are Call Center / Option 1 / Option 2 active values in any pipeline, deprecated debris, or placeholders someone forgot to delete?
-
-**How to resolve:** Phase 1B's first sync logs production rows carrying any of these values. If counts are non-zero, decide whether to keep them or clean up the picklist in Zoho.
+Moved to `CONFIRMED.md` #38 (2026-05-29). Amber's call: `Call Center` stays mapped to `digital_marketing` (digital touchpoint); `Option 1` / `Option 2` are junk and are being removed from the Zoho global picklist. Same diagnostic surfaced that `Alumni` should not be folded into Digital — resolved separately as CONFIRMED.md #37.
 
 ---
 
