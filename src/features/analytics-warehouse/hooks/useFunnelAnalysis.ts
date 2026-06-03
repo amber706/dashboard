@@ -125,7 +125,7 @@ async function fetchFunnel(range: DateRange): Promise<FunnelAnalysis> {
   const firstError = allResults.find((r) => r.error);
   if (firstError?.error) throw new Error(firstError.error.message);
 
-  const stages = STAGES.map((s, i) => ({
+  const stages: { stageKey: string; label: string; count: number; isStuck?: boolean }[] = STAGES.map((s, i) => ({
     stageKey: s.key,
     label: s.label,
     count: stageCountResults[i].count ?? 0,

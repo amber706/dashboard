@@ -59,7 +59,7 @@ async function getSuggestions(queryString: string): Promise<Response> {
   if (error) return jsonResponse({ error: error.message }, 500);
 
   const suggestions = (data ?? []).map((row) => {
-    const owner = row.owner as { full_name: string | null; email: string | null } | null;
+    const owner = row.owner as unknown as { full_name: string | null; email: string | null } | null;
     // The generate-suggestions Edge Function stuffs structured detail into
     // source_signals (jsonb). For weakness drills this is where scenario_id,
     // scenario_title, specialist_name, weakest_category, weakest_score live.
@@ -109,7 +109,7 @@ async function getAttributionConflicts(): Promise<Response> {
   if (error) return jsonResponse({ error: error.message }, 500);
 
   const conflicts = (data ?? []).map((row) => {
-    const callSession = row.call_session as { ctm_call_id: string | null } | null;
+    const callSession = row.call_session as unknown as { ctm_call_id: string | null } | null;
     const audit = (row.audit_log as Record<string, unknown> | null) ?? {};
     const proposed = typeof audit.proposed_correction === "string"
       ? audit.proposed_correction
@@ -462,7 +462,7 @@ async function getOpsOverview(): Promise<Response> {
   }
 
   const top_recommendations = (openSuggestions.data ?? []).map((row) => {
-    const owner = row.owner as { full_name: string | null; email: string | null } | null;
+    const owner = row.owner as unknown as { full_name: string | null; email: string | null } | null;
     const call = row.related_call_id ? callMap.get(row.related_call_id) : null;
     const agentRaw = call?.ctm_raw_payload?.agent;
     const repName = agentRaw?.name ?? agentRaw?.email ?? null;

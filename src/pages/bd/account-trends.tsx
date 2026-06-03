@@ -667,14 +667,14 @@ function TopAccountsLineChart({ accounts, months, loc }: {
                 const seen = new Set<string>();
                 const rows = payload
                   .map((p: any) => p?.name as string | undefined)
-                  .filter((n): n is string => typeof n === "string" && !n.endsWith("__admits") && !n.endsWith("__overlay"))
-                  .filter((n) => (seen.has(n) ? false : (seen.add(n), true)));
+                  .filter((n: string | undefined): n is string => typeof n === "string" && !n.endsWith("__admits") && !n.endsWith("__overlay"))
+                  .filter((n: string) => (seen.has(n) ? false : (seen.add(n), true)));
                 if (rows.length === 0) return null;
                 const row = payload[0]?.payload ?? {};
                 return (
                   <div className="rounded-md border bg-popover text-popover-foreground shadow-md px-3 py-2 text-xs">
                     <div className="font-medium mb-1">{label}</div>
-                    {rows.map((name) => {
+                    {rows.map((name: string) => {
                       const refs = (row[name] as number) ?? 0;
                       const admits = (row[`${name}__admits`] as number) ?? 0;
                       const ov = overlayLabel != null ? ((row[`${name}__overlay`] as number) ?? 0) : null;
