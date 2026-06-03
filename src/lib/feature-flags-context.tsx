@@ -79,7 +79,11 @@ export type PageKey =
   // HOLD — surfaced as nav entries but routed to a coming-soon page
   // until the CPA + revenue-proxy work resumes.
   | "page_warehouse_cpa_cpl"
-  | "page_warehouse_revenue_proxy";
+  | "page_warehouse_revenue_proxy"
+  // Phase 2 reporting pages (substrate via /src/lib/metrics + /src/components/reporting).
+  | "page_reporting_admissions"
+  // Phase 3 — Executive dashboard on the same substrate.
+  | "page_reporting_executive";
 
 export type FeatureKey = ModuleKey | PageKey;
 

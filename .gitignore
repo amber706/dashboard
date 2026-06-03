@@ -10,3 +10,9 @@ build
 
 # Supabase CLI scratch (linked-project.json, cli-latest)
 supabase/.temp/
+
+# Auto-loaded skill plugins / lockfile — local-only, not project source.
+# Prevents `git add -A` from sweeping these into reporting commits.
+.agents/
+.claude/
+skills-lock.json

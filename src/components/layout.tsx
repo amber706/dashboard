@@ -4,7 +4,7 @@ import {
   BarChart3, BookOpen, Wrench, PhoneIncoming, PhoneOff,
   ClipboardCheck, Shield, ChevronDown, Keyboard, LogOut, Eye,
   Zap, UserCheck, ShieldAlert, HelpCircle, Gauge, Menu, X,
-  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, MessageSquare, ArrowLeftRight, Target, ArrowRight, PieChart, FileSearch,
+  Search, GraduationCap, AlertTriangle, Bot, Trophy, Award, Calendar, Hourglass, ShieldCheck, Route, Inbox, TrendingDown, TrendingUp, MessageSquare, ArrowLeftRight, Target, ArrowRight, PieChart, FileSearch,
 } from "lucide-react";
 import { useWorkflow } from "@/lib/workflow-context";
 import { useRole } from "@/lib/role-context";
@@ -134,6 +134,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/analytics/op-payer-mix",   label: "Op Payer Mix",        icon: <Gauge className="w-4 h-4" />,        section: "Op Reporting", roles: ["manager", "admin"] as const },
     { href: "/analytics/op-sales-cycle", label: "Op Sales Cycle",      icon: <Hourglass className="w-4 h-4" />,    section: "Op Reporting", roles: ["manager", "admin"] as const },
     { href: "/analytics/op-data-quality", label: "Op Data Quality",    icon: <ShieldAlert className="w-4 h-4" />,  section: "Op Reporting", roles: ["manager", "admin"] as const },
+
+    // Phase 2 reporting pages — substrate via /src/lib/metrics + /src/components/reporting.
+    // Visible to all three roles; RLS scopes data server-side.
+    { href: "/reporting/admissions",  label: "Admissions",          icon: <BarChart3 className="w-4 h-4" />,   section: "Reporting", roles: ["rep", "manager", "admin"] as const },
+    // Phase 3 Executive — manager/admin only (breakdown RPCs are manager-gated).
+    { href: "/reporting/executive",   label: "Executive",           icon: <TrendingUp className="w-4 h-4" />,  section: "Reporting", roles: ["manager", "admin"] as const },
 
     { href: "/analytics/executive",   label: "Executive Snapshot",  icon: <BarChart3 className="w-4 h-4" />,   section: "Analytics", roles: ["manager", "admin"] as const },
     { href: "/analytics/funnel",      label: "Funnel Analysis",     icon: <TrendingDown className="w-4 h-4" />, section: "Analytics", roles: ["manager", "admin"] as const },
@@ -265,6 +271,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (href === "/analytics/op-payer-mix")    return "page_warehouse_payer";
     if (href === "/analytics/op-data-quality") return "page_warehouse_executive";
     if (href === "/analytics/op-sales-cycle")  return "page_warehouse_executive";
+
+    // Phase 2 reporting pages — each has its own dedicated page_reporting_* flag.
+    if (href === "/reporting/admissions")      return "page_reporting_admissions";
 
     if (href === "/analytics/executive")     return "page_warehouse_executive";
     if (href === "/analytics/funnel")        return "page_warehouse_funnel";
