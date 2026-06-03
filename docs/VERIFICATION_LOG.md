@@ -169,11 +169,19 @@ are the numbers the page renders; the only remaining step is the right-hand
 
 ### Result
 
-_Pending Amber's cross-check + sign-off._ As with Phase 2A, the executive
+**Signed off:** Amber, 2026-06-02.
+
+Amber accepted the Phase 3 Executive metrics on the same basis as Phase 2A —
+without an independent side-by-side Zoho cross-check. Rationale: the executive
 resolvers are pure TS aggregation over the same `op_lead_funnel_daily` /
-`op_referrals_daily` caches the Phase 1B drift check already verified, and
-the `executive-args.test.ts` suite (27 tests) confirms each resolver
-dispatches the right RPC + args. No new drift surface was introduced.
+`op_referrals_daily` caches the Phase 1B drift check already verified; the
+`executive-args.test.ts` suite (27 tests) confirms each resolver dispatches
+the right RPC + args; and the 2026-06-02 live-data pull reconciles internally
+(top-line admits 168 = pipeline split; refer-out total 224 = destinations
+sum). No new drift surface was introduced.
+
+The independent Zoho cross-check stays open as a non-gating follow-up — fill
+the "Zoho value" column above whenever there's a quiet hour.
 
 ---
 

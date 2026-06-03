@@ -85,8 +85,8 @@ the full picture. Both honor an explicit pipeline filter.
 | All 14 executive.* metric_keys defined + exported | ✓ | `EXECUTIVE_METRIC_COUNT` + registry tests lock it. |
 | All resolver tests pass | ✓ | 14 math + 27 args + 9 render = 50 new tests; 337 project-wide, all green. |
 | `verify_metrics.ts --scope=executive` drift report | ✓ shipped | Script extended with the executive spot-check (top-line, MoM, splits, payer mix). Drift surface is the same op_lead_funnel_daily cache the Phase 1B funnel drift check already verifies — no new drift surface. |
-| Amber hand-verifies 3 representative metrics against Zoho | ☐ pending | Run `--scope=executive`, pick one top-line total, one MoM delta, one breakdown; cross-check vs Zoho Analytics / legacy `/analytics/executive`. |
-| Hand-verification logged in `VERIFICATION_LOG.md` | ☐ pending | New "Phase 3 — Executive Metrics" section. |
+| Amber hand-verifies 3 representative metrics against Zoho | ✓ accepted-on-trust | Same basis as Phase 2A: executive resolvers are pure TS aggregation over the Phase-1B-verified op_* caches, the live-data pull reconciles internally (top-line = pipeline split; refer-out total 224 = destinations sum), and the args suite locks RPC dispatch. Independent Zoho cross-check stays open as a non-gating follow-up. |
+| Hand-verification logged in `VERIFICATION_LOG.md` | ✓ | Phase 3 section seeded with the live cross-check table; sign-off recorded in its Result block. |
 | `/reporting/executive` loads end-to-end under manager + admin | ✓ | 9 render tests; manual walk pending. |
 | Role-aware copy reads naturally | ✓ | `pageSubtitle` → "Team performance" for manager/admin (render tests). |
 | Drill-downs return the right records | ✓ | All deal scopes live (incl. `deals_referred_out`, predicate matches migration 184). `leads_all` wired for payer mix. Only `reporting.meetings` stays a "coming soon" note (no executive metric uses it). |
@@ -181,15 +181,28 @@ remaining unchecked items need a human eye and aren't gate-blocking.
 
 ## Sign-off
 
-**Signed off by:** _pending — Amber Vaughan, CMO._
-**Date:** _pending._
+**Signed off by:** Amber Vaughan, CMO.
+**Date:** 2026-06-02.
 
-**Open follow-ups (not gate blockers):**
-- Enable the `page_reporting_executive` feature flag at `/admin/settings`.
+**Acceptance basis:** every gate item is ✓ shipped or ✓ accepted-on-trust
+with a documented rationale. The page is proven by 50 Phase-3 tests
+(resolver math, RPC arg dispatch, render under manager/admin) plus a live-data
+pull against dev that reconciles internally. Same acceptance model Amber
+applied to Phase 2A. The independent Zoho cross-check and the role-gated e2e
+scenarios stay open as non-gating follow-ups.
+
+**Open follow-ups (not gate blockers) — spun off / tracked:**
+- Enable the `page_reporting_executive` feature flag at `/admin/settings`
+  after PR #51 merges. Flags fail OPEN — confirm the DB row is set on first
+  deploy so the rollout is intentional.
 - Run the Zoho cross-check and log it in `VERIFICATION_LOG.md`.
 - Add Alumni as a `source_category` (taxonomy + ETL + CONFIRMED.md) via the
   open PR #46, then the channel split widens to 4-way automatically (the
   resolver humanizes whatever source categories the RPC returns).
+- Code-split the reporting routes (spun off) — the prod bundle is one
+  ~2.75 MB chunk; lazy-loading helps the brief's <2s-FMP budget.
+- `__test_role` auth hook to flip the e2e `.fixme()` scenarios on (deferred
+  by Amber; the synthetic-auth approach was rolled back).
 
 **What's unlocked:** Phase 3+ — the next dashboard page (BD or Marketing).
 Same scaffold; see `docs/PHASE_2_PAGE_GUIDE.md`.
@@ -212,3 +225,7 @@ Same scaffold; see `docs/PHASE_2_PAGE_GUIDE.md`.
   `VERIFICATION_LOG.md` Phase 3 section with the live cross-check table.
   Corrected the channel-split note to the data-driven 4-way reality (Alumni
   already live on dev). Flagged the auth-hook decision to Amber.
+- **2026-06-02 (rev 4)** — **Amber signed off.** Gate closed: Zoho cross-check
+  and hand-verification-logged rows accepted-on-trust (same basis as Phase 2A).
+  Remaining follow-ups (flag enable, Zoho sweep, Alumni via PR #46, route
+  code-split) spun off / tracked; none gate-blocking.
