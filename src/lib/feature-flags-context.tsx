@@ -82,7 +82,9 @@ export type PageKey =
   // Phase 2 reporting pages (substrate via /src/lib/metrics + /src/components/reporting).
   | "page_reporting_admissions"
   // Phase 3 — Executive dashboard on the same substrate.
-  | "page_reporting_executive";
+  | "page_reporting_executive"
+  // Phase 4 — BD dashboard on the same substrate.
+  | "page_reporting_bd";
 
 export type FeatureKey = ModuleKey | PageKey;
 
