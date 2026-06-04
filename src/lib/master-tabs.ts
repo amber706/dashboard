@@ -135,6 +135,10 @@ export const MASTER_TABS: MasterTab[] = [
       // live under /analytics/* and must activate Executive so the
       // Analytics section stays visible while navigating between them.
       "/analytics",
+      // Phase 2/3/4 reporting dashboards live under /reporting/* and
+      // belong to the Reporting section below; without this prefix they
+      // resolve to Admissions and the Reporting section vanishes on nav.
+      "/reporting",
       // Quality
       "/ops/qa-review", "/ops/dispositions", "/ops/ai-bot-feedback",
       // Staffing
@@ -146,7 +150,7 @@ export const MASTER_TABS: MasterTab[] = [
       "/admin/leads", "/admin/health", "/admin/audit", "/admin/settings",
       "/admin", "/settings",
     ],
-    sections: ["Op Reporting", "Analytics", "Quality", "Staffing", "Insights", "Admin"],
+    sections: ["Reporting", "Op Reporting", "Analytics", "Quality", "Staffing", "Insights", "Admin"],
     empty: false,
     feature: "module_executive",
   },
