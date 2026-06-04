@@ -20,6 +20,8 @@ interface ChartContainerProps {
   onExport?: () => void;
   /** The chart / table itself. */
   children: ReactNode;
+  /** Optional small-print note rendered below the chart (e.g. a metric caveat). */
+  footnote?: string;
   className?: string;
 }
 
@@ -29,6 +31,7 @@ export function ChartContainer({
   onViewRecords,
   onExport,
   children,
+  footnote,
   className = "",
 }: ChartContainerProps) {
   return (
@@ -63,7 +66,14 @@ export function ChartContainer({
           )}
         </div>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent>
+        {children}
+        {footnote && (
+          <p className="text-[11px] leading-snug text-muted-foreground mt-3">
+            {footnote}
+          </p>
+        )}
+      </CardContent>
     </Card>
   );
 }

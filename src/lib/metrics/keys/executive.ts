@@ -323,6 +323,20 @@ async function resolveMqlsByChannel(range: DateRange, filters: FilterContract) {
 // Payer mix — payer_mix_filtered. Buckets come back labeled from the RPC.
 // ────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Display-only relabel of the RPC's residual bucket. `Unclassified` is leads
+ * with neither a captured Insurance Type nor a payer-bearing Lead Score (★3–5);
+ * per CONFIRMED.md #24 they're left unclassified by design and are
+ * overwhelmingly early-funnel leads whose payer is confirmed later at VOB
+ * (investigated 2026-06-02 — not an ETL gap; insurance simply isn't captured at
+ * lead creation for these). "Unclassified" reads as a bug to leadership, so we
+ * rename the wedge for display. We remap `label` only — `dimension_value` keeps
+ * the raw RPC bucket so any drilldown keyed on it is unaffected.
+ */
+const PAYER_BUCKET_DISPLAY_LABELS: Record<string, string> = {
+  Unclassified: "Payer Pending",
+};
+
 async function resolvePayerMix(
   range: DateRange,
   filters: FilterContract,
@@ -333,7 +347,11 @@ async function resolvePayerMix(
   );
   if (error) throw new Error(`reporting_op_payer_mix_filtered: ${error.message}`);
   const rows = ((data ?? []) as ReadonlyArray<{ bucket: string; count: number }>)
-    .map((r) => ({ dimension_value: r.bucket, label: r.bucket, value: r.count ?? 0 }))
+    .map((r) => ({
+      dimension_value: r.bucket,
+      label: PAYER_BUCKET_DISPLAY_LABELS[r.bucket] ?? r.bucket,
+      value: r.count ?? 0,
+    }))
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
   return { kind: "breakdown", rows, total: sumNullable(rows.map((r) => r.value)) };
 }

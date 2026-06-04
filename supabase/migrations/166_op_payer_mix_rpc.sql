@@ -10,8 +10,16 @@
 --                                        OR (insurance NULL AND star ∈ {4,5}))
 --   - Other Payer:    treatment LOC AND insurance ∈ {Medicare, No Insurance,
 --                                                    Out of State Medicaid}
---   - Unclassified:   everything else (mostly: treatment LOC + insurance NULL +
---                     no star rating set — a real data-quality gap to surface)
+--   - Unclassified:   everything else — in practice: treatment LOC + insurance
+--                     NULL + star_rating ∈ {0,1,2}. NOTE: star_rating is never
+--                     NULL (ETL defaults an absent Lead Score Rating to 0), so a
+--                     LOW/unscored star — not a missing one — is the trigger.
+--                     These are overwhelmingly early-funnel leads whose payer is
+--                     confirmed later at VOB (investigated 2026-06-02; not an ETL
+--                     gap). Surfaced on the executive dashboard as "Payer Pending".
+--
+-- NOTE: this is the original (pre-filter) RPC. The LIVE definition the dashboard
+-- calls is reporting_op_payer_mix_filtered — see migration 175 (adds rep filter).
 --
 -- The COALESCE(..., TRUE) on the gate lets service-role contexts call this
 -- (matches the pattern in the verifier RPCs); user-facing calls go through
