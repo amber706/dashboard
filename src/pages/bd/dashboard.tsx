@@ -32,6 +32,7 @@ import { PageShell } from "@/components/dashboard/PageShell";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { loadSavedViews, saveView, deleteView, type BdSavedView } from "@/lib/bd-saved-views";
 import { exportCsv, isoToDay } from "@/lib/bd-csv";
+import { ACTIVE_BD_REPS } from "@/lib/bd-active-reps";
 
 // ── Pipeline grouping (frontend label → Zoho Pipeline values) ────────
 const PIPELINE_GROUPS = {
@@ -431,14 +432,6 @@ export default function BdDashboard() {
   function toggleExpand(bdRep: string) {
     setExpandedReps((prev) => { const n = new Set(prev); n.has(bdRep) ? n.delete(bdRep) : n.add(bdRep); return n; });
   }
-
-  // Active BD reps. Inactive reps (Farah, Sean, Dane, Amber, Kimberly,
-  // Gene from the historical BD_Rep picklist) are dropped from the
-  // per-rep view even when they have legacy deals in the window — they
-  // shouldn't appear in pacing / activity reporting. The list is small
-  // enough to live in code; if it changes more than once a quarter
-  // we'll move it to a config row.
-  const ACTIVE_BD_REPS = ["Casey", "Mindy", "Joey", "Jacob"] as const;
 
   const repsAfterActiveFilter = useMemo(() => {
     if (!data) return [];
