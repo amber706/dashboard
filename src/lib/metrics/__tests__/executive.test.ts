@@ -203,6 +203,19 @@ describe("executive.payer_mix", () => {
     expect(res.rows.map((r) => r.label)).toEqual(["AHCCCS Lead", "Commercial Lead"]);
     expect(res.total).toBe(50);
   });
+
+  it("relabels the residual 'Unclassified' bucket to 'Payer Pending' for display, keeping the raw bucket as dimension_value", async () => {
+    rpcReturns([
+      { bucket: "AHCCCS Lead", count: 30, share: 0.5 },
+      { bucket: "Unclassified", count: 30, share: 0.5 },
+    ]);
+    const res = (await resolve("executive.payer_mix")) as BreakdownResult;
+    const residual = res.rows.find((r) => r.dimension_value === "Unclassified");
+    expect(residual?.label).toBe("Payer Pending");
+    // Display relabel only — drilldown key (dimension_value) is unchanged.
+    expect(res.rows.map((r) => r.label)).toContain("Payer Pending");
+    expect(res.rows.map((r) => r.label)).not.toContain("Unclassified");
+  });
 });
 
 // ── Wins / refer-out ────────────────────────────────────────────────────────

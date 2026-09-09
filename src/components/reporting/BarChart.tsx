@@ -29,6 +29,8 @@ interface BarChartProps {
   filters: FilterContract;
   title?: string;
   subtitle?: string;
+  /** Optional small-print note rendered below the chart (e.g. a metric caveat). */
+  footnote?: string;
   /**
    * `"grouped"` is the brief's vocabulary but Phase 2A breakdowns are
    * single-series, so the prop is accepted but unused. Future multi-series
@@ -43,13 +45,14 @@ export function BarChart({
   filters,
   title,
   subtitle,
+  footnote,
 }: BarChartProps) {
   const def = getMetric(metric);
   const query = useMetric(metric, range, filters);
   const finalTitle = title ?? def.label;
 
   return (
-    <ChartContainer title={finalTitle} subtitle={subtitle ?? def.description}>
+    <ChartContainer title={finalTitle} subtitle={subtitle ?? def.description} footnote={footnote}>
       {query.isLoading || !query.data ? (
         <LoadingSkeleton variant="bar" />
       ) : query.error ? (

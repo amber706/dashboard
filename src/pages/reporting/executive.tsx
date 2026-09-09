@@ -96,6 +96,11 @@ export default function ExecutiveReportingPage() {
           filters={filters}
           title="Payer Mix"
           subtitle="Lead distribution across payer buckets."
+          footnote={
+            '"Payer Pending" = leads with no captured insurance type and no ' +
+            "payer-bearing lead score (★3–5) — typically early-funnel leads not " +
+            "yet qualified; payer is confirmed later at VOB."
+          }
         />
       </div>
 
