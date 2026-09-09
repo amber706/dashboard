@@ -317,6 +317,68 @@ export default function BdAccountTrends() {
         <>
           <Card>
             <CardHeader className="pb-2">
+              <CardTitle className="text-base">Top referring accounts</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Ranked by total referrals in the window. Trend compares the two most recent full months
+                {trendMonthLabels ? <> (<span className="font-medium">{trendMonthLabels.current}</span> vs <span className="font-medium">{trendMonthLabels.prior}</span>)</> : null}
+                . Click a row to filter the chart to just that account.
+              </p>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              {topAccounts.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No accounts with activity in this window.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    <tr>
+                      <th className="text-left py-2 pr-3">#</th>
+                      <th className="text-left py-2 pr-3">Account</th>
+                      <th className="text-right py-2 pr-3">Referrals</th>
+                      <th className="text-right py-2 pr-3">Admits</th>
+                      <th className="text-right py-2 pr-3">Refer-outs</th>
+                      <th className="text-right py-2 pr-3">Meetings</th>
+                      <th className="text-right py-2 pr-3">Conv %</th>
+                      <th className="text-right py-2 pr-3">Trend</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topAccounts.map((a, i) => {
+                      const active = selectedAccountId === a.id;
+                      const t = trendByAccount.get(a.id);
+                      const delta = t?.delta ?? 0;
+                      const trendTone = delta > 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : delta < 0
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-muted-foreground";
+                      const arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "—";
+                      return (
+                        <tr key={a.id} className={`border-t cursor-pointer hover:bg-accent/40 ${active ? "bg-accent/30" : ""}`} onClick={() => setSelectedAccountId(active ? "all" : a.id)}>
+                          <td className="py-2 pr-3 text-xs text-muted-foreground tabular-nums">{i + 1}</td>
+                          <td className="py-2 pr-3 font-medium">{a.name}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{a.total_referrals}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{a.total_admits}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_refer_outs ?? 0}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_meetings ?? 0}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.conversion_rate == null ? "—" : `${a.conversion_rate}%`}</td>
+                          <td className={`py-2 pr-3 text-right tabular-nums ${trendTone}`} title={t ? `${t.prior} → ${t.current}` : ""}>
+                            {arrow} {delta > 0 ? "+" : ""}{delta}
+                          </td>
+                          <td className="py-2 pr-3 text-right">
+                            <Link href={`/bd/account?id=${a.id}`} onClick={(e) => e.stopPropagation()} className="text-xs text-primary hover:underline">Open →</Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-emerald-500" />
                 {selectedAccountId === "all" ? "All accounts" : (data.accounts.find((a) => a.id === selectedAccountId)?.name ?? "Account")}
@@ -423,68 +485,6 @@ export default function BdAccountTrends() {
               )}
             </SheetContent>
           </Sheet>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Top referring accounts</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Ranked by total referrals in the window. Trend compares the two most recent full months
-                {trendMonthLabels ? <> (<span className="font-medium">{trendMonthLabels.current}</span> vs <span className="font-medium">{trendMonthLabels.prior}</span>)</> : null}
-                . Click a row to filter the chart to just that account.
-              </p>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              {topAccounts.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No accounts with activity in this window.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                    <tr>
-                      <th className="text-left py-2 pr-3">#</th>
-                      <th className="text-left py-2 pr-3">Account</th>
-                      <th className="text-right py-2 pr-3">Referrals</th>
-                      <th className="text-right py-2 pr-3">Admits</th>
-                      <th className="text-right py-2 pr-3">Refer-outs</th>
-                      <th className="text-right py-2 pr-3">Meetings</th>
-                      <th className="text-right py-2 pr-3">Conv %</th>
-                      <th className="text-right py-2 pr-3">Trend</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topAccounts.map((a, i) => {
-                      const active = selectedAccountId === a.id;
-                      const t = trendByAccount.get(a.id);
-                      const delta = t?.delta ?? 0;
-                      const trendTone = delta > 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : delta < 0
-                          ? "text-rose-600 dark:text-rose-400"
-                          : "text-muted-foreground";
-                      const arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "—";
-                      return (
-                        <tr key={a.id} className={`border-t cursor-pointer hover:bg-accent/40 ${active ? "bg-accent/30" : ""}`} onClick={() => setSelectedAccountId(active ? "all" : a.id)}>
-                          <td className="py-2 pr-3 text-xs text-muted-foreground tabular-nums">{i + 1}</td>
-                          <td className="py-2 pr-3 font-medium">{a.name}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{a.total_referrals}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums">{a.total_admits}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_refer_outs ?? 0}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.total_meetings ?? 0}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{a.conversion_rate == null ? "—" : `${a.conversion_rate}%`}</td>
-                          <td className={`py-2 pr-3 text-right tabular-nums ${trendTone}`} title={t ? `${t.prior} → ${t.current}` : ""}>
-                            {arrow} {delta > 0 ? "+" : ""}{delta}
-                          </td>
-                          <td className="py-2 pr-3 text-right">
-                            <Link href={`/bd/account?id=${a.id}`} onClick={(e) => e.stopPropagation()} className="text-xs text-primary hover:underline">Open →</Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
     </PageShell>

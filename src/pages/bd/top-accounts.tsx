@@ -113,6 +113,13 @@ function fmtDate(iso: string | null): string {
 
 type Direction = "all" | "in" | "out";
 
+// Sentinel for "no Account Owner set in Zoho" in the owner picker — "" is
+// already taken by "all owners".
+const UNASSIGNED_OWNER = "__unassigned__";
+// Synthetic row bd-top-accounts appends for refer-outs with no
+// destination Account linked (see the edge function).
+const UNATTACHED_ROW_ID = "__unattached__";
+
 export default function BdTopAccounts() {
   const [preset, setPreset] = useState<StandardWindowPreset>("last_3_months");
   const days = computeStandardWindow(preset).days;
@@ -122,6 +129,10 @@ export default function BdTopAccounts() {
   // to match /bd/referrals. Empty Set means "all pipelines."
   const [pipelineGroups, setPipelineGroups] = useState<Set<PipelineGroup>>(new Set(["Commercial", "AHCCCS"]));
   const [locFilter, setLocFilter] = useState<string>("");
+  // Company owner (Zoho Account Owner). Empty string = all owners,
+  // UNASSIGNED_OWNER = accounts with no owner set in Zoho.
+  const [ownerFilter, setOwnerFilter] = useState<string>("");
+  const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
   const [data, setData] = useState<TopAccountsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -138,23 +149,78 @@ export default function BdTopAccounts() {
     setPipelineGroups((prev) => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; });
   };
 
+  // Zoho user directory (zoho_user_id → full_name), used to label the
+  // Account Owner. bd-top-accounts returns the raw Zoho owner id only;
+  // reporting.user_identity is the synced side of the same users.
+  useEffect(() => {
+    (async () => {
+      const { data: rows, error } = await supabase.rpc("reporting_zoho_user_directory");
+      if (error || !rows) return; // owner filter degrades to raw ids
+      const map: Record<string, string> = {};
+      for (const r of rows as Array<{ zoho_user_id: string; full_name: string | null }>) {
+        if (r.zoho_user_id && r.full_name) map[r.zoho_user_id] = r.full_name;
+      }
+      setOwnerNames(map);
+    })();
+  }, []);
+
+  const ownerLabel = (ownerId: string | null): string => {
+    if (!ownerId) return "(unassigned)";
+    return ownerNames[ownerId] ?? `Owner ${ownerId.slice(-6)}`;
+  };
+
+  // Owner picker options — only owners actually present in the current
+  // result set, so the list stays short and never offers a filter that
+  // would return nothing. The synthetic "(no destination linked)" row
+  // has no owner and is excluded.
+  const ownerOptions = (() => {
+    if (!data) return [] as Array<{ value: string; label: string }>;
+    const seen = new Set<string>();
+    let hasUnassigned = false;
+    for (const a of data.accounts) {
+      if (a.id === UNATTACHED_ROW_ID) continue;
+      if (a.owner_id) seen.add(a.owner_id);
+      else hasUnassigned = true;
+    }
+    const opts = Array.from(seen)
+      .map((id) => ({ value: id, label: ownerLabel(id) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    if (hasUnassigned) opts.push({ value: UNASSIGNED_OWNER, label: "(unassigned)" });
+    return opts;
+  })();
+
+  // Drop a stale owner selection when a window / pipeline change means
+  // that owner no longer appears in the result set — otherwise the
+  // select renders blank and the table silently shows nothing.
+  useEffect(() => {
+    if (!ownerFilter || !data) return;
+    if (!ownerOptions.some((o) => o.value === ownerFilter)) setOwnerFilter("");
+  }, [data, ownerFilter, ownerOptions]);
+
+  const passesOwner = (a: TopAccount): boolean => {
+    if (!ownerFilter) return true;
+    if (ownerFilter === UNASSIGNED_OWNER) return !a.owner_id;
+    return a.owner_id === ownerFilter;
+  };
+
   // Filter + resort accounts client-side based on the direction toggle.
   // "in"  → accounts that sent us referrals (sorted by referrals_in)
   // "out" → accounts we sent referrals to (sorted by referrals_out)
   // "all" → both, server order (flags-first, then referrals_in)
   const visibleAccounts = (() => {
     if (!data) return [] as TopAccount[];
+    const scoped = data.accounts.filter(passesOwner);
     if (direction === "in") {
-      return [...data.accounts]
+      return scoped
         .filter((a) => a.referrals_recent >= minReferrals)
         .sort((a, b) => b.referrals_recent - a.referrals_recent);
     }
     if (direction === "out") {
-      return [...data.accounts]
+      return scoped
         .filter((a) => a.referrals_out_recent > 0)
         .sort((a, b) => b.referrals_out_recent - a.referrals_out_recent);
     }
-    return data.accounts;
+    return scoped;
   })();
 
   const load = useCallback(async () => {
@@ -198,6 +264,7 @@ export default function BdTopAccounts() {
       { header: "Account", value: (a) => a.name },
       { header: "Account ID", value: (a) => a.id },
       { header: "Type", value: (a) => a.type ?? "" },
+      { header: "Owner", value: (a) => ownerLabel(a.owner_id) },
       { header: "Industry", value: (a) => a.industry ?? "" },
       { header: "Reciprocal", value: (a) => a.is_reciprocal ? "yes" : "" },
       { header: "Referrals in (window)", value: (a) => a.referrals_recent },
@@ -309,6 +376,17 @@ export default function BdTopAccounts() {
           <option value="">All LOCs</option>
           {LOC_OPTIONS.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
+        <span className="mx-3 h-4 w-px bg-border" />
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Owner</span>
+        <select
+          value={ownerFilter}
+          onChange={(e) => setOwnerFilter(e.target.value)}
+          className="h-8 text-xs px-2 rounded border bg-background max-w-[200px]"
+          title="Zoho Account Owner — filters the table only; the KPI cards above stay at window totals."
+        >
+          <option value="">All owners</option>
+          {ownerOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
       </div>
 
       {/* Query-level warnings (only show real Zoho errors now). */}
@@ -388,9 +466,11 @@ export default function BdTopAccounts() {
             <span>Accounts</span>
             <span className="text-xs font-normal text-muted-foreground">
               {data ? (
-                direction === "all"
-                  ? `${data.totals.accounts_returned} of ${data.totals.accounts_examined} examined`
-                  : `${visibleAccounts.length} ${direction === "in" ? "inbound" : "outbound"} of ${data.totals.accounts_returned}`
+                ownerFilter
+                  ? `${visibleAccounts.length} owned by ${ownerFilter === UNASSIGNED_OWNER ? "(unassigned)" : ownerLabel(ownerFilter)} of ${data.totals.accounts_returned}`
+                  : direction === "all"
+                    ? `${data.totals.accounts_returned} of ${data.totals.accounts_examined} examined`
+                    : `${visibleAccounts.length} ${direction === "in" ? "inbound" : "outbound"} of ${data.totals.accounts_returned}`
               ) : "loading"}
             </span>
           </CardTitle>
@@ -434,7 +514,9 @@ export default function BdTopAccounts() {
                             {a.name}
                             {a.is_reciprocal && <Badge variant="outline" className="text-[9px]">reciprocal</Badge>}
                           </div>
-                          {a.type && <div className="text-[10px] text-muted-foreground">{a.type}</div>}
+                          <div className="text-[10px] text-muted-foreground">
+                            {a.type ? `${a.type} · ` : ""}{ownerLabel(a.owner_id)}
+                          </div>
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums font-medium">{a.referrals_recent}</td>
                         <td className="py-2 pr-3 text-right tabular-nums text-orange-600 dark:text-orange-400">{a.referrals_out_recent}</td>
