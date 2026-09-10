@@ -107,6 +107,71 @@ export async function getZohoToken(): Promise<string> {
   return tok;
 }
 
+/**
+ * Zoho ANALYTICS token — deliberately separate from getZohoToken() above.
+ *
+ * Only reporting-sync-leads talks to Zoho Analytics (V2 bulk export); every other
+ * sync uses Zoho CRM. Both services authenticate through the same OAuth client, but
+ * a refresh token only carries the scopes it was granted, and the CRM token has no
+ * ZohoAnalytics.* scopes — so the leads bulk export 401s with INVALID_OAUTHTOKEN
+ * while CRM calls on the same token succeed.
+ *
+ * The obvious fix — regenerate ZOHO_REFRESH_TOKEN with CRM *and* Analytics scopes —
+ * couples them: a bad regeneration takes down deals, calls, meetings and every
+ * Zoho-sourced conversion at once. So Analytics gets its own token instead:
+ *
+ *   ZOHO_ANALYTICS_REFRESH_TOKEN   scopes: ZohoAnalytics.data.read,
+ *                                          ZohoAnalytics.metadata.read
+ *
+ * Falls back to the CRM token when unset, so this is inert until that secret exists
+ * (today it fails the same way it already does, rather than failing differently).
+ *
+ * In-memory cache only, no zoho_token_cache row: that table is a singleton keyed on
+ * one boolean, and it is shared by every reporting-sync-* function. Keeping Analytics
+ * out of it avoids adding contention to a cache that already hands out tokens with
+ * zero expiry margin.
+ */
+let _analyticsToken: { token: string; expiresAt: number } | null = null;
+
+export async function getZohoAnalyticsToken(): Promise<string> {
+  const refreshToken = Deno.env.get("ZOHO_ANALYTICS_REFRESH_TOKEN");
+  if (!refreshToken) return await getZohoToken(); // not provisioned yet
+
+  if (_analyticsToken && _analyticsToken.expiresAt > Date.now()) return _analyticsToken.token;
+
+  const clientId = Deno.env.get("ZOHO_CLIENT_ID");
+  const clientSecret = Deno.env.get("ZOHO_CLIENT_SECRET");
+  if (!clientId || !clientSecret) {
+    throw new Error("ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET must be set");
+  }
+
+  const res = await fetch(`${ZOHO_ACCOUNTS_DOMAIN}/oauth/v2/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+    }).toString(),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Zoho Analytics OAuth refresh failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
+    );
+  }
+  const j = await res.json();
+  const tok = j.access_token as string | undefined;
+  if (!tok) {
+    throw new Error(
+      `Zoho Analytics OAuth response missing access_token: ${JSON.stringify(j).slice(0, 400)}`,
+    );
+  }
+  // 5-minute safety margin, same as the CRM path.
+  _analyticsToken = { token: tok, expiresAt: Date.now() + Math.max(60_000, ((j.expires_in ?? 3600) - 300) * 1000) };
+  return tok;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // COQL helpers
 // ────────────────────────────────────────────────────────────────────────────

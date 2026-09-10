@@ -17,7 +17,7 @@
 
 import {
   finishSyncRun,
-  getZohoToken,
+  getZohoAnalyticsToken,
   handleCorsPreflight,
   jsonResponse,
   leadScoreRatingToStarCount,
@@ -188,7 +188,7 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   if (url.searchParams.get("diagnose") === "1") {
-    const token = await getZohoToken();
+    const token = await getZohoAnalyticsToken();
     const probe = await diagnoseAnalytics(token);
     return jsonResponse({ ok: true, probe });
   }
@@ -198,7 +198,7 @@ Deno.serve(async (req) => {
   try {
     if (!ORG_ID) throw new Error("ZOHO_ANALYTICS_ORG_ID env var not set");
 
-    const token = await getZohoToken();
+    const token = await getZohoAnalyticsToken();
     const mappings = await loadMappings();
 
     const jobId = await createExportJob(token);
