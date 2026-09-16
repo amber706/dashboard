@@ -99,6 +99,7 @@ async function readManual(token: string, m: Manual) {
   const vals = await sheetValues(token, m.sheet, ranges);
 
   const records: Record<string, string[]> = {};
+  const recordCols: Record<string, Array<{ id: string; col: number }>> = {};
   const scores: Record<string, Record<string, Cell>> = {}; // section -> `${item}#${idx}` -> cell
 
   for (const section of SECTIONS[m.team]) {
@@ -108,7 +109,11 @@ async function readManual(token: string, m: Manual) {
       const mm = url.match(/\/tab\/[A-Za-z]+\/(\d+)/);
       ids.push(mm ? mm[1] : "");
     });
-    records[section] = ids;
+    // Blank link cells are sections the auditor did not fill. Passing "" into
+    // `where id in (...)` makes Zoho reject the whole query as a bad bigint,
+    // which cost two of five reps on the first run.
+    records[section] = ids.filter((x) => x !== "");
+    recordCols[section] = ids.map((id, col) => ({ id, col }));
     scores[section] = {};
     for (const item of sectionItems(m.team, section)) {
       COLS.forEach((c, idx) => {
@@ -117,7 +122,7 @@ async function readManual(token: string, m: Manual) {
       });
     }
   }
-  return { records, scores };
+  return { records, recordCols, scores };
 }
 
 function norm(v: unknown): Cell {
@@ -170,7 +175,11 @@ async function main() {
     let a = 0, st = 0, so = 0, nv = 0;
     const rows: string[] = [];
     for (const [section, recs] of Object.entries(body.scored as Record<string, Array<{ id: string; items: Array<{ item: string; score: unknown; explanation?: string }> }>>)) {
-      recs.forEach((rec, idx) => {
+      // Index against the auditor's original column, not the filtered array,
+      // or every score after a blank compares against the wrong record.
+      const originalIdx = (manual.recordCols[section] ?? []).filter((c) => c.id !== "");
+      recs.forEach((rec, i) => {
+        const idx = originalIdx[i]?.col ?? i;
         for (const r of rec.items) {
           const man = manual.scores[section]?.[`${r.item}#${idx}`] ?? "";
           if (man === "") { totals.manualBlank++; continue; } // auditor left it blank
