@@ -131,15 +131,19 @@ Deno.test("D39 checks for a VOB attachment by filename", () => {
 });
 
 Deno.test("L26 reads the notes judge verdict", () => {
-  const c = ctx({}, { notesJudgments: { L26: { score: 0, reason: "No narrative." } } });
+  const c = ctx({}, {
+    notes: [{ Note_Content: "Called the client." }],
+    notesJudgments: { L26: { score: 0, reason: "No narrative." } },
+  });
   const r = LEAD_RULES.L26(c) as ItemResult;
   assertEquals(r.score, 0);
   assertEquals(r.explanation, "No narrative.");
 });
 
 Deno.test("L26 defers rather than zeroing when the judge is unavailable", () => {
-  // A model outage must never cost a rep points.
-  assertEquals(s(LEAD_RULES.L26(ctx({}))), "DEFER");
+  // A model outage must never cost a rep points — but only when there IS a
+  // note to judge. An absent note is a plain 0.
+  assertEquals(s(LEAD_RULES.L26(ctx({}, { notes: [{ Note_Content: "Called." }] }))), "DEFER");
 });
 
 Deno.test("A3 passes only when every record in the window was logged same day", () => {
@@ -168,4 +172,31 @@ Deno.test("referred-out items fire for BOTH referred-out stages", () => {
 
 Deno.test("admitted items fire on the real admitted stage name", () => {
   assertEquals(s(DEAL_RULES.D35(ctx({ Stage: "Closed - Admitted", Lost_Reasoning: "Admitted - Maryvale OTC" }))), 1);
+});
+
+Deno.test("a record with no note scores 0, not DEFER", () => {
+  // The most common miss there is. Deferring it would quietly excuse it.
+  const r = LEAD_RULES.L26(ctx({}, { notes: [] })) as ItemResult;
+  assertEquals(r.score, 0);
+  assertEquals(r.explanation, "No note on the record.");
+});
+
+Deno.test("a record WITH a note defers only when the judge is unavailable", () => {
+  const withNote = ctx({}, { notes: [{ Note_Content: "Spoke with the client about intake." }] });
+  assertEquals(s(LEAD_RULES.L26(withNote)), "DEFER");
+  const judged = ctx({}, {
+    notes: [{ Note_Content: "Spoke with the client about intake." }],
+    notesJudgments: { L26: { score: 1, reason: "Clear narrative." } },
+  });
+  assertEquals(s(LEAD_RULES.L26(judged)), 1);
+});
+
+Deno.test("a whitespace-only note counts as no note", () => {
+  assertEquals(s(LEAD_RULES.L26(ctx({}, { notes: [{ Note_Content: "   " }] }))), 0);
+});
+
+Deno.test("a FAILED notes fetch defers — it is not evidence the rep wrote nothing", () => {
+  const r = LEAD_RULES.L26(ctx({}, { notes: [], notesUnavailable: true })) as ItemResult;
+  assertEquals(r.score, "DEFER");
+  assertEquals(r.explanation, "Could not read the record's notes.");
 });

@@ -32,6 +32,12 @@ export interface RecordContext {
   record: ZohoRecord;
   /** Notes attached to the record, newest first. */
   notes: ZohoNote[];
+  /**
+   * True when the notes fetch ERRORED, as opposed to the record genuinely
+   * having none. The difference decides whether a language item scores 0 or
+   * defers — a broken fetch must never be read as "the rep wrote no note".
+   */
+  notesUnavailable?: boolean;
   /** Attachment filenames on the record. Deals only. */
   attachments: string[];
   /** Related meetings, for BC9/BC10. Business contacts only. */

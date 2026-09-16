@@ -103,10 +103,18 @@ export function parseJudgeResponse(raw: string, allowed?: string[]): Record<stri
   }
 }
 
+/** Why a judge call produced nothing. Surfaced in dry runs so a silent no-op is visible. */
+export const judgeDiagnostics = {
+  calls: 0, ok: 0, noKey: 0, noNotes: 0, httpError: "" as string, parseEmpty: 0, threw: "" as string,
+};
+
 /** Returns {} on any failure. An outage must defer the items, never zero them. */
 export async function judgeNotes(notes: string, items: string[]): Promise<Record<string, Verdict>> {
   const key = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!key || items.length === 0 || notes.trim() === "") return {};
+  if (!key) { judgeDiagnostics.noKey++; return {}; }
+  if (items.length === 0) return {};
+  if (notes.trim() === "") { judgeDiagnostics.noNotes++; return {}; }
+  judgeDiagnostics.calls++;
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -121,10 +129,19 @@ export async function judgeNotes(notes: string, items: string[]): Promise<Record
         messages: [{ role: "user", content: buildJudgePrompt(notes, items) }],
       }),
     });
-    if (!res.ok) return {};
+    if (!res.ok) {
+      if (!judgeDiagnostics.httpError) {
+        judgeDiagnostics.httpError = `${res.status}: ${(await res.text()).slice(0, 200)}`;
+      }
+      return {};
+    }
     const json = await res.json();
-    return parseJudgeResponse(json.content?.[0]?.text ?? "", items);
-  } catch {
+    const out = parseJudgeResponse(json.content?.[0]?.text ?? "", items);
+    if (Object.keys(out).length === 0) judgeDiagnostics.parseEmpty++;
+    else judgeDiagnostics.ok++;
+    return out;
+  } catch (e) {
+    if (!judgeDiagnostics.threw) judgeDiagnostics.threw = String(e).slice(0, 200);
     return {};
   }
 }

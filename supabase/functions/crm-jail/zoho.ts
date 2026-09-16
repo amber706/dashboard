@@ -162,14 +162,31 @@ export async function fetchWindow(
   return out;
 }
 
+/**
+ * Fields to request per related list. The v6 related-records API REQUIRES a
+ * `fields` parameter — without it the call 400s. Omitting it made every Notes
+ * fetch fail silently, which read as "this record has no notes" and would have
+ * failed every rep on every language item.
+ */
+const RELATED_FIELDS: Record<string, string> = {
+  Notes: "id,Note_Title,Note_Content,Created_Time",
+  Attachments: "id,File_Name,Created_Time",
+  Events: "id,Event_Title,Start_DateTime,Created_Time",
+  Calls: "id,Subject,Call_Start_Time,Created_Time",
+  Tasks: "id,Subject,Due_Date,Status,Created_Time",
+  Deals: "id,Deal_Name,Stage,Created_Time",
+};
+
 export async function fetchRelated(
   token: string,
   module: string,
   recordId: string,
   related: string,
 ): Promise<Record<string, unknown>[]> {
+  const fields = RELATED_FIELDS[related];
+  if (!fields) throw new Error(`No field list defined for related list ${related}`);
   const res = await fetch(
-    `${apiDomain()}/crm/v6/${module}/${recordId}/${related}?per_page=100`,
+    `${apiDomain()}/crm/v6/${module}/${recordId}/${related}?per_page=100&fields=${encodeURIComponent(fields)}`,
     { headers: { Authorization: `Zoho-oauthtoken ${token}` } },
   );
   if (res.status === 204) return [];

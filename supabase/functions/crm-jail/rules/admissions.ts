@@ -50,7 +50,26 @@ const isAhcccs = (c: RecordContext) =>
   String(c.record.Insurance_Type ?? "").toLowerCase().includes("ahcccs");
 
 /** Language items come from the notes judge. Absent a verdict they defer, never zero. */
+/**
+ * Language items.
+ *
+ * Three distinct outcomes, and the difference matters:
+ *   no note at all -> 0. The rep did not write one; that is a fail, not an
+ *                     unknown, and deferring it would quietly excuse the most
+ *                     common miss there is.
+ *   a verdict      -> whatever the judge decided, with its reason.
+ *   no verdict     -> DEFER. The judge was unavailable; a model outage must
+ *                     never cost a rep points.
+ */
 const judged = (item: string): RuleFn => (c) => {
+  // A broken fetch is not evidence the rep wrote nothing.
+  if (c.notesUnavailable) {
+    return { item, score: "DEFER", explanation: "Could not read the record's notes." };
+  }
+  const hasNote = c.notes.some((n) =>
+    String(n.Note_Content ?? "").trim() !== "" || String(n.Note_Title ?? "").trim() !== ""
+  );
+  if (!hasNote) return { item, score: 0, explanation: "No note on the record." };
   const v = c.notesJudgments[item];
   if (!v) return { item, score: "DEFER", explanation: "Notes judging unavailable." };
   return { item, score: v.score, explanation: v.reason };

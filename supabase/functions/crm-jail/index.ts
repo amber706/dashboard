@@ -18,28 +18,39 @@ import { getZohoAccessToken } from "./zoho.ts";
 import { getGoogleAccessToken } from "./google-auth.ts";
 import { auditRep, type RosterRep } from "./audit-rep.ts";
 import { notifyAuditors, shareAndNotify, type RepResult } from "./notify.ts";
+import { judgeDiagnostics } from "./notes-judge.ts";
 import type { Team } from "./sheets.ts";
 
 const DRIVE_ID = Deno.env.get("CRM_JAIL_DRIVE_ID") ?? "0AHjwwQeACWHRUk9PVA";
 
 /**
- * Builds a raw -> normalized lookup from a reporting mapping table.
+ * Loads both taxonomy lookups in one call.
  *
  * Taxonomy literals are never inlined in the rule engine — they come from
- * these tables, the same mechanism reporting-sync-deals uses.
+ * reporting.stage_mapping and reporting.source_category_mapping. That schema
+ * is not exposed through PostgREST, so public.crm_jail_taxonomy() surfaces
+ * just those two tables to the service role.
  */
-async function loadMapping(
-  reporting: SupabaseClient<never, "reporting">,
-  table: string,
-): Promise<(raw: unknown) => string | null> {
-  const { data, error } = await reporting.from(table)
-    .select("raw_value,normalized_value");
-  if (error) throw new Error(`Could not load reporting.${table}: ${error.message}`);
-  const map = new Map<string, string>();
-  for (const row of data ?? []) {
-    map.set(String((row as Record<string, unknown>).raw_value), String((row as Record<string, unknown>).normalized_value));
+async function loadTaxonomy(supabase: SupabaseClient): Promise<{
+  stageCategory: (raw: unknown) => string | null;
+  sourceCategory: (raw: unknown) => string | null;
+}> {
+  const { data, error } = await supabase.rpc("crm_jail_taxonomy");
+  if (error) throw new Error(`Could not load taxonomy: ${error.message}`);
+  const stage = new Map<string, string>();
+  const source = new Map<string, string>();
+  for (const row of (data ?? []) as Array<Record<string, string>>) {
+    (row.kind === "stage" ? stage : source).set(row.raw_value, row.normalized_value);
   }
-  return (raw: unknown) => map.get(String(raw ?? "")) ?? null;
+  if (stage.size === 0 || source.size === 0) {
+    // An empty mapping would silently score every conditional item N/A,
+    // excusing exactly the failures the audit exists to catch.
+    throw new Error(`Taxonomy came back empty (stage=${stage.size}, source=${source.size})`);
+  }
+  return {
+    stageCategory: (raw) => stage.get(String(raw ?? "")) ?? null,
+    sourceCategory: (raw) => source.get(String(raw ?? "")) ?? null,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -55,24 +66,22 @@ Deno.serve(async (req) => {
   const supabase: SupabaseClient = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  // The mapping tables live in the reporting schema, so they need their own
-  // scoped client — .schema() is not available in this client version.
-  const reporting: SupabaseClient<never, "reporting"> = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    db: { schema: "reporting" },
-  });
+
 
   // Auth and taxonomy up front: if any of this is broken, produce nothing.
   let zohoToken: string, googleToken: string;
   let stageCategory: (r: unknown) => string | null;
   let sourceCategory: (r: unknown) => string | null;
   try {
-    [zohoToken, googleToken, stageCategory, sourceCategory] = await Promise.all([
+    const [zt, gt, tax] = await Promise.all([
       getZohoAccessToken(),
       getGoogleAccessToken(),
-      loadMapping(reporting, "stage_mapping"),
-      loadMapping(reporting, "source_category_mapping"),
+      loadTaxonomy(supabase),
     ]);
+    zohoToken = zt;
+    googleToken = gt;
+    stageCategory = tax.stageCategory;
+    sourceCategory = tax.sourceCategory;
   } catch (e) {
     return json({ error: "STARTUP_FAILED", detail: String(e), window }, 500);
   }
@@ -118,7 +127,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  return json({ window, dryRun, results, summaryUrl: notified.summaryUrl, shareFailures: notified.failures });
+  return json({
+    window, dryRun, results,
+    summaryUrl: notified.summaryUrl,
+    shareFailures: notified.failures,
+    judge: { ...judgeDiagnostics },
+  });
 });
 
 async function recordRun(

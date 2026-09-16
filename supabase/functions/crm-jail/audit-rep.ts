@@ -68,17 +68,21 @@ async function enrich(
   token: string,
   section: string,
   record: Record<string, unknown>,
-): Promise<Pick<RecordContext, "notes" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule">> {
+): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule">> {
   const mod = MODULE_FOR[section];
   const id = String(record.id);
   const safe = async <T>(fn: () => Promise<T>, fallback: T): Promise<T> => {
     try { return await fn(); } catch { return fallback; }
   };
 
-  const notes = await safe(
-    () => fetchRelated(token, mod, id, "Notes") as Promise<ZohoNote[]>,
-    [] as ZohoNote[],
-  );
+  let notesUnavailable = false;
+  let notes: ZohoNote[] = [];
+  try {
+    notes = await fetchRelated(token, mod, id, "Notes") as ZohoNote[];
+  } catch {
+    // Distinguished from "no notes" on purpose — see judged() in the rules.
+    notesUnavailable = true;
+  }
 
   const attachments = section === "Deals"
     ? (await safe(() => fetchRelated(token, mod, id, "Attachments"), []))
@@ -111,6 +115,7 @@ async function enrich(
 
   return {
     notes,
+    notesUnavailable,
     attachments,
     relatedMeetings,
     relatedDealCount,
