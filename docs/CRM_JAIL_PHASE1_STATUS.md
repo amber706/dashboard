@@ -85,7 +85,10 @@ Forms · the same-day and referral-packet items above.
   - **A run's success report says nothing about delivery or about which week was audited.**
     Check `shareFailures`, and check `crm_jail_runs.window_start` against the response window.
   - `notify_only` re-sends a window's notifications from `crm_jail_runs` without re-auditing.
-- **Nine scorecards for 8/31–9/6 exist in the drive** from that first run. They are a valid audit
-  of that week, filed under it, shared with nobody. Amber's call whether to keep or bin them.
+- **The wrong-week output was removed 2026-09-16.** Sixteen scorecards (8/24–8/30 and 8/31–9/6)
+  plus the orphaned summary sheet went to Drive trash on Amber's instruction — recoverable for 30
+  days. Their `crm_jail_runs` rows were kept as the record that those runs happened, so those two
+  windows now have rows pointing at trashed sheets. `notify_only` against either window would
+  succeed and send dead links; it takes an explicit window, so nothing reaches it by accident.
 - **The service account cannot permanently delete** anything in the shared drive. Structural, and
   worth keeping.
