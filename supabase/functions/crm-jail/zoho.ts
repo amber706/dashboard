@@ -128,14 +128,27 @@ export async function getCachedZohoAccessToken(
 }
 
 /**
- * Confirms a token actually works before a whole run is built on it. One cheap
- * call is far less costly than nine reps failing on a stale cache entry.
+ * Confirms a token actually works before a whole run is built on it.
+ *
+ * Probes with a trivial COQL query — the exact operation the bot performs.
+ * An earlier version probed /settings/modules, which needs a settings-read
+ * scope the bot never uses: a perfectly good token failed the health check and
+ * the check itself became the thing that failed the run. A health check must
+ * exercise the real operation, not an adjacent one.
  */
 export async function zohoTokenWorks(token: string): Promise<boolean> {
   try {
-    const res = await fetch(`${apiDomain()}/crm/v6/settings/modules?per_page=1`, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    const res = await fetch(`${apiDomain()}/crm/v6/coql`, {
+      method: "POST",
+      headers: { Authorization: `Zoho-oauthtoken ${token}`, "content-type": "application/json" },
+      // COQL REQUIRES a where clause — "select id from Leads limit 1" returns
+      // SYNTAX_ERROR "missing clause: where", which an earlier version of this
+      // probe read as a dead token and used to abort whole runs.
+      body: JSON.stringify({ select_query: "select id from Leads where id is not null limit 1" }),
     });
+    // Only 401 means the token is bad. A syntax error, a 429, or a transient
+    // 500 says nothing about the credential, and treating any non-200 as
+    // failure turned every hiccup into a run-killer.
     return res.status !== 401;
   } catch {
     return false;

@@ -234,24 +234,53 @@ async function dispatch(
 ): Promise<Response> {
   const self = `${Deno.env.get("SUPABASE_URL")}/functions/v1/crm-jail`;
 
-  const settled = await Promise.all(roster.map(async (rep): Promise<RepResult> => {
-    try {
-      const res = await fetch(self, {
-        method: "POST",
-        headers: { Authorization: authHeader, "content-type": "application/json" },
-        body: JSON.stringify({
-          rep: rep.zoho_user_id, dry_run: dryRun, run_at: `${window.endISO}T12:00:00Z`,
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok || !body.results?.[0]) {
-        return { rep: rep.full_name, team: rep.team, status: "failed", error: body.detail ?? body.error ?? `HTTP ${res.status}` };
+  // Firing all nine at once had Supabase refuse one with a 503, and put nine
+  // simultaneous Zoho token mints through a throttled endpoint. Four at a time
+  // still finishes well inside the wall clock and is far gentler on both.
+  const CONCURRENCY = 4;
+  const ATTEMPTS = 3;
+
+  async function auditOne(rep: RosterRep): Promise<RepResult> {
+    let lastErr = "";
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+      try {
+        const res = await fetch(self, {
+          method: "POST",
+          headers: { Authorization: authHeader, "content-type": "application/json" },
+          body: JSON.stringify({
+            rep: rep.zoho_user_id, dry_run: dryRun, run_at: `${window.endISO}T12:00:00Z`,
+          }),
+        });
+        // 5xx from the platform is transient and says nothing about the rep's
+        // data — back off and try again rather than lose their audit.
+        if (res.status >= 500) {
+          lastErr = `HTTP ${res.status}`;
+          if (attempt < ATTEMPTS) {
+            await new Promise((r) => setTimeout(r, attempt * 2000));
+            continue;
+          }
+        } else {
+          const body = await res.json();
+          if (!res.ok || !body.results?.[0]) {
+            return {
+              rep: rep.full_name, team: rep.team, status: "failed",
+              error: body.detail ?? body.error ?? `HTTP ${res.status}`,
+            };
+          }
+          return body.results[0] as RepResult;
+        }
+      } catch (e) {
+        lastErr = String(e);
+        if (attempt < ATTEMPTS) await new Promise((r) => setTimeout(r, attempt * 2000));
       }
-      return body.results[0] as RepResult;
-    } catch (e) {
-      return { rep: rep.full_name, team: rep.team, status: "failed", error: String(e) };
     }
-  }));
+    return { rep: rep.full_name, team: rep.team, status: "failed", error: lastErr };
+  }
+
+  const settled: RepResult[] = [];
+  for (let i = 0; i < roster.length; i += CONCURRENCY) {
+    settled.push(...await Promise.all(roster.slice(i, i + CONCURRENCY).map(auditOne)));
+  }
 
   let notified: { summaryUrl: string | null; failures: string[] } = { summaryUrl: null, failures: [] };
   if (!dryRun && !skipNotify) {
