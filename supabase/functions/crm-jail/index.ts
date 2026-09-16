@@ -58,6 +58,10 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = Boolean(body.dry_run);
+  // Write the scorecards but tell nobody. Lets a real write path be verified
+  // without putting bot output in front of Aaron and Megan, or emailing them,
+  // before anyone has decided they should see it.
+  const skipNotify = Boolean(body.skip_notify);
   // When set, audit exactly this rep. The dispatcher below calls the function
   // once per rep so each gets its own wall-clock budget — a single invocation
   // auditing all nine times out once the notes judge is doing real work.
@@ -100,7 +104,7 @@ Deno.serve(async (req) => {
   if (!onlyRep) {
     return await dispatch(
       (roster ?? []) as unknown as Array<RosterRep>,
-      window, dryRun, googleToken, req.headers.get("Authorization") ?? "",
+      window, dryRun, skipNotify, googleToken, req.headers.get("Authorization") ?? "",
     );
   }
 
@@ -224,6 +228,7 @@ async function dispatch(
   roster: RosterRep[],
   window: { startISO: string; endISO: string; label: string },
   dryRun: boolean,
+  skipNotify: boolean,
   googleToken: string,
   authHeader: string,
 ): Promise<Response> {
@@ -234,7 +239,9 @@ async function dispatch(
       const res = await fetch(self, {
         method: "POST",
         headers: { Authorization: authHeader, "content-type": "application/json" },
-        body: JSON.stringify({ rep: rep.zoho_user_id, dry_run: dryRun, run_at: `${window.endISO}T12:00:00Z` }),
+        body: JSON.stringify({
+          rep: rep.zoho_user_id, dry_run: dryRun, run_at: `${window.endISO}T12:00:00Z`,
+        }),
       });
       const body = await res.json();
       if (!res.ok || !body.results?.[0]) {
@@ -247,14 +254,14 @@ async function dispatch(
   }));
 
   let notified: { summaryUrl: string | null; failures: string[] } = { summaryUrl: null, failures: [] };
-  if (!dryRun) {
+  if (!dryRun && !skipNotify) {
     notified = await notifyAuditors(window, settled, {
       createSummarySheet: (title, rows) => createSummarySheet(googleToken, title, rows),
       share: (fileId, email, message) => shareAndNotify(googleToken, fileId, email, message),
     });
   }
   return json({
-    window, dryRun, dispatched: roster.length, results: settled,
+    window, dryRun, skipNotify, dispatched: roster.length, results: settled,
     summaryUrl: notified.summaryUrl, shareFailures: notified.failures,
   });
 }
