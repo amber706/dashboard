@@ -192,7 +192,12 @@ re-touched, so it fell outside the window and was never audited.
 `Leads` / `Contacts` / `Deals` / `Accounts` have no "when it happened" field. For those the record
 timestamps *are* the activity, so they keep created-or-modified windowing.
 
-**Open:** Zoho auto-creates `Check-in at H:MM AM on DD Mon YYYY` events from the mobile app.
-Seven of Mike's 18 in-window events are these. They are GPS check-ins, not meetings, and they will
-be sampled and scored against M1–M9 (title, Related To, description, venue) which they cannot
-pass. Excluding them changes scores, so it needs Amber's call.
+**Mobile check-ins ARE meetings** — Amber, 2026-09-16. Zoho auto-titles them
+`Check-in at H:MM AM on DD Mon YYYY`, but they are drop-in visits to referral partners and carry
+real content: every one of Mike's seven had `What_Id` on a real Account, five had a description.
+They stay in the meeting pool and are not filtered.
+
+They score ~5/9: M1–M4 and M6 pass (M2 is a presence check, so the auto-title does not hurt), while
+M5 fails because `Who_Id` is null and M7/M8 fail because "Left Card and Flyer with front desk" is
+neither an agenda nor a next step. That is real feedback about an incomplete meeting record, not a
+bot artifact — do not "fix" it.
