@@ -1,6 +1,6 @@
 # CRM Jail Audit Bot — Phase 1 status
 
-**Code complete 2026-09-16.** Not yet scheduled; see *Before it runs unattended*.
+**Code complete and scheduled 2026-09-16.** First automated run: **Wednesday 2026-09-23, 09:00 Phoenix.**
 
 ## What it does
 
@@ -57,11 +57,13 @@ Forms · the same-day and referral-packet items above.
 
 ## Before it runs unattended
 
-1. **Enable the cron** — `supabase/migrations/199_crm_jail_cron.sql`, written and deliberately
-   not applied. Turning it on starts weekly emails to Aaron and Megan.
+1. ~~Enable the cron~~ — **done 2026-09-16**, `crm-jail-weekly`, Wednesdays 16:00 UTC.
+   Pause with `select cron.unschedule('crm-jail-weekly');`
 2. **Megan confirms the admissions roster** at `/admin/crm-jail`. Discovered candidates arrive
    inactive; `TREATMENT Standard` also carries intake and Court Services.
 3. **One live run reviewed by Aaron and Megan** before anyone is jailed on a bot score.
+   The first automated run lands Wednesday 2026-09-23 — that run should be treated as the
+   review, not as scores anyone acts on.
 
 ## Operational notes
 
