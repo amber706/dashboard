@@ -1,48 +1,62 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { planSync, rosterRowsFromUsers } from "./roster-sync.ts";
+import { planSync, profileMap, rosterRowsFromUsers } from "./roster-sync.ts";
 
+// A realistic slice of the live directory.
 const users = [
   { id: "1", full_name: "Kenny Reitz", email: "k@x.com", profileName: "Business Development" },
   { id: "2", full_name: "Eric Wade", email: "e@x.com", profileName: "TREATMENT Standard" },
   { id: "3", full_name: "Sabrina Johnson", email: "s@x.com", profileName: "Administrator" },
   { id: "4", full_name: "Robert Dallessandro", email: "r@x.com", profileName: "TREATMENT Standard" },
+  { id: "5", full_name: "Gerardo Vera", email: "g@x.com", profileName: "Call Center AHCCCS" },
 ];
 
-Deno.test("the default map derives BD only — it is the one profile that is exact", () => {
-  const rows = rosterRowsFromUsers(users, { "Business Development": "bd" });
-  assertEquals(rows.map((r) => r.full_name), ["Kenny Reitz"]);
-  assertEquals(rows[0].team, "bd");
-  assertEquals(rows[0].auditor_email, "aaron@cornerstonehealingcenter.com");
+Deno.test("both mapped profiles contribute candidates", () => {
+  const rows = rosterRowsFromUsers(users);
+  assertEquals(rows.map((r) => r.full_name).sort(), ["Eric Wade", "Kenny Reitz", "Robert Dallessandro"]);
 });
 
-Deno.test("an admissions profile is picked up the moment it is mapped", () => {
-  const rows = rosterRowsFromUsers(users, { "Admissions Rep": "admissions" });
-  assertEquals(rows.length, 0); // nobody carries it yet
-  const withIt = rosterRowsFromUsers(
-    [...users, { id: "9", full_name: "New Rep", email: "n@x.com", profileName: "Admissions Rep" }],
-    { "Admissions Rep": "admissions" },
-  );
-  assertEquals(withIt.map((r) => r.full_name), ["New Rep"]);
-  assertEquals(withIt[0].team, "admissions");
+Deno.test("unmapped profiles contribute nobody", () => {
+  const rows = rosterRowsFromUsers(users);
+  assertEquals(rows.some((r) => r.full_name === "Gerardo Vera"), false);
 });
 
-Deno.test("mapping TREATMENT Standard would pull in people who are not audited", () => {
-  // Documents why this profile is NOT mapped by default: Robert Dallessandro
-  // is Court Services, not an admissions rep.
-  const rows = rosterRowsFromUsers(users, { "TREATMENT Standard": "admissions" });
-  assertEquals(rows.map((r) => r.full_name), ["Eric Wade", "Robert Dallessandro"]);
+Deno.test("discovered candidates are NEVER auto-activated", () => {
+  // TREATMENT Standard carries intake and Court Services too. Auditing
+  // someone who is not a rep would assign them real discipline.
+  const rows = rosterRowsFromUsers(users);
+  assertEquals(rows.every((r) => r.active === false), true);
 });
 
-Deno.test("sync is additive — it never removes a rep", () => {
-  const discovered = rosterRowsFromUsers(users, { "Business Development": "bd" });
-  const plan = planSync(discovered, ["99"]); // 99 is on the roster, matches nothing
-  assertEquals(plan.toInsert.map((r) => r.zoho_user_id), ["1"]);
-  // Reported for a human, not deactivated: a rep silently dropping off the
-  // roster is a rep who is never audited again.
-  assertEquals(plan.unmatched, ["99"]);
+Deno.test("the pool includes people who are not reps — this is expected, not a bug", () => {
+  const rows = rosterRowsFromUsers(users);
+  // Robert Dallessandro is Court Services, surfaced for review, inactive.
+  const robert = rows.find((r) => r.full_name === "Robert Dallessandro");
+  assertEquals(robert?.team, "admissions");
+  assertEquals(robert?.active, false);
 });
 
-Deno.test("re-running finds nothing new", () => {
-  const discovered = rosterRowsFromUsers(users, { "Business Development": "bd" });
-  assertEquals(planSync(discovered, ["1"]).toInsert.length, 0);
+Deno.test("the pool also MISSES a real rep — Sabrina carries Administrator", () => {
+  // Which is why the roster table stays the source of truth and discovery
+  // can only ever add to it.
+  const rows = rosterRowsFromUsers(users);
+  assertEquals(rows.some((r) => r.full_name === "Sabrina Johnson"), false);
+});
+
+Deno.test("sync is additive — it never removes or deactivates a rep", () => {
+  const discovered = rosterRowsFromUsers(users);
+  const plan = planSync(discovered, ["3"]); // Sabrina is on the roster, matches no profile
+  assertEquals(plan.toInsert.map((r) => r.zoho_user_id).sort(), ["1", "2", "4"]);
+  assertEquals(plan.unmatched, ["3"]);
+});
+
+Deno.test("re-running proposes nothing new", () => {
+  const discovered = rosterRowsFromUsers(users);
+  const ids = discovered.map((r) => r.zoho_user_id);
+  assertEquals(planSync(discovered, ids).toInsert.length, 0);
+});
+
+Deno.test("the default map covers both teams", () => {
+  const m = profileMap();
+  assertEquals(m["Business Development"], "bd");
+  assertEquals(m["TREATMENT Standard"], "admissions");
 });

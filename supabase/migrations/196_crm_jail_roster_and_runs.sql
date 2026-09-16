@@ -13,12 +13,17 @@
 --      Ben Coulter, Kenny Reitz, Andrew Pritchert and Taylor Bertchie have no
 --      row. BD reps do not use the dashboard, so they have no auth user, and
 --      minting auth users purely to audit them would be wrong.
---   3. The Zoho profile picklist cannot produce the roster either: the
---      TREATMENT Standard profile holds 14 users including a Court Services
---      Coordinator and 10 people never audited, while Sabrina Johnson — who
---      Megan audited on 8/31-9/4 — carries the Administrator profile.
+--   3. Zoho profiles identify a CANDIDATE POOL, not the roster. Confirmed by
+--      Amber 2026-09-15: admissions reps carry "TREATMENT Standard" — but so
+--      does intake, which is the exact problem the original spec named
+--      ("intake having the same roles and profiles"). That profile holds 14
+--      users, of whom 3 were audited, and includes a Court Services
+--      Coordinator. The pool also misses a real rep: Sabrina Johnson was
+--      audited but carries "Administrator".
 --
--- Hence a standalone table keyed on the Zoho user id, which is the only
+-- So crm-jail/roster-sync.ts discovers candidates from mapped profiles and
+-- inserts them INACTIVE; a human activates the ones who are really reps.
+-- This table is that human decision, keyed on the Zoho user id — the only
 -- identifier that covers every rep. Seeded below with verified live ids.
 --
 -- Status columns are free text on purpose: a CHECK constraint is what
