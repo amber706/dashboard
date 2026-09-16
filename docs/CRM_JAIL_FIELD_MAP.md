@@ -175,3 +175,24 @@ queries, which is why `RecordContext` carries `relatedDealCount`, `futureActivit
 **BC6 / C10 — which company link should count?** `Associated_Facility` matches the scorecard's
 wording exactly; `Account_Name` is the standard Zoho company relationship. Right now either one
 passes, which cannot produce a false failure but may pass a record Aaron would fail.
+
+## Activity modules: the audit window is when the activity happened
+
+`Events` and `Calls` are windowed on **`Start_DateTime`** and **`Call_Start_Time`**, not on
+`Created_Time`/`Modified_Time`. A meeting belongs to the week it is *held*, not the week it was
+booked or last edited.
+
+Found 2026-09-16 by Amber on Mike Mcluty's 9/7–9/13 BD scorecard — a `CHC- Guiding Road MTG`
+created 9/7 but scheduled for **9/23** was sampled as that week's work. Measured on live data,
+Created/Modified windowing gave him **45 events for a week in which 18 occurred**: the surplus was
+future bookings (Community Unity out to 12/17) and older meetings that happened to be edited.
+It under-counts too — `Monica Deniham-PHP Admit` was *held* 9/7 but created 9/4 and never
+re-touched, so it fell outside the window and was never audited.
+
+`Leads` / `Contacts` / `Deals` / `Accounts` have no "when it happened" field. For those the record
+timestamps *are* the activity, so they keep created-or-modified windowing.
+
+**Open:** Zoho auto-creates `Check-in at H:MM AM on DD Mon YYYY` events from the mobile app.
+Seven of Mike's 18 in-window events are these. They are GPS check-ins, not meetings, and they will
+be sampled and scored against M1–M9 (title, Related To, description, venue) which they cannot
+pass. Excluding them changes scores, so it needs Amber's call.
