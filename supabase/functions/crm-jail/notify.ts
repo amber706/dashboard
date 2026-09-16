@@ -18,6 +18,8 @@ export interface RepResult {
   deferredCells?: number;
   auditorEmail?: string;
   error?: string;
+  /** Diagnostic only — never shown to an auditor. */
+  timings?: unknown;
 }
 
 export interface AuditWindowLabel {

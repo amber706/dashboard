@@ -42,10 +42,19 @@ export interface AuditWindowish {
   label: string;
 }
 
+/** Per-phase wall clock, so a slow run points at a cause instead of a guess. */
+export interface PhaseTimings {
+  fetchMs: number;
+  enrichJudgeMs: number;
+  writeMs: number;
+  poolSizes: Record<string, number>;
+}
+
 export interface AuditRepResult {
   rep: string;
   team: Team;
   status: "ok" | "skipped_no_activity";
+  timings?: PhaseTimings;
   sheetId?: string;
   sheetUrl?: string;
   deferredCells: number;
@@ -145,10 +154,13 @@ export async function auditRep(
   const sections: SectionResult[] = [];
   const sampled: Record<string, number> = {};
   const allWindowRecords: Record<string, Record<string, unknown>[]> = {};
+  const timings: PhaseTimings = { fetchMs: 0, enrichJudgeMs: 0, writeMs: 0, poolSizes: {} };
 
   for (const section of SECTIONS[team]) {
     const mod = MODULE_FOR[section];
+    const t0 = Date.now();
     let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
+    timings.fetchMs += Date.now() - t0;
 
     // The BD scorecard's "Business Contacts" section means contacts with a
     // business role — a client contact is not a business contact.
@@ -156,6 +168,7 @@ export async function auditRep(
       pool = pool.filter((r) => String(r.Business_Contact_Role ?? "").trim() !== "");
     }
     allWindowRecords[section] = pool;
+    timings.poolSizes[section] = pool.length;
 
     const drawn = sampleRecords(
       pool,
@@ -171,6 +184,7 @@ export async function auditRep(
     // Serially this was ~3s of Claude per record on top of several related-list
     // round trips each, which timed the whole run out at the edge function's
     // wall clock.
+    const t1 = Date.now();
     const results: ItemResult[][] = await Promise.all(
       drawn.map(async (r) => {
         const extra = await enrich(deps.zohoToken, section, r);
@@ -187,6 +201,7 @@ export async function auditRep(
         });
       }),
     );
+    timings.enrichJudgeMs += Date.now() - t1;
     sections.push({ section, records, results });
   }
 
@@ -195,7 +210,7 @@ export async function auditRep(
   const totalRecords = Object.values(sampled).reduce((a, b) => a + b, 0);
   if (totalRecords === 0) {
     return {
-      rep: rep.full_name, team, status: "skipped_no_activity",
+      rep: rep.full_name, team, status: "skipped_no_activity", timings,
       deferredCells: 0, auditorEmail: rep.auditor_email, sampled,
     };
   }
@@ -213,20 +228,22 @@ export async function auditRep(
 
   if (deps.dryRun) {
     return {
-      rep: rep.full_name, team, status: "ok",
+      rep: rep.full_name, team, status: "ok", timings,
       deferredCells, auditorEmail: rep.auditor_email, sampled,
     };
   }
 
+  const t2 = Date.now();
   const folder = await ensureFolderPath(
     deps.googleToken, deps.driveId, scorecardFolderPath(rep.full_name, window),
   );
   const title = scorecardTitle(team, rep.full_name, window.label);
   const copy = await copyTemplate(deps.googleToken, team, title, folder);
   await writeCells(deps.googleToken, team, copy.id, writes);
+  timings.writeMs = Date.now() - t2;
 
   return {
-    rep: rep.full_name, team, status: "ok",
+    rep: rep.full_name, team, status: "ok", timings,
     sheetId: copy.id, sheetUrl: copy.url,
     deferredCells, auditorEmail: rep.auditor_email, sampled,
   };

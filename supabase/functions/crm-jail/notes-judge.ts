@@ -55,6 +55,33 @@ export function itemsForModule(module: string): string[] {
   }
 }
 
+/**
+ * Schema the reply is constrained to. Structured outputs replace the assistant
+ * prefill trick, which Sonnet 5 rejects outright ("This model does not support
+ * assistant message prefill"). Constraining the schema is also stronger than
+ * asking politely for JSON — it removes the parse failure mode rather than
+ * making it rarer.
+ */
+export function buildJudgeSchema(items: string[]): Record<string, unknown> {
+  const verdict = {
+    type: "object",
+    properties: {
+      score: { type: "integer", enum: [0, 1] },
+      reason: { type: "string" },
+    },
+    required: ["score", "reason"],
+    additionalProperties: false,
+  };
+  const properties: Record<string, unknown> = {};
+  for (const item of items) properties[item] = verdict;
+  return {
+    type: "object",
+    properties,
+    required: items,
+    additionalProperties: false,
+  };
+}
+
 export function buildJudgePrompt(notes: string, items: string[]): string {
   const criteria = items.map((i) => `${i}: ${ITEM_CRITERIA[i] ?? i}`).join("\n");
   return `You are auditing CRM notes written by an admissions or business development rep at a \
@@ -75,10 +102,8 @@ Notes:
 ${notes}
 """
 
-Reply with JSON only, no prose, shaped exactly:
-{"ITEM":{"score":1,"reason":"one short sentence"}}
-
-The reason is shown to the rep as coaching, so say specifically what was missing.`;
+Score every criterion listed above. The reason is shown to the rep as coaching,
+so say specifically what was missing.`;
 }
 
 /**
@@ -106,6 +131,8 @@ export function parseJudgeResponse(raw: string, allowed?: string[]): Record<stri
 /** Why a judge call produced nothing. Surfaced in dry runs so a silent no-op is visible. */
 export const judgeDiagnostics = {
   calls: 0, ok: 0, noKey: 0, noNotes: 0, httpError: "" as string, parseEmpty: 0, threw: "" as string,
+  /** First unparseable reply, so a parse failure can be diagnosed not guessed. */
+  sampleBadReply: "" as string,
 };
 
 /** Returns {} on any failure. An outage must defer the items, never zero them. */
@@ -125,8 +152,11 @@ export async function judgeNotes(notes: string, items: string[]): Promise<Record
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1024,
+        max_tokens: 2048,
         messages: [{ role: "user", content: buildJudgePrompt(notes, items) }],
+        output_config: {
+          format: { type: "json_schema", schema: buildJudgeSchema(items) },
+        },
       }),
     });
     if (!res.ok) {
@@ -136,9 +166,16 @@ export async function judgeNotes(notes: string, items: string[]): Promise<Record
       return {};
     }
     const json = await res.json();
-    const out = parseJudgeResponse(json.content?.[0]?.text ?? "", items);
-    if (Object.keys(out).length === 0) judgeDiagnostics.parseEmpty++;
-    else judgeDiagnostics.ok++;
+    // Output is schema-constrained, so the text block is the JSON object.
+    // Still parsed defensively: a max_tokens cut-off can truncate it.
+    const raw = json.content?.find((b: { type?: string }) => b.type === "text")?.text ?? "";
+    const out = parseJudgeResponse(raw, items);
+    if (Object.keys(out).length === 0) {
+      judgeDiagnostics.parseEmpty++;
+      if (!judgeDiagnostics.sampleBadReply) {
+        judgeDiagnostics.sampleBadReply = `stop=${json.stop_reason} :: ${raw.slice(0, 300)}`;
+      }
+    } else judgeDiagnostics.ok++;
     return out;
   } catch (e) {
     if (!judgeDiagnostics.threw) judgeDiagnostics.threw = String(e).slice(0, 200);

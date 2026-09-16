@@ -114,6 +114,7 @@ Deno.serve(async (req) => {
       results.push({
         rep: r.rep, team: r.team, status: r.status, sheetId: r.sheetId, sheetUrl: r.sheetUrl,
         deferredCells: r.deferredCells, auditorEmail: r.auditorEmail,
+        timings: r.timings,
       });
       if (!dryRun) await recordRun(supabase, window, row, r.status, r.sheetId, r.sheetUrl, r.deferredCells, null);
     } catch (e) {

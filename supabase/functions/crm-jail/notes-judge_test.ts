@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
-import { buildJudgePrompt, ITEM_CRITERIA, itemsForModule, parseJudgeResponse } from "./notes-judge.ts";
+import { buildJudgePrompt, buildJudgeSchema, ITEM_CRITERIA, itemsForModule, parseJudgeResponse } from "./notes-judge.ts";
 
 Deno.test("prompt carries the note text and the items being judged", () => {
   const p = buildJudgePrompt("Left voicemail for Wayne.", ["CA7", "CA8"]);
@@ -52,4 +52,20 @@ Deno.test("every judged item has criteria text", () => {
       assertEquals(typeof ITEM_CRITERIA[item], "string", `${item} has no criteria`);
     }
   }
+});
+
+Deno.test("the schema constrains the reply to exactly the items asked for", () => {
+  const sch = buildJudgeSchema(["CA7", "CA8"]) as Record<string, any>;
+  assertEquals(Object.keys(sch.properties), ["CA7", "CA8"]);
+  assertEquals(sch.required, ["CA7", "CA8"]);
+  // Required by the API for every object in a structured-output schema.
+  assertEquals(sch.additionalProperties, false);
+  assertEquals(sch.properties.CA7.properties.score.enum, [0, 1]);
+  assertEquals(sch.properties.CA7.additionalProperties, false);
+});
+
+Deno.test("a truncated reply yields nothing rather than a half-scored record", () => {
+  // max_tokens cut-off used to surface as a silent defer; it must not produce
+  // a partial verdict that scores some items and drops others.
+  assertEquals(Object.keys(parseJudgeResponse('{"CA7":{"score":1,"reason":"ok"},"CA8":{"sco')).length, 0);
 });
