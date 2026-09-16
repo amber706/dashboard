@@ -58,6 +58,10 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = Boolean(body.dry_run);
+  // When set, audit exactly this rep. The dispatcher below calls the function
+  // once per rep so each gets its own wall-clock budget — a single invocation
+  // auditing all nine times out once the notes judge is doing real work.
+  const onlyRep = typeof body.rep === "string" ? body.rep : null;
   const window = auditWindowFor(body.run_at ? new Date(String(body.run_at)) : new Date());
   const bounds = coqlBounds(window);
 
@@ -86,9 +90,19 @@ Deno.serve(async (req) => {
     return json({ error: "STARTUP_FAILED", detail: String(e), window }, 500);
   }
 
-  const { data: roster, error: rosterErr } = await supabase
+  let rosterQuery = supabase
     .from("crm_jail_roster").select("*").eq("active", true).order("team").order("full_name");
+  if (onlyRep) rosterQuery = rosterQuery.eq("zoho_user_id", onlyRep);
+  const { data: roster, error: rosterErr } = await rosterQuery;
   if (rosterErr) return json({ error: "ROSTER_FAILED", detail: rosterErr.message }, 500);
+
+  // Dispatcher: fan out one invocation per rep, then summarise what comes back.
+  if (!onlyRep) {
+    return await dispatch(
+      (roster ?? []) as unknown as Array<RosterRep>,
+      window, dryRun, googleToken, req.headers.get("Authorization") ?? "",
+    );
+  }
 
   const results: RepResult[] = [];
 
@@ -119,20 +133,9 @@ Deno.serve(async (req) => {
     }
   }
 
-  let notified: { summaryUrl: string | null; failures: string[] } = { summaryUrl: null, failures: [] };
-  if (!dryRun) {
-    notified = await notifyAuditors(window, results, {
-      createSummarySheet: (title, rows) => createSummarySheet(googleToken, title, rows),
-      share: (fileId, email, message) => shareAndNotify(googleToken, fileId, email, message),
-    });
-  }
-
-  return json({
-    window, dryRun, results,
-    summaryUrl: notified.summaryUrl,
-    shareFailures: notified.failures,
-    judge: { ...judgeDiagnostics },
-  });
+  // A per-rep invocation returns its result; the dispatcher does the notifying
+  // so the summary is sent once, not once per rep.
+  return json({ window, dryRun, results, judge: { ...judgeDiagnostics } });
 });
 
 async function recordRun(
@@ -188,6 +191,53 @@ async function createSummarySheet(
   );
   if (!put.ok) throw new Error(`Summary write failed: ${put.status} ${await put.text()}`);
   return { id, url: `https://docs.google.com/spreadsheets/d/${id}/edit` };
+}
+
+/**
+ * Fans out one invocation per rep and waits for all of them. Each rep gets its
+ * own function instance and therefore its own wall clock; the dispatcher only
+ * waits on HTTP, so nine reps cost roughly one rep's time rather than nine.
+ *
+ * A rep whose invocation fails is recorded as failed and the others still land
+ * — the same per-rep isolation the in-process loop had.
+ */
+async function dispatch(
+  roster: RosterRep[],
+  window: { startISO: string; endISO: string; label: string },
+  dryRun: boolean,
+  googleToken: string,
+  authHeader: string,
+): Promise<Response> {
+  const self = `${Deno.env.get("SUPABASE_URL")}/functions/v1/crm-jail`;
+
+  const settled = await Promise.all(roster.map(async (rep): Promise<RepResult> => {
+    try {
+      const res = await fetch(self, {
+        method: "POST",
+        headers: { Authorization: authHeader, "content-type": "application/json" },
+        body: JSON.stringify({ rep: rep.zoho_user_id, dry_run: dryRun, run_at: `${window.endISO}T12:00:00Z` }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body.results?.[0]) {
+        return { rep: rep.full_name, team: rep.team, status: "failed", error: body.detail ?? body.error ?? `HTTP ${res.status}` };
+      }
+      return body.results[0] as RepResult;
+    } catch (e) {
+      return { rep: rep.full_name, team: rep.team, status: "failed", error: String(e) };
+    }
+  }));
+
+  let notified: { summaryUrl: string | null; failures: string[] } = { summaryUrl: null, failures: [] };
+  if (!dryRun) {
+    notified = await notifyAuditors(window, settled, {
+      createSummarySheet: (title, rows) => createSummarySheet(googleToken, title, rows),
+      share: (fileId, email, message) => shareAndNotify(googleToken, fileId, email, message),
+    });
+  }
+  return json({
+    window, dryRun, dispatched: roster.length, results: settled,
+    summaryUrl: notified.summaryUrl, shareFailures: notified.failures,
+  });
 }
 
 function json(payload: unknown, status = 200): Response {

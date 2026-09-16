@@ -165,21 +165,28 @@ export async function auditRep(
     sampled[section] = drawn.length;
 
     const records = drawn.map((r) => toSampledRecord(section, r));
-    const results: ItemResult[][] = [];
+    const judgeItems = itemsForModule(section === "BusinessContacts" ? "BusinessContacts" : mod);
 
-    for (const r of drawn) {
-      const extra = await enrich(deps.zohoToken, section, r);
-      const judgeItems = itemsForModule(section === "BusinessContacts" ? "BusinessContacts" : mod);
-      const notesJudgments = await judgeNotes(noteText(extra.notes), judgeItems);
-      results.push(scoreRecord(team, section, {
-        record: r as RecordContext["record"],
-        window: { startISO: window.startISO, endISO: window.endISO },
-        stageCategory: deps.stageCategory,
-        sourceCategory: deps.sourceCategory,
-        notesJudgments,
-        ...extra,
-      }));
-    }
+    // Sampled records are independent, so enrich and judge them together.
+    // Serially this was ~3s of Claude per record on top of several related-list
+    // round trips each, which timed the whole run out at the edge function's
+    // wall clock.
+    const results: ItemResult[][] = await Promise.all(
+      drawn.map(async (r) => {
+        const extra = await enrich(deps.zohoToken, section, r);
+        const notesJudgments = extra.notesUnavailable
+          ? {}
+          : await judgeNotes(noteText(extra.notes), judgeItems);
+        return scoreRecord(team, section, {
+          record: r as RecordContext["record"],
+          window: { startISO: window.startISO, endISO: window.endISO },
+          stageCategory: deps.stageCategory,
+          sourceCategory: deps.sourceCategory,
+          notesJudgments,
+          ...extra,
+        });
+      }),
+    );
     sections.push({ section, records, results });
   }
 
