@@ -1,0 +1,205 @@
+// Admissions scorecard rules.
+//
+// Item ids are the template's own — A1-A6, L1-L28, C1-C13, D1-D41 — and must
+// never be renumbered: a rep's notice cites the item number so they can find
+// the failing line on their sheet.
+//
+// Field API names are the VERIFIED ones from docs/CRM_JAIL_FIELD_MAP.md, not
+// the obvious guesses. Roughly a third of the guesses were wrong. Read that
+// doc before changing any field reference here.
+
+import type { ItemResult, RecordContext, Score } from "../types.ts";
+import { isPresent, isProperCase, loggedSameDay, lookupPresent } from "./helpers.ts";
+
+type RuleFn = (c: RecordContext) => Score | ItemResult;
+
+const field = (name: string): RuleFn => (c) => (isPresent(c.record[name]) ? 1 : 0);
+const lookup = (name: string): RuleFn => (c) => (lookupPresent(c.record[name]) ? 1 : 0);
+const allOf = (...names: string[]): RuleFn => (c) =>
+  names.every((n) => isPresent(c.record[n])) ? 1 : 0;
+
+const KIPU_DEFER = "Deferred to Phase 2 — no KIPU access.";
+const NO_FIELD = (what: string) =>
+  `No Zoho field backs "${what}" — see docs/CRM_JAIL_FIELD_MAP.md. Score by hand.`;
+
+const defer = (item: string, why: string): RuleFn => () => ({ item, score: "DEFER", explanation: why });
+
+/** Gate a rule behind a condition; returns N/A when the gate is closed. */
+const when = (gate: (c: RecordContext) => boolean, rule: RuleFn): RuleFn => (c) =>
+  gate(c) ? rule(c) : "N/A";
+
+const isBdSourced = (c: RecordContext) =>
+  c.sourceCategory(c.record.Source_Category) === "business_development";
+const stageIs = (cat: string) => (c: RecordContext) => c.stageCategory(c.record.Stage) === cat;
+const isReferredOut = (c: RecordContext) =>
+  (c.stageCategory(c.record.Stage) ?? "").startsWith("closed_referred_out");
+const isAhcccs = (c: RecordContext) =>
+  String(c.record.Insurance_Type ?? "").toLowerCase().includes("ahcccs");
+
+/** Language items come from the notes judge. Absent a verdict they defer, never zero. */
+const judged = (item: string): RuleFn => (c) => {
+  const v = c.notesJudgments[item];
+  if (!v) return { item, score: "DEFER", explanation: "Notes judging unavailable." };
+  return { item, score: v.score, explanation: v.reason };
+};
+
+const hasAttachment = (re: RegExp): RuleFn => (c) =>
+  c.attachments.some((a) => re.test(a)) ? 1 : 0;
+
+const sameDayTouched: RuleFn = (c) =>
+  loggedSameDay(
+    String(c.record.Created_Time ?? ""),
+    String(c.record.Modified_Time ?? c.record.Created_Time ?? ""),
+  )
+    ? 1
+    : 0;
+
+const fullName = (c: RecordContext) =>
+  `${c.record.First_Name ?? ""} ${c.record.Last_Name ?? ""}`.trim();
+
+export const LEAD_RULES: Record<string, RuleFn> = {
+  L1: (c) => (isPresent(c.record.First_Name) && isPresent(c.record.Last_Name) ? 1 : 0),
+  L2: (c) => (isProperCase(fullName(c)) ? 1 : 0),
+  L3: field("Phone"),
+  L4: field("Email"),
+  L5: allOf("Emergency_Contact_Name", "Emergency_Contact_Phone_Number"),
+  L6: field("Contact_Type"),
+  L7: field("Lead_Status"), // labelled "Interaction Status"
+  L8: lookup("Owner"), // labelled "Interaction Owner"
+  L9: field("How_Did_You_Hear_About_Us"),
+  L10: field("DUI_or_Treatment"), // labelled "Treatment or Court Services"
+  L11: field("Level_of_Care_Requested"),
+  L12: field("Age_Group"),
+  L13: field("Lead_Score_Rating"),
+  L14: field("Generated_By"),
+  L15: field("Digital_Source"), // labelled "Tracking Source"
+  L16: field("Source_Category"),
+  L17: when(isBdSourced, field("BD_Rep")),
+  L18: defer("L18", NO_FIELD("Partner Program")),
+  L19: when(isBdSourced, lookup("Business_Contact_Name")), // "Referring Company Name"
+  L20: when(isBdSourced, lookup("Referring_Contact_Business_Contact")),
+  L21: field("Insurance_Type"),
+  L22: (c) => (isPresent(c.record[isAhcccs(c) ? "AHCCCS_Insurance_Provider" : "Private_Insurance_Company"]) ? 1 : 0),
+  L23: field("DOB"),
+  L24: field("Member_ID"),
+  L25: field("Insurance_Policy_Type"),
+  L26: judged("L26"),
+  L27: judged("L27"),
+  L28: sameDayTouched,
+};
+
+export const CONTACT_RULES: Record<string, RuleFn> = {
+  C1: (c) => (isPresent(c.record.First_Name) && isPresent(c.record.Last_Name) ? 1 : 0),
+  C2: (c) => (isProperCase(fullName(c)) ? 1 : 0),
+  C3: field("Phone"),
+  C4: field("Email"),
+  C5: allOf("Emergency_Contact_Name", "Emergency_Contact_Phone_Number"),
+  C6: field("Contact_Type"),
+  C7: lookup("Owner"),
+  C8: when((c) => String(c.record.Contact_Type ?? "").toLowerCase().includes("family"),
+    lookup("Associated_Deal")),
+  C9: when((c) => isPresent(c.record.Business_Contact_Role), field("Business_Contact_Role")),
+  C10: when((c) => isPresent(c.record.Business_Contact_Role), lookup("Account_Name")),
+  C11: when((c) => isPresent(c.record.Business_Contact_Role), (c) => {
+    const owner = (c.record.Owner as { id?: string } | null)?.id;
+    const companyOwner = c.record.Company_Owner_Id as string | null;
+    return owner && companyOwner && owner === companyOwner ? 1 : 0;
+  }),
+  C12: judged("C12"),
+  C13: sameDayTouched,
+};
+
+export const DEAL_RULES: Record<string, RuleFn> = {
+  // D1-D4 require a match against BOTH the Contact record and KIPU. The
+  // Contact half is in contactMatch() below and unit-tested, but the item is
+  // not scored until KIPU lands — a half-check would pass records that fail
+  // the item as written.
+  D1: defer("D1", KIPU_DEFER),
+  D2: defer("D2", KIPU_DEFER),
+  D3: defer("D3", KIPU_DEFER),
+  D4: defer("D4", KIPU_DEFER),
+  D5: allOf("Emergency_Contact_Name", "Emergency_Contact_Phone_Number"),
+  D6: lookup("Owner"),
+  D7: defer("D7", NO_FIELD("How Did You Hear About Us (on Deals)")),
+  D8: field("DUI_or_Treatment"),
+  D9: field("Level_of_Care_Requested"),
+  D10: field("Age_Group"),
+  D11: field("Source_Category"),
+  D12: when(isBdSourced, field("BD_Rep")),
+  D13: defer("D13", NO_FIELD("Partner Program")),
+  D14: when(isBdSourced, lookup("Referring_Company")),
+  D15: when(isBdSourced, lookup("Referring_Business_Contact")),
+  D16: field("Insurance_Type"),
+  // Insurance_Provider_New is the live field. Private_Insurance_Company is
+  // labelled "(DNU)" on Deals and must never be accepted.
+  D17: (c) => (isPresent(c.record[isAhcccs(c) ? "AHCCCS_Insurance_Provider" : "Insurance_Provider_New"]) ? 1 : 0),
+  D18: field("DOB"),
+  D19: field("Member_ID"),
+  D20: field("Policy_Type"),
+  D21: field("VOB_Submitted_By"),
+  D22: judged("D22"),
+  D23: judged("D23"),
+  // Consistency check only: does the stage carry the fields that stage implies?
+  // Not a judgment of whether the rep chose the right stage.
+  D24: (c) => {
+    const cat = c.stageCategory(c.record.Stage);
+    if (!cat) return 0;
+    if (cat === "closed_won_admitted") return isPresent(c.record.Admit_Date) ? 1 : 0;
+    if (cat === "closed_lost") {
+      return isPresent(c.record.Lost_Reasoning) || isPresent(c.record.Close_Reasoning_DUI) ? 1 : 0;
+    }
+    return 1;
+  },
+  D25: sameDayTouched,
+  D26: when(isReferredOut, field("Referred_Out")),
+  D27: when(isReferredOut, field("Outbound_Referral_BD_Rep")),
+  D28: when(isReferredOut, field("Refer_Out_Type")),
+  D29: when(isReferredOut, field("Admitted_at_Referred_Facility")),
+  D30: when(isReferredOut, field("Refer_Out_Date")),
+  D31: defer("D31", NO_FIELD("Follow-up scheduled for the client coming back")),
+  D32: when(stageIs("closed_won_admitted"), (c) => {
+    const closing = String(c.record.Closing_Date ?? "").slice(0, 10);
+    const admit = String(c.record.Admit_Date ?? "").slice(0, 10);
+    return closing && admit && closing === admit ? 1 : 0;
+  }),
+  D33: defer("D33", KIPU_DEFER),
+  D34: defer("D34", KIPU_DEFER),
+  D35: defer("D35", `${NO_FIELD("Admitted Location")} Also ${KIPU_DEFER}`),
+  D36: when(stageIs("closed_lost"), (c) =>
+    isPresent(c.record.Lost_Reasoning) || isPresent(c.record.Close_Reasoning_DUI) ? 1 : 0),
+  D37: when(stageIs("closed_lost"), judged("D37")),
+  D38: when(isBdSourced, hasAttachment(/referral/i)),
+  D39: hasAttachment(/vob/i),
+  D40: hasAttachment(/pre[-_ ]?(screen|assess)/i),
+  D41: when(
+    (c) => String(c.record.Insurance_Type ?? "").toLowerCase().includes("commercial"),
+    hasAttachment(/insurance[-_ ]?card|ins[-_ ]?card/i),
+  ),
+};
+
+/** The Contact-record half of D1-D4. Built and tested now, wired up in Phase 2. */
+export function contactMatch(
+  deal: Record<string, unknown>,
+  contact: Record<string, unknown>,
+  fieldName: string,
+): boolean {
+  const a = String(deal[fieldName] ?? "").trim().toLowerCase();
+  const b = String(contact[fieldName] ?? "").trim().toLowerCase();
+  return a !== "" && a === b;
+}
+
+/** Section A is scored once per cycle over ALL the rep's window activity, not a sample. */
+export const DAILY_RULES = {
+  A1: "DEFER" as const, // EOD report same-day — Google Sheet, Phase 2
+  A2: "DEFER" as const, // EOD report complete — Google Sheet, Phase 2
+  A3: (all: Array<{ Created_Time?: string; Modified_Time?: string }>): Score =>
+    all.length === 0 ? "N/A"
+      : all.every((r) =>
+          loggedSameDay(String(r.Created_Time ?? ""), String(r.Modified_Time ?? r.Created_Time ?? ""))
+        )
+      ? 1
+      : 0,
+  A4: "DEFER" as const, // Daily Census — Google Sheet, Phase 2
+  A5: "DEFER" as const, // Daily Census spelling — Google Sheet + KIPU, Phase 2
+  A6: "DEFER" as const, // Intake Tracker — Google Sheet, Phase 2
+};
