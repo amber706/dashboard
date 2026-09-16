@@ -68,7 +68,7 @@ Deno.test("one failed share does not hide the other results", async () => {
     },
   });
   assertEquals(out.failures.length, 1);
-  assertStringIncludes(out.failures[0], "A:");
+  assertStringIncludes(out.failures[0], "A -> bad@x.com:");
   assertEquals(ok.includes("good@x.com"), true);
   assertEquals(out.summaryUrl, "https://sum");
 });
@@ -110,4 +110,24 @@ Deno.test("the share call opts into shared drives, or nobody is ever notified", 
   assertStringIncludes(seen, "supportsAllDrives=true");
   assertStringIncludes(seen, "sendNotificationEmail=true");
   assertStringIncludes(seen, "/files/file123/permissions");
+});
+
+Deno.test("cc gets every scorecard, and an auditor on cc is not mailed twice", async () => {
+  const sent: Array<[string, string]> = [];
+  const out = await notifyAuditors(w, [
+    { rep: "Mike", team: "bd", status: "ok", sheetId: "s1", auditorEmail: "aaron@x.com" },
+    { rep: "Ben", team: "bd", status: "ok", sheetId: "s2", auditorEmail: "aaron@x.com" },
+  ], {
+    createSummarySheet: async () => ({ id: "sum", url: "https://sum" }),
+    share: async (fileId, email) => {
+      sent.push([fileId, email]);
+    },
+  }, undefined, ["amber@x.com", "aaron@x.com"]);
+
+  assertEquals(out.failures, []);
+  assertEquals(sent.filter(([f]) => f === "s1").map(([, e]) => e), ["aaron@x.com", "amber@x.com"]);
+  assertEquals(sent.filter(([f]) => f === "s2").map(([, e]) => e), ["aaron@x.com", "amber@x.com"]);
+  // The summary goes to this batch's auditors plus cc — never to the other
+  // team's auditor, who has nothing new to review.
+  assertEquals(sent.filter(([f]) => f === "sum").map(([, e]) => e), ["aaron@x.com", "amber@x.com"]);
 });

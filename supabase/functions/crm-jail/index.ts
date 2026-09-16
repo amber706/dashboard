@@ -125,10 +125,16 @@ Deno.serve(async (req) => {
   // to fix that would re-spend the Zoho quota and re-judge every record for
   // sheets that are already correct. Reads crm_jail_runs; touches no CRM.
   if (body.notify_only) {
-    const { data: runs, error: runsErr } = await supabase
+    // A correction usually concerns one team. Re-notifying the other team's
+    // auditor about scorecards that did not change is noise they have to
+    // re-review, so notify_only can be scoped.
+    const onlyTeam = typeof body.team === "string" ? body.team : null;
+    let runsQuery = supabase
       .from("crm_jail_runs").select("*")
       .eq("window_start", window.startISO).eq("window_end", window.endISO)
       .order("created_at", { ascending: false });
+    if (onlyTeam) runsQuery = runsQuery.eq("team", onlyTeam);
+    const { data: runs, error: runsErr } = await runsQuery;
     if (runsErr) return json({ error: "RUNS_FAILED", detail: runsErr.message }, 500);
 
     const { data: roster, error: rErr } = await rosterQuery;
@@ -161,6 +167,9 @@ Deno.serve(async (req) => {
     const existingSummary = typeof body.summary_sheet_id === "string"
       ? body.summary_sheet_id
       : null;
+    // Everyone on `cc` gets every scorecard in this batch and the summary, with
+    // the same message the auditor gets.
+    const cc = Array.isArray(body.cc) ? (body.cc as unknown[]).map(String) : [];
     const notified = await notifyAuditors(window, results, {
       createSummarySheet: existingSummary
         ? (() =>
@@ -170,9 +179,9 @@ Deno.serve(async (req) => {
           }))
         : ((title, rows) => createSummarySheet(googleToken, title, rows)),
       share: (fileId, email, message) => shareAndNotify(googleToken, fileId, email, message),
-    }, note);
+    }, note, cc);
     return json({
-      window, notifyOnly: true, reps: results.length,
+      window, notifyOnly: true, team: onlyTeam, cc, reps: results.length,
       summaryUrl: notified.summaryUrl, shareFailures: notified.failures,
     });
   }

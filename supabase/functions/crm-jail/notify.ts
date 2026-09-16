@@ -115,19 +115,21 @@ export async function notifyAuditors(
   results: RepResult[],
   deps: NotifyDeps,
   note?: string,
+  /** Copied on every scorecard and on the summary, alongside each auditor. */
+  cc: string[] = [],
 ): Promise<{ summaryUrl: string | null; failures: string[] }> {
   const failures: string[] = [];
 
   for (const r of results) {
     if (!r.sheetId || !r.auditorEmail) continue;
-    try {
-      await deps.share(
-        r.sheetId,
-        r.auditorEmail,
-        buildShareMessage(r.rep, w, r.deferredCells ?? 0, note),
-      );
-    } catch (e) {
-      failures.push(`${r.rep}: ${String(e)}`);
+    const message = buildShareMessage(r.rep, w, r.deferredCells ?? 0, note);
+    // De-duped: an auditor who is also on cc must not be mailed twice.
+    for (const to of [...new Set([r.auditorEmail, ...cc])]) {
+      try {
+        await deps.share(r.sheetId, to, message);
+      } catch (e) {
+        failures.push(`${r.rep} -> ${to}: ${String(e)}`);
+      }
     }
   }
 
@@ -138,7 +140,10 @@ export async function notifyAuditors(
       buildSummaryRows(w, results),
     );
     summaryUrl = summary.url;
-    for (const to of SUMMARY_RECIPIENTS) {
+    const summaryTo = cc.length
+      ? [...new Set([...results.map((r) => r.auditorEmail).filter(Boolean) as string[], ...cc])]
+      : SUMMARY_RECIPIENTS;
+    for (const to of summaryTo) {
       try {
         await deps.share(
           summary.id,
