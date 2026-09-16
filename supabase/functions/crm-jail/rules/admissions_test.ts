@@ -8,10 +8,13 @@ function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {})
     notes: [],
     attachments: [],
     relatedMeetings: [],
+    // Mirrors reporting.stage_mapping exactly — these are the real
+    // normalized values, verified live 2026-09-15.
     stageCategory: (raw) =>
-      raw === "Closed Won" ? "closed_won_admitted"
-        : raw === "Closed Lost" ? "closed_lost"
-        : raw === "Closed - Referred Out Unattached" ? "closed_referred_out_unattached"
+      raw === "Closed Won" || raw === "Closed - Admitted" ? "closed_won_admitted"
+        : raw === "Closed Lost" || raw === "Closed - Lost (Treatment)" ? "closed_lost"
+        : raw === "Closed - Referred Out Unattached" ? "closed_won_referred_out_unattached"
+        : raw === "Referred Out - Coming Back" ? "referred_out_coming_back"
         : null,
     sourceCategory: (raw) => (raw === "Business Development" ? "business_development" : null),
     window: { startISO: "2026-09-07", endISO: "2026-09-13" },
@@ -149,4 +152,20 @@ Deno.test("C8 reads the related-deal count — Contacts has no Deal lookup field
   assertEquals(s(CONTACT_RULES.C8(ctx({ Contact_Type: "Family" }, { relatedDealCount: 1 }))), 1);
   assertEquals(s(CONTACT_RULES.C8(ctx({ Contact_Type: "Family" }, { relatedDealCount: 0 }))), 0);
   assertEquals(s(CONTACT_RULES.C8(ctx({ Contact_Type: "Client" }))), "N/A");
+});
+
+Deno.test("referred-out items fire for BOTH referred-out stages", () => {
+  // A startsWith() guess matched neither real value and would have scored
+  // D26-D31 N/A for every referred-out deal, silently excusing them.
+  for (const stage of ["Closed - Referred Out Unattached", "Referred Out - Coming Back"]) {
+    assertEquals(s(DEAL_RULES.D26(ctx({ Stage: stage, Referred_Out: "Other Facility" }))), 1, stage);
+    assertEquals(s(DEAL_RULES.D28(ctx({ Stage: stage }))), 0, stage);
+    assertEquals(s(DEAL_RULES.D31(ctx({ Stage: stage }, { futureActivityCount: 1 }))), 1, stage);
+  }
+  // And stay N/A when the deal was not referred out.
+  assertEquals(s(DEAL_RULES.D26(ctx({ Stage: "Closed - Admitted" }))), "N/A");
+});
+
+Deno.test("admitted items fire on the real admitted stage name", () => {
+  assertEquals(s(DEAL_RULES.D35(ctx({ Stage: "Closed - Admitted", Lost_Reasoning: "Admitted - Maryvale OTC" }))), 1);
 });

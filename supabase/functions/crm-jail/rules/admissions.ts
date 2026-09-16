@@ -31,8 +31,21 @@ const when = (gate: (c: RecordContext) => boolean, rule: RuleFn): RuleFn => (c) 
 const isBdSourced = (c: RecordContext) =>
   c.sourceCategory(c.record.Source_Category) === "business_development";
 const stageIs = (cat: string) => (c: RecordContext) => c.stageCategory(c.record.Stage) === cat;
+/**
+ * Referred out covers BOTH normalized stages, verified against
+ * reporting.stage_mapping 2026-09-15:
+ *   closed_won_referred_out_unattached  ("Closed - Referred Out Unattached")
+ *   referred_out_coming_back            ("Referred Out - Coming Back")
+ * An earlier startsWith("closed_referred_out") matched neither and would have
+ * scored D26-D31 N/A for every referred-out deal — silently excusing them.
+ */
+export const REFERRED_OUT_STAGES = [
+  "closed_won_referred_out_unattached",
+  "referred_out_coming_back",
+] as const;
+
 const isReferredOut = (c: RecordContext) =>
-  (c.stageCategory(c.record.Stage) ?? "").startsWith("closed_referred_out");
+  (REFERRED_OUT_STAGES as readonly string[]).includes(c.stageCategory(c.record.Stage) ?? "");
 const isAhcccs = (c: RecordContext) =>
   String(c.record.Insurance_Type ?? "").toLowerCase().includes("ahcccs");
 
