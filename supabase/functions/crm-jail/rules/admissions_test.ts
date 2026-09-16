@@ -229,3 +229,15 @@ Deno.test("CA1 and M1 still score — an event carries the time it happened", ()
   const late = { Call_Start_Time: "2026-09-04T17:20:00Z", Created_Time: "2026-09-07T15:45:00Z" };
   assertEquals(s(CALL_RULES.CA1(ctx(late))), 0);
 });
+
+Deno.test("D38 defers — a referral packet is not identifiable by filename", () => {
+  const bd = { Source_Category: "Business Development" };
+  assertEquals(s(DEAL_RULES.D38(ctx(bd, { attachments: ["PreAssessment.pdf"] }))), "DEFER");
+  assertEquals(s(DEAL_RULES.D38(ctx({ Source_Category: "Google Ads" }))), "N/A");
+});
+
+Deno.test("D39 and D40 still match the names real attachments actually use", () => {
+  // Verified against live deals: "VOB Severns.pdf", "PreAssessment.pdf".
+  assertEquals(s(DEAL_RULES.D39(ctx({}, { attachments: ["VOB Severns.pdf"] }))), 1);
+  assertEquals(s(DEAL_RULES.D40(ctx({}, { attachments: ["PreAssessment.pdf"] }))), 1);
+});

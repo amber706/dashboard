@@ -246,7 +246,19 @@ export const DEAL_RULES: Record<string, RuleFn> = {
   D36: when(stageIs("closed_lost"), (c) =>
     isPresent(c.record.Lost_Reasoning) || isPresent(c.record.Close_Reasoning_DUI) ? 1 : 0),
   D37: when(stageIs("closed_lost"), judged("D37")),
-  D38: when(isBdSourced, hasAttachment(/referral/i)),
+  // A referral packet is not identifiable from a filename. Checked against
+  // live BD-sourced deals 2026-09-16: real attachments are named
+  // "PreAssessment.pdf" and "VOB Severns.pdf" — nothing carries "referral", and
+  // the auditors passed all 6 records the filename match failed. A human knows
+  // a referral packet by opening it; the bot sees only a name.
+  //
+  // D39 and D40 are deliberately kept: "VOB Severns.pdf" and
+  // "PreAssessment.pdf" do match their patterns on real records.
+  D38: when(isBdSourced, () => ({
+    item: "D38",
+    score: "DEFER" as const,
+    explanation: "A referral packet cannot be identified from a filename — score by hand.",
+  })),
   D39: hasAttachment(/vob/i),
   D40: hasAttachment(/pre[-_ ]?(screen|assess)/i),
   D41: when(
