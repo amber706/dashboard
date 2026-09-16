@@ -25,7 +25,7 @@ Deno.test("every item carries the criterion text the excuse judge needs", () => 
 });
 
 Deno.test("section prefixes resolve to the expected item counts", () => {
-  const count = (map: typeof adminMap, p: string) =>
+  const count = (map: { items: Record<string, unknown> }, p: string) =>
     Object.keys(map.items).filter((k) => new RegExp(`^${p}\\d+$`).test(k)).length;
   assertEquals(count(adminMap, "L"), 28);
   assertEquals(count(adminMap, "C"), 13);
