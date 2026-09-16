@@ -96,14 +96,38 @@ export const CONTACT_RULES: Record<string, RuleFn> = {
   C5: allOf("Emergency_Contact_Name", "Emergency_Contact_Phone_Number"),
   C6: field("Contact_Type"),
   C7: lookup("Owner"),
-  C8: when((c) => String(c.record.Contact_Type ?? "").toLowerCase().includes("family"),
-    lookup("Associated_Deal")),
+  // Contacts has NO Deal lookup field — the link is a related list, so this
+  // reads the related-deal count rather than a field.
+  C8: when(
+    (c) => String(c.record.Contact_Type ?? "").toLowerCase().includes("family"),
+    (c) => (c.relatedDealCount > 0 ? 1 : 0),
+  ),
   C9: when((c) => isPresent(c.record.Business_Contact_Role), field("Business_Contact_Role")),
-  C10: when((c) => isPresent(c.record.Business_Contact_Role), lookup("Account_Name")),
+  // Two company lookups exist: Account_Name ("Company Name") and
+  // Associated_Facility (labelled "Associated Company", the scorecard's exact
+  // wording). Which one BD actually uses is unconfirmed — see
+  // CRM_JAIL_FIELD_MAP.md — so either satisfies the item and the explanation
+  // names the one that was found.
+  C10: when((c) => isPresent(c.record.Business_Contact_Role), (c) => {
+    const byFacility = lookupPresent(c.record.Associated_Facility);
+    const byAccount = lookupPresent(c.record.Account_Name);
+    if (byFacility || byAccount) {
+      return {
+        item: "C10",
+        score: 1,
+        explanation: byFacility ? "" : "Linked via Company Name, not Associated Company.",
+      };
+    }
+    return 0;
+  }),
+  // Cross-record: the contact's owner must match the owner of the company it
+  // links to. Requires the Account to have been fetched.
   C11: when((c) => isPresent(c.record.Business_Contact_Role), (c) => {
-    const owner = (c.record.Owner as { id?: string } | null)?.id;
-    const companyOwner = c.record.Company_Owner_Id as string | null;
-    return owner && companyOwner && owner === companyOwner ? 1 : 0;
+    const owner = (c.record.Owner as { id?: string } | null)?.id ?? null;
+    if (!owner || !c.accountOwnerId) {
+      return { item: "C11", score: "DEFER" as const, explanation: "Company owner not resolved." };
+    }
+    return owner === c.accountOwnerId ? 1 : 0;
   }),
   C12: judged("C12"),
   C13: sameDayTouched,

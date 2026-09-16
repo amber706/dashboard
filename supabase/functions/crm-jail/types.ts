@@ -36,6 +36,20 @@ export interface RecordContext {
   attachments: string[];
   /** Related meetings, for BC9/BC10. Business contacts only. */
   relatedMeetings: RelatedMeeting[];
+  /**
+   * Related records that Zoho exposes as related LISTS rather than fields.
+   * Several scorecard items read as field checks but are not:
+   *   C8  "attached to the associated Deal" — Contacts has no Deal lookup
+   *   CA9 / M9 "next call or meeting is scheduled" — no next-activity field
+   *   C11 "Contact Owner is the BD Rep who owns the associated company"
+   */
+  relatedDealCount: number;
+  /** Calls or Events linked to this record with a start time in the future. */
+  futureActivityCount: number;
+  /** Owner id of the Account this record links to, when there is one. */
+  accountOwnerId: string | null;
+  /** Module that a polymorphic What_Id points at, e.g. "Accounts" or "Deals". */
+  whatIdModule: string | null;
   /** Raw Stage -> normalized category, from reporting.stage_mapping. */
   stageCategory: (raw: unknown) => string | null;
   /** Raw Source Category -> normalized, from reporting.source_category_mapping. */

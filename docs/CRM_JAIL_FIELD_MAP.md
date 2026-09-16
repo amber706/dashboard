@@ -110,3 +110,59 @@ Only items whose field differs from the obvious guess, plus the conditional grou
 Contacts (C1–C13), Accounts (CO1–CO18), Calls (CA1–CA9) and Events (M1–M9) have not yet been
 checked against live field metadata. Expect a similar hit rate — roughly a third of the obvious
 guesses were wrong on Leads and Deals.
+
+---
+
+# BD modules — verified 2026-09-15
+
+Checked against live metadata: 126 Contact fields, 90 Account fields, 33 Call fields,
+40 Event fields.
+
+## ⚠️ Traps
+
+| What | Finding |
+|---|---|
+| **`Commerical_or_AHCCCS`** | CO12. **The typo is in Zoho's API name**, not in our code. A correctly-spelled `Commercial_or_AHCCCS` does not exist and would silently score every company 0. Pinned by a test. |
+| **Payers, not Payors** | CO13 is `In_Network_Payers_Accepted`. The scorecard says "Payors". |
+| **`OON_Preferred_Policies`** | CO14. Zoho says "Preferred"; the scorecard says "OON **Referred** Policies". Same field, different word. |
+| **`Niche`** | CO9. API name is `Niche`, label is "Niche Code". |
+| **Pipeline Stage** | CO8. Three candidates exist; `Business_Contact_Pipeline_Stage` is the only real picklist — `Pipeline_Stage_Shadow` and `Previous_Pipeline_Stage` are text shadows. |
+| **Two company lookups on Contacts** | `Account_Name` (label "Company Name") and `Associated_Facility` (label **"Associated Company"** — the scorecard's exact wording). **Unconfirmed which one BD actually uses.** BC6 and C10 currently accept either; C10 notes in its explanation when only Company Name was set. **Needs Aaron's answer.** |
+| **`What_Id` is polymorphic** | CA6 and M6 say "Associated Company", but `What_Id` ("Related To") can point at an Account, a Deal, or others. The rule requires it to resolve to **Accounts** — merely being set is not enough. |
+
+## Items that are not field checks
+
+These read like field checks on the scorecard but no field backs them. They need related-record
+queries, which is why `RecordContext` carries `relatedDealCount`, `futureActivityCount`,
+`accountOwnerId` and `whatIdModule`.
+
+| Item | Criterion | How it is actually checked |
+|---|---|---|
+| C8 | Family contact attached to the associated Deal | Contacts has **no Deal lookup** — count related Deals |
+| C11 | Contact Owner is the BD Rep who owns the associated company | Compare Contact `Owner` to the Account's `Owner` |
+| CA9 | Next call or meeting is scheduled on the record | No next-activity field on Calls — query future Calls/Events |
+| M9 | Next meeting or contact already scheduled | Same as CA9 |
+| BC9 / BC10 | Meetings section current, past and future | Events related list |
+
+## ✅ Confirmed BD mappings
+
+**Contacts (BC):** `First_Name`/`Last_Name` · `Phone` · `Email` · `Owner` (label "Contact Owner") ·
+`Business_Contact_Role` (multiselectpicklist) · `Associated_Facility` / `Account_Name`
+
+**Accounts (CO):** `Owner` ("Company Owner") · `Account_Name` ("Company Name") · `Website` ·
+`Main_Business_Phone` · `Phone` · `Address` or `Billing_*` · `Business_Contact_Pipeline_Stage` ·
+`Niche` · `Reciprocity` · `Unattached_or_Attached` · `Commerical_or_AHCCCS` ·
+`In_Network_Payers_Accepted` · `OON_Preferred_Policies` · `Level_of_Care` ·
+`States_Services_Are_Provided_In` · `What_do_they_treat` · `Date_of_Next_Scheduled_Contact`
+
+**Calls (CA):** `Subject` · `Call_Start_Time` · `Owner` ("Call Owner") · `Who_Id` ("Contact Name") ·
+`What_Id` ("Related To")
+
+**Events (M):** `Event_Title` ("Title") · `Start_DateTime` ("From") · `Owner` ("Host") · `Who_Id` ·
+`What_Id` · `Description`
+
+## Open question for Aaron
+
+**BC6 / C10 — which company link should count?** `Associated_Facility` matches the scorecard's
+wording exactly; `Account_Name` is the standard Zoho company relationship. Right now either one
+passes, which cannot produce a false failure but may pass a record Aaron would fail.

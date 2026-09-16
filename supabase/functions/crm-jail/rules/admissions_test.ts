@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { LEAD_RULES, DEAL_RULES, DAILY_RULES } from "./admissions.ts";
+import { LEAD_RULES, CONTACT_RULES, DEAL_RULES, DAILY_RULES } from "./admissions.ts";
 import type { RecordContext, ItemResult, Score } from "../types.ts";
 
 function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {}): RecordContext {
@@ -16,6 +16,10 @@ function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {})
     sourceCategory: (raw) => (raw === "Business Development" ? "business_development" : null),
     window: { startISO: "2026-09-07", endISO: "2026-09-13" },
     notesJudgments: {},
+    relatedDealCount: 0,
+    futureActivityCount: 0,
+    accountOwnerId: null,
+    whatIdModule: null,
     ...over,
   };
 }
@@ -108,4 +112,10 @@ Deno.test("A3 passes only when every record in the window was logged same day", 
   assertEquals(DAILY_RULES.A3([]), "N/A");
   assertEquals(DAILY_RULES.A3([{ Created_Time: "2026-09-08T17:00:00Z", Modified_Time: "2026-09-08T18:00:00Z" }]), 1);
   assertEquals(DAILY_RULES.A3([{ Created_Time: "2026-09-08T17:00:00Z", Modified_Time: "2026-09-10T18:00:00Z" }]), 0);
+});
+
+Deno.test("C8 reads the related-deal count — Contacts has no Deal lookup field", () => {
+  assertEquals(s(CONTACT_RULES.C8(ctx({ Contact_Type: "Family" }, { relatedDealCount: 1 }))), 1);
+  assertEquals(s(CONTACT_RULES.C8(ctx({ Contact_Type: "Family" }, { relatedDealCount: 0 }))), 0);
+  assertEquals(s(CONTACT_RULES.C8(ctx({ Contact_Type: "Client" }))), "N/A");
 });
