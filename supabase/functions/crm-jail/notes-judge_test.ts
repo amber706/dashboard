@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
-import { buildJudgePrompt, buildJudgeSchema, ITEM_CRITERIA, itemsForModule, parseJudgeResponse } from "./notes-judge.ts";
+import { buildExcusePrompt, buildJudgePrompt, buildJudgeSchema, ITEM_CRITERIA, itemsForModule, parseExcuseResponse, parseJudgeResponse } from "./notes-judge.ts";
 
 Deno.test("prompt carries the note text and the items being judged", () => {
   const p = buildJudgePrompt("Left voicemail for Wayne.", ["CA7", "CA8"]);
@@ -68,4 +68,29 @@ Deno.test("a truncated reply yields nothing rather than a half-scored record", (
   // max_tokens cut-off used to surface as a silent defer; it must not produce
   // a partial verdict that scores some items and drops others.
   assertEquals(Object.keys(parseJudgeResponse('{"CA7":{"score":1,"reason":"ok"},"CA8":{"sco')).length, 0);
+});
+
+Deno.test("the excuse prompt names each blank field by its template wording", () => {
+  const p = buildExcusePrompt("Client hung up before I got insurance details.", [
+    { item: "L21", label: "Insurance Type" },
+    { item: "L5", label: "Emergency Contact" },
+  ]);
+  assertStringIncludes(p, "L21: Insurance Type");
+  assertStringIncludes(p, "L5: Emergency Contact");
+  // The instruction that stops one excuse covering the whole record.
+  assertStringIncludes(p, "THAT SPECIFIC field");
+});
+
+Deno.test("excuse parsing keeps only booleans, and only for items asked about", () => {
+  const r = parseExcuseResponse(
+    '{"L21":{"excused":true,"reason":"note explains it"},"L5":{"excused":"yes","reason":"x"},"ZZ1":{"excused":true,"reason":"y"}}',
+    ["L21", "L5"],
+  );
+  assertEquals(Object.keys(r), ["L21"]);
+  assertEquals(r.L21.excused, true);
+});
+
+Deno.test("a failed excuse call excuses nothing rather than everything", () => {
+  // Erring the other way would forgive every blank on a judge outage.
+  assertEquals(Object.keys(parseExcuseResponse("not json")).length, 0);
 });

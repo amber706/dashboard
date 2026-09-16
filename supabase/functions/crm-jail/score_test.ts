@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { buildWrites, displayName, scoreRecord, toSampledRecord, type SectionResult } from "./score.ts";
+import { applyExcusedBlanks, blankCandidates, buildWrites, displayName, scoreRecord, toSampledRecord, type SectionResult } from "./score.ts";
 import { isComputedCell } from "./sheets.ts";
 import type { ItemResult, RecordContext } from "./types.ts";
 
@@ -100,4 +100,54 @@ Deno.test("identity rows are written per sampled record", () => {
   assertEquals(writes.find((w) => w.a1 === "E56")?.value, "first");
   assertEquals(writes.find((w) => w.a1 === "F56")?.value, "second");
   assertEquals(String(writes.find((w) => w.a1 === "F57")?.value).includes("/tab/Calls/2"), true);
+});
+
+Deno.test("blank candidates exclude the judged language items", () => {
+  const results = [
+    { item: "L3", score: 0 as const },
+    { item: "L26", score: 0 as const },   // language item — a thin note is not a blank field
+    { item: "L4", score: 1 as const },
+    { item: "L5", score: "N/A" as const },
+  ];
+  assertEquals(blankCandidates(results), ["L3"]);
+});
+
+Deno.test("an explained blank becomes N/A, not a pass", () => {
+  // Policy: "a blank field with a note saying why you couldn't get it is not
+  // [a miss]". N/A leaves the denominator; it does not award a point.
+  const { results, excusedCount } = applyExcusedBlanks(
+    [{ item: "L24", score: 0 }, { item: "L3", score: 0 }],
+    { L24: { excused: true, reason: "Client would not give a member ID." } },
+  );
+  assertEquals(results.find((r) => r.item === "L24")?.score, "N/A");
+  assertEquals(results.find((r) => r.item === "L3")?.score, 0);
+  assertEquals(excusedCount, 1);
+});
+
+Deno.test("an unexplained blank stays a miss", () => {
+  const { results, excusedCount } = applyExcusedBlanks(
+    [{ item: "L24", score: 0 }],
+    { L24: { excused: false, reason: "The note does not mention the member ID." } },
+  );
+  assertEquals(results.find((r) => r.item === "L24")?.score, 0);
+  assertEquals(excusedCount, 0);
+});
+
+Deno.test("excusing never upgrades an item that already passed", () => {
+  const { results } = applyExcusedBlanks(
+    [{ item: "L3", score: 1 }],
+    { L3: { excused: true, reason: "irrelevant" } },
+  );
+  assertEquals(results[0].score, 1);
+});
+
+Deno.test("the excuse reason is written into the explanation for the auditor", () => {
+  const { results } = applyExcusedBlanks(
+    [{ item: "L23", score: 0 }],
+    { L23: { excused: true, reason: "Client refused to give a DOB over the phone." } },
+  );
+  assertEquals(
+    results[0].explanation,
+    "Blank explained in the note: Client refused to give a DOB over the phone.",
+  );
 });

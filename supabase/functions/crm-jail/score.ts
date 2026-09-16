@@ -71,6 +71,46 @@ export function scoreRecord(team: Team, section: string, ctx: RecordContext): It
   });
 }
 
+/** Language items are judged on their own; they are never "blank fields". */
+const JUDGED_ITEMS = new Set([
+  "L26", "L27", "C12", "D22", "D23", "D37", "BC11", "CA7", "CA8", "M7", "M8",
+]);
+
+/**
+ * Items that scored 0 and are therefore candidates for the policy's
+ * documented-blank exemption. Judged items are excluded — a thin note is a
+ * thin note, not a blank field.
+ */
+export function blankCandidates(results: ItemResult[]): string[] {
+  return results.filter((r) => r.score === 0 && !JUDGED_ITEMS.has(r.item)).map((r) => r.item);
+}
+
+/**
+ * Applies the policy's documented-blank rule: a blank the note explains is
+ * "not a miss", so it becomes N/A and leaves the denominator entirely rather
+ * than counting as earned. N/A is what the template already uses for lines
+ * that must not count against a rep.
+ */
+export function applyExcusedBlanks(
+  results: ItemResult[],
+  excused: Record<string, { excused: boolean; reason: string }>,
+): { results: ItemResult[]; excusedCount: number } {
+  let n = 0;
+  const out = results.map((r) => {
+    const e = excused[r.item];
+    if (r.score === 0 && e?.excused) {
+      n++;
+      return {
+        ...r,
+        score: "N/A" as const,
+        explanation: `Blank explained in the note: ${e.reason}`,
+      };
+    }
+    return r;
+  });
+  return { results: out, excusedCount: n };
+}
+
 export interface SectionResult {
   section: string;
   records: SampledRecord[];

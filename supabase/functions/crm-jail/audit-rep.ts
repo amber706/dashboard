@@ -9,12 +9,14 @@
 
 import { fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
 import { sampleRecords, sampleSeed } from "./sampler.ts";
-import { judgeNotes } from "./notes-judge.ts";
+import { judgeExcusedBlanks, judgeNotes, judgeDiagnostics } from "./notes-judge.ts";
 import { itemsForModule } from "./notes-judge.ts";
 import {
-  BD_DAILY_RULES, DAILY_RULES, MODULE_FOR, buildWrites, scoreRecord, toSampledRecord,
-  type SectionResult,
+  BD_DAILY_RULES, DAILY_RULES, MODULE_FOR, applyExcusedBlanks, blankCandidates,
+  buildWrites, scoreRecord, toSampledRecord, type SectionResult,
 } from "./score.ts";
+import adminMap from "./template-map.admissions.json" with { type: "json" };
+import bdMap from "./template-map.bd.json" with { type: "json" };
 import {
   copyTemplate, ensureFolderPath, scorecardFolderPath, scorecardTitle, writeCells, type Team,
 } from "./sheets.ts";
@@ -191,7 +193,7 @@ export async function auditRep(
         const notesJudgments = extra.notesUnavailable
           ? {}
           : await judgeNotes(noteText(extra.notes), judgeItems);
-        return scoreRecord(team, section, {
+        const scored = scoreRecord(team, section, {
           record: r as RecordContext["record"],
           window: { startISO: window.startISO, endISO: window.endISO },
           stageCategory: deps.stageCategory,
@@ -199,6 +201,20 @@ export async function auditRep(
           notesJudgments,
           ...extra,
         });
+
+        // Policy OPS-CRM-001 §2: a blank the note explains is not a miss.
+        // Without this the bot ran 13-25 points below the human auditors.
+        if (extra.notesUnavailable) return scored;
+        const blanks = blankCandidates(scored);
+        if (blanks.length === 0) return scored;
+        const labels = (team === "admissions" ? adminMap : bdMap).items as Record<string, { label?: string }>;
+        const excused = await judgeExcusedBlanks(
+          noteText(extra.notes),
+          blanks.map((item) => ({ item, label: labels[item]?.label ?? item })),
+        );
+        const applied = applyExcusedBlanks(scored, excused);
+        judgeDiagnostics.excused += applied.excusedCount;
+        return applied.results;
       }),
     );
     timings.enrichJudgeMs += Date.now() - t1;

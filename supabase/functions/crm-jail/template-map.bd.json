@@ -40,163 +40,216 @@
  },
  "items": {
   "A1": {
-   "row": 26
+   "row": 26,
+   "label": "Referral form complete in its entirety upon submission"
   },
   "A2": {
-   "row": 27
+   "row": 27,
+   "label": "EOD report submitted the same day, every day in the audit window"
   },
   "A3": {
-   "row": 28
+   "row": 28,
+   "label": "EOD report complete in its entirety upon submission"
   },
   "A4": {
-   "row": 29
+   "row": 29,
+   "label": "Every call that occurred in the window was logged the same day"
   },
   "A5": {
-   "row": 30
+   "row": 30,
+   "label": "Every meeting that occurred in the window was logged the same day"
   },
   "A6": {
-   "row": 31
+   "row": 31,
+   "label": "Assigned spreadsheet updated daily (Andy: Rural BD / Ben: BD tracker / Joey: Crossroads IOP 4)"
   },
   "A7": {
-   "row": 32
+   "row": 32,
+   "label": "Assigned spreadsheet reconciles to Zoho"
   },
   "BC1": {
-   "row": 40
+   "row": 40,
+   "label": "First and last name present"
   },
   "BC2": {
-   "row": 41
+   "row": 41,
+   "label": "Capitalization correct (proper case)"
   },
   "BC4": {
-   "row": 42
+   "row": 42,
+   "label": "Phone"
   },
   "BC5": {
-   "row": 43
+   "row": 43,
+   "label": "Email"
   },
   "BC6": {
-   "row": 44
+   "row": 44,
+   "label": "Associated Company"
   },
   "BC7": {
-   "row": 45
+   "row": 45,
+   "label": "Contact Owner"
   },
   "BC8": {
-   "row": 46
+   "row": 46,
+   "label": "Business Contact Role"
   },
   "BC9": {
-   "row": 47
+   "row": 47,
+   "label": "Meetings section shows all past meetings, accurate and up to date"
   },
   "BC10": {
-   "row": 48
+   "row": 48,
+   "label": "Meetings section shows all future meetings, accurate and up to date"
   },
   "BC11": {
-   "row": 49
+   "row": 49,
+   "label": "Notes contain a clear description of their role and relationship"
   },
   "CA1": {
-   "row": 59
+   "row": 59,
+   "label": "Call logged the same day it occurred"
   },
   "CA2": {
-   "row": 60
+   "row": 60,
+   "label": "Call subject / name"
   },
   "CA3": {
-   "row": 61
+   "row": 61,
+   "label": "Call date and time"
   },
   "CA4": {
-   "row": 62
+   "row": 62,
+   "label": "Call Owner"
   },
   "CA5": {
-   "row": 63
+   "row": 63,
+   "label": "Associated Contact"
   },
   "CA6": {
-   "row": 64
+   "row": 64,
+   "label": "Associated Company"
   },
   "CA7": {
-   "row": 65
+   "row": 65,
+   "label": "Notes contain a clear narrative of the conversation"
   },
   "CA8": {
-   "row": 66
+   "row": 66,
+   "label": "Notes contain a specific next step"
   },
   "CA9": {
-   "row": 67
+   "row": 67,
+   "label": "Next call or meeting is scheduled on the record"
   },
   "CO1": {
-   "row": 77
+   "row": 77,
+   "label": "Company Owner"
   },
   "CO2": {
-   "row": 78
+   "row": 78,
+   "label": "Company Name"
   },
   "CO3": {
-   "row": 79
+   "row": 79,
+   "label": "Capitalization correct (proper case)"
   },
   "CO4": {
-   "row": 80
+   "row": 80,
+   "label": "Website"
   },
   "CO5": {
-   "row": 81
+   "row": 81,
+   "label": "Main Business Phone"
   },
   "CO6": {
-   "row": 82
+   "row": 82,
+   "label": "Phone"
   },
   "CO7": {
-   "row": 83
+   "row": 83,
+   "label": "Full Address"
   },
   "CO8": {
-   "row": 84
+   "row": 84,
+   "label": "Pipeline Stage"
   },
   "CO9": {
-   "row": 85
+   "row": 85,
+   "label": "Niche Code"
   },
   "CO10": {
-   "row": 86
+   "row": 86,
+   "label": "Reciprocity"
   },
   "CO11": {
-   "row": 87
+   "row": 87,
+   "label": "Unattached or Attached"
   },
   "CO12": {
-   "row": 88
+   "row": 88,
+   "label": "Commercial or AHCCCS"
   },
   "CO13": {
-   "row": 89
+   "row": 89,
+   "label": "In-Network Payors"
   },
   "CO14": {
-   "row": 90
+   "row": 90,
+   "label": "OON Referred Policies"
   },
   "CO15": {
-   "row": 91
+   "row": 91,
+   "label": "Level of Care"
   },
   "CO16": {
-   "row": 92
+   "row": 92,
+   "label": "States services are in"
   },
   "CO17": {
-   "row": 93
+   "row": 93,
+   "label": "What they treat"
   },
   "CO18": {
-   "row": 94
+   "row": 94,
+   "label": "Next scheduled contact is on the record"
   },
   "M1": {
-   "row": 104
+   "row": 104,
+   "label": "Meeting logged the same day it occurred"
   },
   "M2": {
-   "row": 105
+   "row": 105,
+   "label": "Meeting Name"
   },
   "M3": {
-   "row": 106
+   "row": 106,
+   "label": "Meeting Time"
   },
   "M4": {
-   "row": 107
+   "row": 107,
+   "label": "Meeting Owner"
   },
   "M5": {
-   "row": 108
+   "row": 108,
+   "label": "Associated Contact"
   },
   "M6": {
-   "row": 109
+   "row": 109,
+   "label": "Associated Company"
   },
   "M7": {
-   "row": 110
+   "row": 110,
+   "label": "Meeting Notes include the agenda"
   },
   "M8": {
-   "row": 111
+   "row": 111,
+   "label": "Meeting Notes include next steps"
   },
   "M9": {
-   "row": 112
+   "row": 112,
+   "label": "Next meeting or contact is already scheduled"
   }
  },
  "computedCells": [
@@ -331,5 +384,6 @@
   "J95",
   "J96",
   "J97"
- ]
+ ],
+ "sheetName": "BD Scorecard"
 }
