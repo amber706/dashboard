@@ -211,9 +211,20 @@ async function createSummarySheet(
 async function resolveZohoToken(supabase: SupabaseClient): Promise<string> {
   const cached = await getCachedZohoAccessToken(supabase);
   if (await zohoTokenWorks(cached)) return cached;
-  const fresh = await getCachedZohoAccessToken(supabase, true);
-  if (await zohoTokenWorks(fresh)) return fresh;
-  throw new Error("ZOHO_AUTH_FAILED: freshly minted token was rejected");
+
+  // The probe said no. That is weak evidence: it also fails when Zoho is
+  // throttling data calls, which says nothing about the credential. Try a
+  // fresh token, but do NOT let a failed re-mint discard a cached token that
+  // has not expired — twice now this check has been the thing that killed a
+  // run the cached token would have completed.
+  try {
+    const fresh = await getCachedZohoAccessToken(supabase, true);
+    if (await zohoTokenWorks(fresh)) return fresh;
+    return fresh;
+  } catch (e) {
+    if (cached) return cached;
+    throw e;
+  }
 }
 
 /**
