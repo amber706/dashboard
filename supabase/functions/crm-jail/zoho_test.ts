@@ -1,5 +1,11 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
-import { buildWindowQuery, MODULE_SELECT, moduleForTeam, whatIdModuleOf } from "./zoho.ts";
+import {
+  ACTIVITY_DATE_FIELD,
+  buildWindowQuery,
+  MODULE_SELECT,
+  moduleForTeam,
+  whatIdModuleOf,
+} from "./zoho.ts";
 
 const bounds = { from: "2026-09-07T00:00:00-07:00", toExclusive: "2026-09-14T00:00:00-07:00" };
 
@@ -54,4 +60,38 @@ Deno.test("whatIdModuleOf reads the pseudo-field Zoho returns", () => {
   assertEquals(whatIdModuleOf({ "$se_module": "Accounts" }), "Accounts");
   assertEquals(whatIdModuleOf({ "$se_module": "Deals" }), "Deals");
   assertEquals(whatIdModuleOf({}), null);
+});
+
+// Amber, reviewing Mike Mcluty's 9/7-9/13 BD scorecard: a "CHC- Guiding Road
+// MTG" created 9/7 but scheduled for 9/23 was audited as that week's work.
+// Windowing activities on Created/Modified pulled 45 events for him when only
+// ~12 happened that week. A meeting belongs to the week it is HELD.
+Deno.test("meetings are windowed on when they happen, not when they were booked", () => {
+  const q = buildWindowQuery("Events", "id,Event_Title", "5162065000138237001", bounds, 0);
+  assertStringIncludes(q, "Start_DateTime >= '2026-09-07T00:00:00-07:00'");
+  assertStringIncludes(q, "Start_DateTime < '2026-09-14T00:00:00-07:00'");
+  // Created/Modified must not creep back in — that is the bug.
+  assertEquals(q.includes("Created_Time"), false);
+  assertEquals(q.includes("Modified_Time"), false);
+});
+
+Deno.test("calls are windowed on when the call happened", () => {
+  const q = buildWindowQuery("Calls", "id,Subject", "1", bounds, 0);
+  assertStringIncludes(q, "Call_Start_Time >= '2026-09-07T00:00:00-07:00'");
+  assertEquals(q.includes("Created_Time"), false);
+});
+
+Deno.test("record modules have no activity date and keep created-or-modified", () => {
+  for (const m of ["Leads", "Contacts", "Deals", "Accounts"]) {
+    assertEquals(ACTIVITY_DATE_FIELD[m], undefined);
+    const q = buildWindowQuery(m, "id", "1", bounds, 0);
+    assertStringIncludes(q, "Created_Time >=");
+    assertStringIncludes(q, "Modified_Time <");
+  }
+});
+
+Deno.test("every activity date field is actually selected, or it filters on a null", () => {
+  for (const [m, field] of Object.entries(ACTIVITY_DATE_FIELD)) {
+    assertStringIncludes(MODULE_SELECT[m], field);
+  }
 });

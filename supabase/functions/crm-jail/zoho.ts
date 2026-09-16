@@ -193,6 +193,26 @@ export async function getZohoAccessToken(): Promise<string> {
  * template samples "everything the rep created or modified in the audit
  * window", which is why Kenny's sample included a company created in 2022.
  */
+/**
+ * For an activity, the audit window is when the activity HAPPENED — not when
+ * its record was created or last touched.
+ *
+ * Amber caught this on Mike Mcluty's 9/7-9/13 BD scorecard: a "CHC- Guiding
+ * Road MTG" created 9/7 but scheduled for 9/23 was sampled as that week's
+ * work. Windowing on Created/Modified pulled 45 events for him, of which only
+ * ~12 actually occurred in the week — the rest were future meetings booked
+ * during it (Community Unity ran out to 12/17) plus past meetings that
+ * happened to be edited. It cuts both ways: a meeting held in the window but
+ * created earlier and never re-touched was missed entirely.
+ *
+ * Leads/Contacts/Deals/Accounts have no "when it happened" field — for those
+ * the record timestamps ARE the activity, so they keep the old behaviour.
+ */
+export const ACTIVITY_DATE_FIELD: Record<string, string> = {
+  Events: "Start_DateTime",
+  Calls: "Call_Start_Time",
+};
+
 export function buildWindowQuery(
   module: string,
   selectFields: string,
@@ -200,10 +220,13 @@ export function buildWindowQuery(
   bounds: { from: string; toExclusive: string },
   offset: number,
 ): string {
+  const activityField = ACTIVITY_DATE_FIELD[module];
+  const when = activityField
+    ? `${activityField} >= '${bounds.from}' and ${activityField} < '${bounds.toExclusive}'`
+    : `(Created_Time >= '${bounds.from}' and Created_Time < '${bounds.toExclusive}') ` +
+      `or (Modified_Time >= '${bounds.from}' and Modified_Time < '${bounds.toExclusive}')`;
   return `select ${selectFields} from ${module} ` +
-    `where Owner = '${ownerId}' ` +
-    `and ((Created_Time >= '${bounds.from}' and Created_Time < '${bounds.toExclusive}') ` +
-    `or (Modified_Time >= '${bounds.from}' and Modified_Time < '${bounds.toExclusive}')) ` +
+    `where Owner = '${ownerId}' and (${when}) ` +
     `limit ${PAGE_SIZE} offset ${offset}`;
 }
 
