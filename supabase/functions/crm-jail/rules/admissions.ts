@@ -78,13 +78,26 @@ const judged = (item: string): RuleFn => (c) => {
 const hasAttachment = (re: RegExp): RuleFn => (c) =>
   c.attachments.some((a) => re.test(a)) ? 1 : 0;
 
-const sameDayTouched: RuleFn = (c) =>
-  loggedSameDay(
-    String(c.record.Created_Time ?? ""),
-    String(c.record.Modified_Time ?? c.record.Created_Time ?? ""),
-  )
-    ? 1
-    : 0;
+/**
+ * "Created or updated the same day" cannot be tested from Created_Time vs
+ * Modified_Time: that asks whether the record was never touched again, which
+ * is a different — and for any live record, false — question. A deal opened in
+ * June and worked in September is normal, and the rule failed all 15 sampled
+ * deals while the auditors passed nearly all of them.
+ *
+ * Zoho does not record when the underlying work happened, only when the row
+ * changed, so there is nothing honest to compare. Deferred to the auditor
+ * rather than guessed.
+ *
+ * Note this does NOT apply to CA1 and M1: a Call and a Meeting each carry the
+ * time the event occurred, so "logged the same day it happened" is a real
+ * comparison there — and the bot agreed with Kenny's audit on it.
+ */
+const sameDayTouched: RuleFn = (item) => ({
+  item: "",
+  score: "DEFER",
+  explanation: "Same-day logging is not derivable from Zoho timestamps — score by hand.",
+});
 
 const fullName = (c: RecordContext) =>
   `${c.record.First_Name ?? ""} ${c.record.Last_Name ?? ""}`.trim();
@@ -181,12 +194,18 @@ export const DEAL_RULES: Record<string, RuleFn> = {
   D14: when(isBdSourced, lookup("Referring_Company")),
   D15: when(isBdSourced, lookup("Referring_Business_Contact")),
   D16: field("Insurance_Type"),
-  // Insurance_Provider_New is the live field. Private_Insurance_Company is
-  // labelled "(DNU)" on Deals and must never be accepted.
-  D17: (c) => (isPresent(c.record[isAhcccs(c) ? "AHCCCS_Insurance_Provider" : "Insurance_Provider_New"]) ? 1 : 0),
+  // Insurance_Provider_New holds the provider for BOTH payer types —
+  // "Medicaid: Health Choice" and "Aetna" alike. Verified 2026-09-16:
+  // AHCCCS_Insurance_Provider is null on every live deal, so branching on
+  // payer type read a dead field and failed every AHCCCS record. That was 10
+  // one-sided disagreements against the human auditors.
+  D17: field("Insurance_Provider_New"),
   D18: field("DOB"),
   D19: field("Member_ID"),
-  D20: field("Policy_Type"),
+  // Policy type is a commercial-plan concept. Verified 2026-09-16: Policy_Type
+  // is populated ("PPO", "POS") on commercial deals and null on every AHCCCS
+  // one, so scoring it there failed records that were correctly filled in.
+  D20: when((c) => !isAhcccs(c), field("Policy_Type")),
   D21: field("VOB_Submitted_By"),
   D22: judged("D22"),
   D23: judged("D23"),

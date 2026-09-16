@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { LEAD_RULES, CONTACT_RULES, DEAL_RULES, DAILY_RULES, admittedLocation } from "./admissions.ts";
+import { CALL_RULES } from "./bd.ts";
 import type { RecordContext, ItemResult, Score } from "../types.ts";
 
 function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {}): RecordContext {
@@ -199,4 +200,32 @@ Deno.test("a FAILED notes fetch defers — it is not evidence the rep wrote noth
   const r = LEAD_RULES.L26(ctx({}, { notes: [], notesUnavailable: true })) as ItemResult;
   assertEquals(r.score, "DEFER");
   assertEquals(r.explanation, "Could not read the record's notes.");
+});
+
+Deno.test("D17 reads the one provider field both payer types use", () => {
+  // Verified 2026-09-16: AHCCCS_Insurance_Provider is null on every live deal;
+  // the provider lives in Insurance_Provider_New regardless of payer type.
+  assertEquals(s(DEAL_RULES.D17(ctx({ Insurance_Type: "AHCCCS", Insurance_Provider_New: "Medicaid: Health Choice" }))), 1);
+  assertEquals(s(DEAL_RULES.D17(ctx({ Insurance_Type: "Commercial Insurance", Insurance_Provider_New: "Aetna" }))), 1);
+  assertEquals(s(DEAL_RULES.D17(ctx({ Insurance_Type: "AHCCCS" }))), 0);
+});
+
+Deno.test("D20 does not ask AHCCCS deals for a commercial policy type", () => {
+  assertEquals(s(DEAL_RULES.D20(ctx({ Insurance_Type: "AHCCCS" }))), "N/A");
+  assertEquals(s(DEAL_RULES.D20(ctx({ Insurance_Type: "Commercial Insurance", Policy_Type: "PPO" }))), 1);
+  assertEquals(s(DEAL_RULES.D20(ctx({ Insurance_Type: "Commercial Insurance" }))), 0);
+});
+
+Deno.test("record-level same-day items defer instead of guessing", () => {
+  // Created vs Modified tests "never touched again", not "logged same day".
+  // It failed 15 of 15 sampled deals the auditors passed.
+  for (const r of [LEAD_RULES.L28(ctx({})), CONTACT_RULES.C13(ctx({})), DEAL_RULES.D25(ctx({}))]) {
+    assertEquals(s(r), "DEFER");
+  }
+});
+
+Deno.test("CA1 and M1 still score — an event carries the time it happened", () => {
+  // The distinction that makes those checkable and D25 not.
+  const late = { Call_Start_Time: "2026-09-04T17:20:00Z", Created_Time: "2026-09-07T15:45:00Z" };
+  assertEquals(s(CALL_RULES.CA1(ctx(late))), 0);
 });
