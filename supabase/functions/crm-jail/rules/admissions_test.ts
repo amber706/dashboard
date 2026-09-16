@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { LEAD_RULES, CONTACT_RULES, DEAL_RULES, DAILY_RULES } from "./admissions.ts";
+import { LEAD_RULES, CONTACT_RULES, DEAL_RULES, DAILY_RULES, admittedLocation } from "./admissions.ts";
 import type { RecordContext, ItemResult, Score } from "../types.ts";
 
 function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {}): RecordContext {
@@ -57,8 +57,39 @@ Deno.test("L17 is scored when the lead is BD-sourced", () => {
   assertEquals(s(LEAD_RULES.L17(ctx({ Source_Category: "Business Development", BD_Rep: null }))), 0);
 });
 
-Deno.test("L18 defers — Partner Program does not exist in Zoho", () => {
-  assertEquals(s(LEAD_RULES.L18(ctx({ Source_Category: "Business Development" }))), "DEFER");
+Deno.test("L18 Partner Program reads the referring company", () => {
+  assertEquals(s(LEAD_RULES.L18(ctx({ Source_Category: "Business Development", Business_Contact_Name: { id: "9" } }))), 1);
+  assertEquals(s(LEAD_RULES.L18(ctx({ Source_Category: "Business Development" }))), 0);
+  assertEquals(s(LEAD_RULES.L18(ctx({ Source_Category: "Google Ads" }))), "N/A");
+});
+
+Deno.test("D7 is skipped on Deals and leaves the denominator", () => {
+  // N/A, not DEFER — it must not sit waiting on a human forever.
+  assertEquals(s(DEAL_RULES.D7(ctx({}))), "N/A");
+});
+
+Deno.test("D31 looks for a scheduled call or task, not a field", () => {
+  const ref = { Stage: "Closed - Referred Out Unattached" };
+  assertEquals(s(DEAL_RULES.D31(ctx(ref, { futureActivityCount: 1 }))), 1);
+  assertEquals(s(DEAL_RULES.D31(ctx(ref, { futureActivityCount: 0 }))), 0);
+  assertEquals(s(DEAL_RULES.D31(ctx({ Stage: "Closed Won" }))), "N/A");
+});
+
+Deno.test("admittedLocation parses the close-reason picklist", () => {
+  // Verified against live admitted deals 2026-09-15.
+  assertEquals(admittedLocation("Admitted - Scottsdale OTC"), "Scottsdale OTC");
+  assertEquals(admittedLocation("Admitted - Maryvale OTC"), "Maryvale OTC");
+  assertEquals(admittedLocation("Admitted - Grayhawk Manor BHRF"), "Grayhawk Manor BHRF");
+  // A bare "Admitted" carries no location.
+  assertEquals(admittedLocation("Admitted"), null);
+  assertEquals(admittedLocation(null), null);
+  assertEquals(admittedLocation("Referred Out - Unwilling"), null);
+});
+
+Deno.test("D35 scores the admitted location from the close reason", () => {
+  assertEquals(s(DEAL_RULES.D35(ctx({ Stage: "Closed Won", Lost_Reasoning: "Admitted - Scottsdale OTC" }))), 1);
+  assertEquals(s(DEAL_RULES.D35(ctx({ Stage: "Closed Won", Lost_Reasoning: "Admitted" }))), 0);
+  assertEquals(s(DEAL_RULES.D35(ctx({ Stage: "Closed Lost" }))), "N/A");
 });
 
 Deno.test("L22 checks the AHCCCS provider field when the policy is AHCCCS", () => {

@@ -9,24 +9,34 @@ needs an exact field, and a wrong guess scores every rep 0 on that line silently
 
 > **Status legend:** ✅ confirmed · ⚠️ confirmed but a trap · ❌ no such field in Zoho
 
-## ❌ Items with no backing field — need a decision
+## ✅ Items with no obvious field — RESOLVED by Amber 2026-09-15
 
-These four cannot be automated as written. Nothing in Zoho matches them.
+Four items had no field matching their wording. All four are now settled.
 
-| Item | Criterion | Finding |
+| Item | Criterion | Resolution |
 |---|---|---|
-| **L18 / D13** | Partner Program | **No field named or labelled anything like "program" exists on Leads or Deals.** Zero matches across all 354 fields in both modules. |
-| **D7** | How Did You Hear About Us | Exists on **Leads** (`How_Did_You_Hear_About_Us`) but **not on Deals** — zero matches for "hear" among 201 Deal fields. |
-| **D31** | Follow-up scheduled for the client coming back | No "next activity", "follow up", or "next scheduled" field on Deals. |
-| **D35** | Admitted Location matches KIPU | No "location" field on Deals. (KIPU half was already deferred to Phase 2; this notes the Zoho half is also absent.) |
+| **L18 / D13** | Partner Program | **It is the referring company.** `Business_Contact_Name` on Leads, `Referring_Company` on Deals. ⚠️ These are the same fields L19/D14 already check, so one link earns both points — see the note below. |
+| **D7** | How Did You Hear About Us | **Dropped on Deals.** The field exists only on Leads, and D11 already covers attribution via `Source_Category`. Scored `N/A` so it leaves the denominator rather than waiting on a human. |
+| **D31** | Follow-up scheduled for the client coming back | **A scheduled Call or Task on the deal** — no field backs it. Uses the same forward-looking activity check as CA9 and M9. |
+| **D35** | Admitted Location | **Encoded in the close-reason picklist.** When a deal moves to Admitted, `Lost_Reasoning` is set to e.g. `"Admitted - Scottsdale OTC"`. Parsed by `admittedLocation()`. Matching it against KIPU is still Phase 2. |
 
-**Options for each:** point at the right field if one exists under a name I did not guess ·
-create the field in Zoho · or drop the item from the scorecard. Until one is chosen these
-score `DEFER` — blank and flagged for the auditor, which is safe but means four items never
-get automated.
+### ⚠️ L18/D13 double-count their field
 
-Note policy OPS-CRM-001 §8 promises reps five business days' notice before a changed checklist
-is used to score them, so dropping items is a scheduled change, not an immediate one.
+Partner Program and Associated Company resolve to the same lookup. A BD-sourced record with the
+company linked scores **both** items; one with it missing loses **both**. That effectively gives
+the company link double weight on the scorecard. It is recorded here rather than silently
+"corrected", because changing it changes everyone's score — and policy OPS-CRM-001 §8 promises
+reps five business days' notice before a changed checklist scores them.
+
+### `Lost_Reasoning` does double duty
+
+The same picklist carries the close reason for lost deals *and* the admitted location for won
+ones. D24, D35 and D36 all read it. Verified against live admitted deals on 2026-09-15: every one
+carried `"Admitted - <location>"`.
+
+**Data-quality note:** at least one deal (`5162065000352672120`) has Stage
+`Closed - Lost (Treatment)` while carrying `"Admitted - Scottsdale OTC"` and a real admit date —
+admitted but filed as lost. D24's stage-consistency check is designed to surface exactly this.
 
 ## ⚠️ Traps — same concept, different field per module
 

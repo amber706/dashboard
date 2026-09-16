@@ -75,7 +75,11 @@ export const LEAD_RULES: Record<string, RuleFn> = {
   L15: field("Digital_Source"), // labelled "Tracking Source"
   L16: field("Source_Category"),
   L17: when(isBdSourced, field("BD_Rep")),
-  L18: defer("L18", NO_FIELD("Partner Program")),
+  // "Partner Program" is the referring company (Amber, 2026-09-15). On Leads
+  // that lookup is Business_Contact_Name, labelled "Referring Company Name".
+  // Note this is the same field L19 checks, so a BD-sourced lead earns both
+  // points from one link — flagged rather than silently double-weighted.
+  L18: when(isBdSourced, lookup("Business_Contact_Name")),
   L19: when(isBdSourced, lookup("Business_Contact_Name")), // "Referring Company Name"
   L20: when(isBdSourced, lookup("Referring_Contact_Business_Contact")),
   L21: field("Insurance_Type"),
@@ -130,13 +134,18 @@ export const DEAL_RULES: Record<string, RuleFn> = {
   D4: defer("D4", KIPU_DEFER),
   D5: allOf("Emergency_Contact_Name", "Emergency_Contact_Phone_Number"),
   D6: lookup("Owner"),
-  D7: defer("D7", NO_FIELD("How Did You Hear About Us (on Deals)")),
+  // Dropped on Deals (Amber, 2026-09-15). The field exists only on Leads, and
+  // D11 already covers attribution via Source_Category. N/A rather than DEFER
+  // so it leaves the denominator instead of waiting on a human forever.
+  D7: () => "N/A",
   D8: field("DUI_or_Treatment"),
   D9: field("Level_of_Care_Requested"),
   D10: field("Age_Group"),
   D11: field("Source_Category"),
   D12: when(isBdSourced, field("BD_Rep")),
-  D13: defer("D13", NO_FIELD("Partner Program")),
+  // "Partner Program" is the referring company (Amber, 2026-09-15). Same
+  // field as D14, so one link earns both points — see L18.
+  D13: when(isBdSourced, lookup("Referring_Company")),
   D14: when(isBdSourced, lookup("Referring_Company")),
   D15: when(isBdSourced, lookup("Referring_Business_Contact")),
   D16: field("Insurance_Type"),
@@ -166,7 +175,10 @@ export const DEAL_RULES: Record<string, RuleFn> = {
   D28: when(isReferredOut, field("Refer_Out_Type")),
   D29: when(isReferredOut, field("Admitted_at_Referred_Facility")),
   D30: when(isReferredOut, field("Refer_Out_Date")),
-  D31: defer("D31", NO_FIELD("Follow-up scheduled for the client coming back")),
+  // "Follow-up scheduled" is a scheduled Call or Task on the deal (Amber,
+  // 2026-09-15) — there is no follow-up date field. Same forward-looking
+  // check CA9 and M9 use.
+  D31: when(isReferredOut, (c) => (c.futureActivityCount > 0 ? 1 : 0)),
   D32: when(stageIs("closed_won_admitted"), (c) => {
     const closing = String(c.record.Closing_Date ?? "").slice(0, 10);
     const admit = String(c.record.Admit_Date ?? "").slice(0, 10);
@@ -174,7 +186,12 @@ export const DEAL_RULES: Record<string, RuleFn> = {
   }),
   D33: defer("D33", KIPU_DEFER),
   D34: defer("D34", KIPU_DEFER),
-  D35: defer("D35", `${NO_FIELD("Admitted Location")} Also ${KIPU_DEFER}`),
+  // Admitted location has no field of its own: it is encoded in the close
+  // reason picked when the deal moves to Admitted, e.g.
+  // "Admitted - Scottsdale OTC" (verified against live admitted deals
+  // 2026-09-15). The Zoho half is checkable now; matching it to KIPU is
+  // still Phase 2.
+  D35: when(stageIs("closed_won_admitted"), (c) => (admittedLocation(c.record.Lost_Reasoning) ? 1 : 0)),
   D36: when(stageIs("closed_lost"), (c) =>
     isPresent(c.record.Lost_Reasoning) || isPresent(c.record.Close_Reasoning_DUI) ? 1 : 0),
   D37: when(stageIs("closed_lost"), judged("D37")),
@@ -186,6 +203,16 @@ export const DEAL_RULES: Record<string, RuleFn> = {
     hasAttachment(/insurance[-_ ]?card|ins[-_ ]?card/i),
   ),
 };
+
+/**
+ * Pulls the admitted location out of the close-reason picklist, which is where
+ * it lives: "Admitted - Scottsdale OTC" -> "Scottsdale OTC". Returns null when
+ * the value is absent or is a plain "Admitted" with no location.
+ */
+export function admittedLocation(lostReasoning: unknown): string | null {
+  const m = String(lostReasoning ?? "").match(/^Admitted\s*-\s*(.+)$/);
+  return m ? m[1].trim() : null;
+}
 
 /** The Contact-record half of D1-D4. Built and tested now, wired up in Phase 2. */
 export function contactMatch(
