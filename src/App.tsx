@@ -82,6 +82,7 @@ import AuditPage from "@/pages/admin/audit";
 import OpsStaffing from "@/pages/ops/staffing";
 import AdminSettings from "@/pages/admin/settings";
 import AdminUsers from "@/pages/admin/users";
+import CrmJailRoster from "@/pages/admin/crm-jail";
 
 // Warehouse-backed analytics dashboards ported from cornerstone-dashboard.
 // Each page reads from fact_*/dim_* tables in Supabase (populated by the
@@ -262,6 +263,7 @@ function AppRoutes() {
         <Route path="/admin/audit" component={AdminOnly(AuditPage)} />
         <Route path="/admin/settings" component={AdminOnly(AdminSettings)} />
         <Route path="/admin/users" component={AdminOnly(AdminUsers)} />
+        <Route path="/admin/crm-jail" component={AdminOnly(CrmJailRoster)} />
         <Route path="/settings" component={AdminOnly(SettingsPage)} />
 
         {/* Business Development workspace — manager + admin. */}

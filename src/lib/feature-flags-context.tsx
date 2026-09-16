@@ -56,6 +56,7 @@ export type PageKey =
   // KB sub-pages
   | "page_kb_drafts"
   | "page_knowledge_review"
+  | "page_crm_jail"
   // BD sub-pages
   | "page_bd_referrals"
   | "page_bd_stuck_accounts"
