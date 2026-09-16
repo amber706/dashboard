@@ -66,6 +66,9 @@ Deno.serve(async (req) => {
   // once per rep so each gets its own wall-clock budget — a single invocation
   // auditing all nine times out once the notes judge is doing real work.
   const onlyRep = typeof body.rep === "string" ? body.rep : null;
+  // Prepended to every share notification — used to mark a run as a trial so
+  // an auditor does not mistake bot output for scores to act on.
+  const note = typeof body.note === "string" ? body.note : undefined;
   const window = auditWindowFor(body.run_at ? new Date(String(body.run_at)) : new Date());
   const bounds = coqlBounds(window);
 
@@ -118,7 +121,7 @@ Deno.serve(async (req) => {
   if (!onlyRep) {
     return await dispatch(
       (roster ?? []) as unknown as Array<RosterRep>,
-      window, dryRun, skipNotify, googleToken, req.headers.get("Authorization") ?? "",
+      window, dryRun, skipNotify, googleToken, req.headers.get("Authorization") ?? "", note,
     );
   }
 
@@ -256,6 +259,7 @@ async function dispatch(
   skipNotify: boolean,
   googleToken: string,
   authHeader: string,
+  note?: string,
 ): Promise<Response> {
   const self = `${Deno.env.get("SUPABASE_URL")}/functions/v1/crm-jail`;
 

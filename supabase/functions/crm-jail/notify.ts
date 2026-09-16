@@ -32,13 +32,19 @@ export interface AuditWindowLabel {
  * The note Google puts in the share email. Deliberately carries no client
  * data — just which rep, which window, and what the auditor still has to do.
  */
-export function buildShareMessage(rep: string, w: AuditWindowLabel, deferredCells: number): string {
+export function buildShareMessage(
+  rep: string,
+  w: AuditWindowLabel,
+  deferredCells: number,
+  note?: string,
+): string {
   const todo = deferredCells === 0
     ? "Every line the bot can check is scored."
     : deferredCells === 1
     ? "1 cell still needs you — it is highlighted and left blank."
     : `${deferredCells} cells still need you — they are highlighted and left blank.`;
-  return `CRM Jail audit for ${rep}, ${w.label}.\n\n${todo}\n\n` +
+  const prefix = note ? `${note}\n\n` : "";
+  return `${prefix}CRM Jail audit for ${rep}, ${w.label}.\n\n${todo}\n\n` +
     `The score is not final until you have reviewed it. Nothing has been sent to ${rep}.`;
 }
 
@@ -103,6 +109,7 @@ export async function notifyAuditors(
   w: AuditWindowLabel,
   results: RepResult[],
   deps: NotifyDeps,
+  note?: string,
 ): Promise<{ summaryUrl: string | null; failures: string[] }> {
   const failures: string[] = [];
 
@@ -112,7 +119,7 @@ export async function notifyAuditors(
       await deps.share(
         r.sheetId,
         r.auditorEmail,
-        buildShareMessage(r.rep, w, r.deferredCells ?? 0),
+        buildShareMessage(r.rep, w, r.deferredCells ?? 0, note),
       );
     } catch (e) {
       failures.push(`${r.rep}: ${String(e)}`);
@@ -131,7 +138,7 @@ export async function notifyAuditors(
         await deps.share(
           summary.id,
           to,
-          `CRM Jail audits for ${w.label} are ready for review. ` +
+          `${note ? note + "\n\n" : ""}CRM Jail audits for ${w.label}. ` +
             `${results.length} rep${results.length === 1 ? "" : "s"} audited. ` +
             `Nothing has been sent to any rep.`,
         );

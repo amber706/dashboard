@@ -74,3 +74,13 @@ Deno.test("a rep whose run failed has no sheet and is skipped, not crashed on", 
   });
   assertEquals(out.failures.length, 0);
 });
+
+Deno.test("a run note is prepended so a trial cannot read as live scores", () => {
+  const m = buildShareMessage("Kenny Reitz", w, 5, "TEST RUN — please review, do not action.");
+  assertEquals(m.startsWith("TEST RUN — please review, do not action."), true);
+  assertStringIncludes(m, "Kenny Reitz");
+});
+
+Deno.test("without a note the message is unchanged", () => {
+  assertEquals(buildShareMessage("X", w, 0).startsWith("CRM Jail audit for X"), true);
+});
