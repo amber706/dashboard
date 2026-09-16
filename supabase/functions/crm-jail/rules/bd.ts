@@ -50,10 +50,9 @@ export const BC_RULES: Record<string, RuleFn> = {
   // There is deliberately no BC3 — the template skips it.
   BC4: field("Phone"),
   BC5: field("Email"),
-  // Two company lookups exist on Contacts; either satisfies the item. See
-  // CRM_JAIL_FIELD_MAP.md — which one BD actually uses is unconfirmed.
-  BC6: (c) =>
-    lookupPresent(c.record.Associated_Facility) || lookupPresent(c.record.Account_Name) ? 1 : 0,
+  // Confirmed by Amber 2026-09-15: "Associated Company" is Associated_Facility.
+  // Account_Name ("Company Name") is a different field and does not satisfy it.
+  BC6: lookup("Associated_Facility"),
   BC7: lookup("Owner"),
   BC8: field("Business_Contact_Role"),
   BC9: (c) => {

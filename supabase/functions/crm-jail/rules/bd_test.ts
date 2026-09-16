@@ -79,3 +79,10 @@ Deno.test("BD daily items A4/A5 aggregate over the whole window", () => {
   assertEquals(BD_DAILY_RULES.A4([{ Call_Start_Time: "2026-09-04T17:20:00Z", Created_Time: "2026-09-07T15:45:00Z" }]), 0);
   assertEquals(BD_DAILY_RULES.A5([{ Start_DateTime: "2026-09-01T16:00:00Z", Created_Time: "2026-09-01T17:00:00Z" }]), 1);
 });
+
+Deno.test("BC6 accepts only Associated_Facility, not Company Name", () => {
+  // Confirmed by Amber 2026-09-15.
+  assertEquals(s(BC_RULES.BC6(ctx({ Associated_Facility: { id: "9" } }))), 1);
+  assertEquals(s(BC_RULES.BC6(ctx({ Account_Name: { id: "9" } }))), 0);
+  assertEquals(s(BC_RULES.BC6(ctx({}))), 0);
+});

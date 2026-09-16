@@ -103,23 +103,9 @@ export const CONTACT_RULES: Record<string, RuleFn> = {
     (c) => (c.relatedDealCount > 0 ? 1 : 0),
   ),
   C9: when((c) => isPresent(c.record.Business_Contact_Role), field("Business_Contact_Role")),
-  // Two company lookups exist: Account_Name ("Company Name") and
-  // Associated_Facility (labelled "Associated Company", the scorecard's exact
-  // wording). Which one BD actually uses is unconfirmed — see
-  // CRM_JAIL_FIELD_MAP.md — so either satisfies the item and the explanation
-  // names the one that was found.
-  C10: when((c) => isPresent(c.record.Business_Contact_Role), (c) => {
-    const byFacility = lookupPresent(c.record.Associated_Facility);
-    const byAccount = lookupPresent(c.record.Account_Name);
-    if (byFacility || byAccount) {
-      return {
-        item: "C10",
-        score: 1,
-        explanation: byFacility ? "" : "Linked via Company Name, not Associated Company.",
-      };
-    }
-    return 0;
-  }),
+  // Confirmed by Amber 2026-09-15: "Associated Company" is Associated_Facility.
+  // Account_Name ("Company Name") is a different field and does not satisfy it.
+  C10: when((c) => isPresent(c.record.Business_Contact_Role), lookup("Associated_Facility")),
   // Cross-record: the contact's owner must match the owner of the company it
   // links to. Requires the Account to have been fetched.
   C11: when((c) => isPresent(c.record.Business_Contact_Role), (c) => {
