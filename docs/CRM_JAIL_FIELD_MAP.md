@@ -105,11 +105,10 @@ Only items whose field differs from the obvious guess, plus the conditional grou
 | D35 | Admitted Location matches KIPU | ❌ **no location field on Deals** |
 | D36 | Close Reasoning | **`Lost_Reasoning`** (Treatment) or **`Close_Reasoning_DUI`**, by pipeline |
 
-## Still to verify
+## Contacts, Accounts, Calls, Events
 
-Contacts (C1–C13), Accounts (CO1–CO18), Calls (CA1–CA9) and Events (M1–M9) have not yet been
-checked against live field metadata. Expect a similar hit rate — roughly a third of the obvious
-guesses were wrong on Leads and Deals.
+Verified — see the BD section below. The hit rate was similar: roughly a third of the obvious
+guesses were wrong, and three more traps turned up.
 
 ---
 
