@@ -13,7 +13,7 @@
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders } from "../_shared/cors.ts";
-import { auditWindowFor, coqlBounds } from "./window.ts";
+import { auditWindowFor, coqlBounds, windowFrom } from "./window.ts";
 import { getCachedZohoAccessToken, zohoTokenWorks } from "./zoho.ts";
 import { getGoogleAccessToken } from "./google-auth.ts";
 import { auditRep, replayRecords, type RosterRep } from "./audit-rep.ts";
@@ -69,7 +69,12 @@ Deno.serve(async (req) => {
   // Prepended to every share notification — used to mark a run as a trial so
   // an auditor does not mistake bot output for scores to act on.
   const note = typeof body.note === "string" ? body.note : undefined;
-  const window = auditWindowFor(body.run_at ? new Date(String(body.run_at)) : new Date());
+  // A fanned-out child is told the window outright. It must not re-derive one
+  // from a timestamp: auditWindowFor counts back from the week containing its
+  // argument, so any date inside the target window yields the week before it.
+  const window = typeof body.window_start === "string"
+    ? windowFrom(body.window_start)
+    : auditWindowFor(body.run_at ? new Date(String(body.run_at)) : new Date());
   const bounds = coqlBounds(window);
 
   const url = Deno.env.get("SUPABASE_URL")!;
@@ -112,6 +117,64 @@ Deno.serve(async (req) => {
     } catch (e) {
       return json({ error: "REPLAY_FAILED", detail: String(e) }, 500);
     }
+  }
+
+  // Notify-only: re-send the share notifications for a window whose scorecards
+  // already exist. The first live run wrote all nine sheets and shared none of
+  // them (the permissions call was missing supportsAllDrives), and re-auditing
+  // to fix that would re-spend the Zoho quota and re-judge every record for
+  // sheets that are already correct. Reads crm_jail_runs; touches no CRM.
+  if (body.notify_only) {
+    const { data: runs, error: runsErr } = await supabase
+      .from("crm_jail_runs").select("*")
+      .eq("window_start", window.startISO).eq("window_end", window.endISO)
+      .order("created_at", { ascending: false });
+    if (runsErr) return json({ error: "RUNS_FAILED", detail: runsErr.message }, 500);
+
+    const { data: roster, error: rErr } = await rosterQuery;
+    if (rErr) return json({ error: "ROSTER_FAILED", detail: rErr.message }, 500);
+    const auditorOf = new Map(
+      (roster ?? []).map((r) => [r.zoho_user_id as string, r.auditor_email as string]),
+    );
+
+    // Newest row per rep — a re-run leaves older rows pointing at stale sheets.
+    const latest = new Map<string, Record<string, unknown>>();
+    for (const r of runs ?? []) {
+      const k = String(r.zoho_user_id);
+      if (!latest.has(k)) latest.set(k, r);
+    }
+    const results: RepResult[] = [...latest.values()].map((r) => ({
+      rep: String(r.full_name),
+      team: String(r.team),
+      status: String(r.status),
+      sheetId: (r.sheet_id as string) ?? undefined,
+      sheetUrl: (r.sheet_url as string) ?? undefined,
+      deferredCells: Number(r.deferred_cells ?? 0),
+      auditorEmail: auditorOf.get(String(r.zoho_user_id)),
+    }));
+    if (results.length === 0) {
+      return json({ error: "NO_RUNS_FOR_WINDOW", window }, 404);
+    }
+
+    // Re-share the summary the run already built rather than making a second
+    // one, so the auditors get one link per window and not a pile of them.
+    const existingSummary = typeof body.summary_sheet_id === "string"
+      ? body.summary_sheet_id
+      : null;
+    const notified = await notifyAuditors(window, results, {
+      createSummarySheet: existingSummary
+        ? (() =>
+          Promise.resolve({
+            id: existingSummary,
+            url: `https://docs.google.com/spreadsheets/d/${existingSummary}/edit`,
+          }))
+        : ((title, rows) => createSummarySheet(googleToken, title, rows)),
+      share: (fileId, email, message) => shareAndNotify(googleToken, fileId, email, message),
+    }, note);
+    return json({
+      window, notifyOnly: true, reps: results.length,
+      summaryUrl: notified.summaryUrl, shareFailures: notified.failures,
+    });
   }
 
   const { data: roster, error: rosterErr } = await rosterQuery;
@@ -277,7 +340,7 @@ async function dispatch(
           method: "POST",
           headers: { Authorization: authHeader, "content-type": "application/json" },
           body: JSON.stringify({
-            rep: rep.zoho_user_id, dry_run: dryRun, run_at: `${window.endISO}T12:00:00Z`,
+            rep: rep.zoho_user_id, dry_run: dryRun, window_start: window.startISO,
           }),
         });
         // 5xx from the platform is transient and says nothing about the rep's

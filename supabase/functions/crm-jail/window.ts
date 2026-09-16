@@ -56,3 +56,21 @@ export function coqlBounds(w: AuditWindow): { from: string; toExclusive: string 
     toExclusive: `${ymd(nextMonday)}T00:00:00-07:00`,
   };
 }
+
+/**
+ * Rebuild the window from its Monday. The dispatcher fans out one invocation
+ * per rep and must hand each child the window the parent already chose: it used
+ * to pass a timestamp and let the child re-derive it, but auditWindowFor means
+ * "the week before the week containing runAt", so a timestamp inside the target
+ * window sent every child back one more week. The parent reported 9/7-9/13
+ * while nine scorecards were built from 8/31-9/6.
+ */
+export function windowFrom(startISO: string): AuditWindow {
+  const start = new Date(`${startISO}T00:00:00Z`);
+  const end = new Date(start.getTime() + 6 * DAY_MS);
+  return {
+    startISO: ymd(start),
+    endISO: ymd(end),
+    label: `${shortMD(start)}-${shortMD(end)}/${end.getUTCFullYear()}`,
+  };
+}

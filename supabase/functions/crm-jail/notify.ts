@@ -76,8 +76,13 @@ export async function shareAndNotify(
   email: string,
   message: string,
 ): Promise<void> {
+  // supportsAllDrives is NOT optional: scorecards live in the CRM Audits Shared
+  // Drive, and without it Drive answers 404 File not found instead of sharing.
+  // That failure mode is invisible from the run's point of view — the sheet is
+  // written and correct, and only the notification never happens.
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}/permissions` +
-    `?sendNotificationEmail=true&emailMessage=${encodeURIComponent(message)}`;
+    `?supportsAllDrives=true&sendNotificationEmail=true` +
+    `&emailMessage=${encodeURIComponent(message)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },

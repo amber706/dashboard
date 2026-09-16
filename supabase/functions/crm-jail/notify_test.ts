@@ -1,5 +1,11 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
-import { buildShareMessage, buildSummaryRows, notifyAuditors, type RepResult } from "./notify.ts";
+import {
+  buildShareMessage,
+  buildSummaryRows,
+  notifyAuditors,
+  type RepResult,
+  shareAndNotify,
+} from "./notify.ts";
 
 const w = { startISO: "2026-09-07", endISO: "2026-09-13", label: "9/7-9/13/2026" };
 
@@ -83,4 +89,25 @@ Deno.test("a run note is prepended so a trial cannot read as live scores", () =>
 
 Deno.test("without a note the message is unchanged", () => {
   assertEquals(buildShareMessage("X", w, 0).startsWith("CRM Jail audit for X"), true);
+});
+
+// Every scorecard lives in the CRM Audits Shared Drive. The live 9/7-9/13 run
+// wrote all nine sheets correctly and shared none of them: Drive answers 404
+// File not found on a shared-drive file unless supportsAllDrives is set, so the
+// run reported success while Aaron and Megan were never told. Pin the params.
+Deno.test("the share call opts into shared drives, or nobody is ever notified", async () => {
+  const original = globalThis.fetch;
+  let seen = "";
+  globalThis.fetch = ((url: string | URL | Request) => {
+    seen = String(url);
+    return Promise.resolve(new Response("{}", { status: 200 }));
+  }) as typeof fetch;
+  try {
+    await shareAndNotify("tok", "file123", "megan@example.com", "hello");
+  } finally {
+    globalThis.fetch = original;
+  }
+  assertStringIncludes(seen, "supportsAllDrives=true");
+  assertStringIncludes(seen, "sendNotificationEmail=true");
+  assertStringIncludes(seen, "/files/file123/permissions");
 });
