@@ -73,5 +73,19 @@ Forms · the same-day and referral-packet items above.
   `>=0.84`, making that band a 1% sliver and labelling everyone between 75–84% as *Materially*
   Non-Compliant. Anyone previously marked Materially in that range — Kenny 77.8%, Joey 78.2%,
   Taylor 78.5%, Mike 82.8% — was mislabelled under policy §4.
+- **Two silent failures the first live run hid** (2026-09-16, fixed in `e580f6c`). The run
+  returned `9 ok / 0 failed` and was wrong twice:
+  - The Drive `permissions` call was the one Drive call in the function without
+    `supportsAllDrives`. Scorecards live in the CRM Audits *shared* drive, so all ten shares
+    came back `404 File not found`. Sheets written, correct, and delivered to nobody.
+  - The fan-out dispatcher passed each child `run_at = window.endISO`. `auditWindowFor` returns
+    the week *before* the week containing its argument, so every child audited one week early —
+    the response said 9/7–9/13 while all nine scorecards were built from 8/31–9/6. Children are
+    now handed the window outright (`windowFrom`). Both are pinned by tests.
+  - **A run's success report says nothing about delivery or about which week was audited.**
+    Check `shareFailures`, and check `crm_jail_runs.window_start` against the response window.
+  - `notify_only` re-sends a window's notifications from `crm_jail_runs` without re-auditing.
+- **Nine scorecards for 8/31–9/6 exist in the drive** from that first run. They are a valid audit
+  of that week, filed under it, shared with nobody. Amber's call whether to keep or bin them.
 - **The service account cannot permanently delete** anything in the shared drive. Structural, and
   worth keeping.
