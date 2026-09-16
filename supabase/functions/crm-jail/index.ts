@@ -14,7 +14,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders } from "../_shared/cors.ts";
 import { auditWindowFor, coqlBounds } from "./window.ts";
-import { getZohoAccessToken } from "./zoho.ts";
+import { getCachedZohoAccessToken, zohoTokenWorks } from "./zoho.ts";
 import { getGoogleAccessToken } from "./google-auth.ts";
 import { auditRep, type RosterRep } from "./audit-rep.ts";
 import { notifyAuditors, shareAndNotify, type RepResult } from "./notify.ts";
@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
   let sourceCategory: (r: unknown) => string | null;
   try {
     const [zt, gt, tax] = await Promise.all([
-      getZohoAccessToken(),
+      resolveZohoToken(supabase),
       getGoogleAccessToken(),
       loadTaxonomy(supabase),
     ]);
@@ -120,7 +120,12 @@ Deno.serve(async (req) => {
     } catch (e) {
       const msg = String(e);
       // The token died mid-run. Stop rather than finish with empty scorecards.
-      if (msg.includes("ZOHO_AUTH_FAILED") || msg.includes("GOOGLE_AUTH_FAILED")) {
+      // A rate limit is transient and rep-scoped: record it and keep going.
+      // Only a genuine auth failure aborts the run.
+      if (
+        (msg.includes("ZOHO_AUTH_FAILED") || msg.includes("GOOGLE_AUTH_FAILED")) &&
+        !msg.includes("RATE_LIMITED")
+      ) {
         if (!dryRun) {
           await notifyAuditors(window, results, {
             createSummarySheet: () => Promise.reject(new Error("aborted")),
@@ -192,6 +197,19 @@ async function createSummarySheet(
   );
   if (!put.ok) throw new Error(`Summary write failed: ${put.status} ${await put.text()}`);
   return { id, url: `https://docs.google.com/spreadsheets/d/${id}/edit` };
+}
+
+/**
+ * Returns a Zoho token known to work. A cached token can be stale or carry the
+ * wrong scopes; validating once here costs one call and stops an entire run
+ * being built on a token that 401s.
+ */
+async function resolveZohoToken(supabase: SupabaseClient): Promise<string> {
+  const cached = await getCachedZohoAccessToken(supabase);
+  if (await zohoTokenWorks(cached)) return cached;
+  const fresh = await getCachedZohoAccessToken(supabase, true);
+  if (await zohoTokenWorks(fresh)) return fresh;
+  throw new Error("ZOHO_AUTH_FAILED: freshly minted token was rejected");
 }
 
 /**

@@ -87,6 +87,61 @@ export const MODULE_SELECT: Record<string, string> = {
   ].join(","),
 };
 
+/**
+ * A Zoho token shared across this bot's per-rep invocations.
+ *
+ * Nine simultaneous mints got a rep throttled outright, so the token is minted
+ * once and cached. It uses crm_jail_zoho_token, NOT the existing
+ * zoho_token_cache: that singleton belongs to another function with its own
+ * scopes and refresh schedule, and reading it 401'd on every call. A token this
+ * bot did not mint is one whose scopes it cannot reason about.
+ *
+ * `force` re-mints and overwrites — used when a cached token turns out to be
+ * rejected, so one stale row cannot fail an entire run.
+ */
+export async function getCachedZohoAccessToken(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  force = false,
+): Promise<string> {
+  if (!force) {
+    const { data } = await supabase
+      .from("crm_jail_zoho_token")
+      .select("access_token,expires_at")
+      .eq("singleton", true)
+      .maybeSingle();
+    // 60s of headroom so a token cannot expire mid-audit.
+    if (data?.access_token && new Date(data.expires_at).getTime() > Date.now() + 60_000) {
+      return data.access_token as string;
+    }
+  }
+
+  const token = await getZohoAccessToken();
+  await supabase.from("crm_jail_zoho_token").upsert({
+    singleton: true,
+    access_token: token,
+    // Zoho tokens last an hour; expire ours early so it is never used cold.
+    expires_at: new Date(Date.now() + 50 * 60_000).toISOString(),
+    refreshed_at: new Date().toISOString(),
+  }, { onConflict: "singleton" });
+  return token;
+}
+
+/**
+ * Confirms a token actually works before a whole run is built on it. One cheap
+ * call is far less costly than nine reps failing on a stale cache entry.
+ */
+export async function zohoTokenWorks(token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${apiDomain()}/crm/v6/settings/modules?per_page=1`, {
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    });
+    return res.status !== 401;
+  } catch {
+    return false;
+  }
+}
+
 export async function getZohoAccessToken(): Promise<string> {
   const clientId = env("ZOHO_CLIENT_ID");
   const clientSecret = env("ZOHO_CLIENT_SECRET");
@@ -106,7 +161,17 @@ export async function getZohoAccessToken(): Promise<string> {
     body: body.toString(),
   });
   const json = await res.json();
-  if (!json.access_token) throw new Error(`ZOHO_AUTH_FAILED: ${JSON.stringify(json)}`);
+  if (!json.access_token) {
+    // A throttle is not a broken token. Reporting it as an auth failure sends
+    // whoever reads the ledger hunting for a credential problem that is not
+    // there — and the orchestrator aborts the run on auth, but should not on
+    // a transient throttle.
+    const desc = String(json.error_description ?? json.error ?? "");
+    if (/too many requests|rate limit/i.test(desc)) {
+      throw new Error(`ZOHO_RATE_LIMITED: ${desc}`);
+    }
+    throw new Error(`ZOHO_AUTH_FAILED: ${JSON.stringify(json)}`);
+  }
   return json.access_token as string;
 }
 
@@ -139,6 +204,7 @@ export async function coql(token: string, query: string): Promise<Record<string,
   // Surfaced so the orchestrator can abort the whole run rather than emit
   // scorecards that look complete but are empty.
   if (res.status === 401) throw new Error("ZOHO_AUTH_FAILED");
+  if (res.status === 429) throw new Error("ZOHO_RATE_LIMITED: COQL 429");
   if (!res.ok) throw new Error(`COQL ${res.status}: ${await res.text()}`);
   const json = await res.json();
   return (json.data ?? []) as Record<string, unknown>[];
@@ -191,6 +257,7 @@ export async function fetchRelated(
   );
   if (res.status === 204) return [];
   if (res.status === 401) throw new Error("ZOHO_AUTH_FAILED");
+  if (res.status === 429) throw new Error("ZOHO_RATE_LIMITED: related 429");
   if (!res.ok) throw new Error(`Related ${related} ${res.status}: ${await res.text()}`);
   return ((await res.json()).data ?? []) as Record<string, unknown>[];
 }
