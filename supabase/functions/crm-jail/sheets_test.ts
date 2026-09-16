@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert@1";
 import {
   cellFor, dailyCellFor, explanationCellFor, headerCell, identityCellsFor,
-  isComputedCell, scorecardTitle, writeCells,
+  isComputedCell, scorecardFolderPath, scorecardTitle, writeCells,
 } from "./sheets.ts";
 
 Deno.test("maps an item and record index to the right cell", () => {
@@ -77,4 +77,32 @@ Deno.test("writeCells refuses to overwrite a formula", async () => {
   } finally {
     globalThis.fetch = origFetch;
   }
+});
+
+Deno.test("scorecards file under Rep / Year / Month", () => {
+  assertEquals(
+    scorecardFolderPath("Kenny Reitz", { endISO: "2026-09-13" }),
+    ["Kenny Reitz", "2026", "September"],
+  );
+});
+
+Deno.test("a window straddling months files under the END month", () => {
+  // 8/31-9/4 begins in August and ends in September. Megan already files
+  // these under September, so the bot matches that rather than splitting
+  // one week's audits across two month folders.
+  assertEquals(
+    scorecardFolderPath("Eric Wade", { endISO: "2026-09-04" }),
+    ["Eric Wade", "2026", "September"],
+  );
+});
+
+Deno.test("year rolls over correctly", () => {
+  assertEquals(
+    scorecardFolderPath("Ben Coulter", { endISO: "2027-01-03" }),
+    ["Ben Coulter", "2027", "January"],
+  );
+  assertEquals(
+    scorecardFolderPath("Ben Coulter", { endISO: "2026-12-27" }),
+    ["Ben Coulter", "2026", "December"],
+  );
 });

@@ -148,34 +148,79 @@ export async function writeCells(
   if (!res.ok) throw new Error(`Sheets batchUpdate failed: ${res.status} ${await res.text()}`);
 }
 
-/** Creates the per-rep folder under the team folder if it does not already exist. */
-export async function ensureRepFolder(
-  token: string,
-  teamFolderId: string,
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/**
+ * Where a scorecard is filed: {Rep Name}/{Year}/{Month}, under the shared drive.
+ *
+ * Filed by the window's END month, not its start. Audit windows straddle
+ * month boundaries — 8/31-9/4 begins in August and ends in September — and
+ * Megan already files those under September, so this matches existing practice.
+ */
+export function scorecardFolderPath(
   repName: string,
-): Promise<string> {
+  window: { endISO: string },
+): string[] {
+  const [y, m] = window.endISO.split("-");
+  return [repName, y, MONTHS[Number(m) - 1]];
+}
+
+async function findChildFolder(
+  token: string,
+  driveId: string,
+  parentId: string,
+  name: string,
+): Promise<string | null> {
   const q = encodeURIComponent(
-    `'${teamFolderId}' in parents and name = '${repName.replace(/'/g, "\\'")}' ` +
+    `'${parentId}' in parents and name = '${name.replace(/'/g, "\\'")}' ` +
       `and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
   );
-  const found = await fetch(
+  const res = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)` +
-      `&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+      `&supportsAllDrives=true&includeItemsFromAllDrives=true` +
+      `&driveId=${driveId}&corpora=drive`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
-  if (!found.ok) throw new Error(`Drive lookup failed: ${found.status} ${await found.text()}`);
-  const existing = (await found.json()).files ?? [];
-  if (existing.length > 0) return existing[0].id;
+  if (!res.ok) throw new Error(`Drive lookup failed: ${res.status} ${await res.text()}`);
+  const files = (await res.json()).files ?? [];
+  return files.length > 0 ? files[0].id : null;
+}
 
+async function createFolder(
+  token: string,
+  parentId: string,
+  name: string,
+): Promise<string> {
   const res = await fetch("https://www.googleapis.com/drive/v3/files?supportsAllDrives=true", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
-      name: repName,
+      name,
       mimeType: "application/vnd.google-apps.folder",
-      parents: [teamFolderId],
+      parents: [parentId],
     }),
   });
   if (!res.ok) throw new Error(`Drive folder create failed: ${res.status} ${await res.text()}`);
   return (await res.json()).id;
+}
+
+/**
+ * Walks a folder path from the shared drive root, creating any level that is
+ * missing and reusing any that already exists. Idempotent: re-running a week
+ * reuses the same folders rather than making duplicates.
+ */
+export async function ensureFolderPath(
+  token: string,
+  driveId: string,
+  segments: string[],
+): Promise<string> {
+  let parent = driveId;
+  for (const name of segments) {
+    parent = (await findChildFolder(token, driveId, parent, name)) ??
+      (await createFolder(token, parent, name));
+  }
+  return parent;
 }
