@@ -7,7 +7,7 @@
 // records in a week; fetching notes and attachments for all of them would be
 // slow and pointless when only 5 per section are scored.
 
-import { fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
+import { fetchByIds, fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
 import { sampleRecords, sampleSeed } from "./sampler.ts";
 import { judgeExcusedBlanks, judgeNotes, judgeDiagnostics } from "./notes-judge.ts";
 import { itemsForModule } from "./notes-judge.ts";
@@ -290,4 +290,65 @@ export function dailyResults(
     { item: "A6", score: BD_DAILY_RULES.A6, explanation: "Assigned spreadsheet — Phase 2." },
     { item: "A7", score: BD_DAILY_RULES.A7, explanation: "Assigned spreadsheet — Phase 2." },
   ];
+}
+
+
+/**
+ * Scores an explicit set of records — the replay path.
+ *
+ * Deliberately shares every step with the live audit except sampling: same
+ * enrichment, same rules, same excused-blank pass. If replay used a different
+ * code path it would be testing the wrong thing.
+ */
+export async function replayRecords(
+  team: Team,
+  window: AuditWindowish,
+  recordsBySection: Record<string, string[]>,
+  deps: AuditDeps,
+): Promise<Record<string, Array<{ id: string; items: ItemResult[] }>>> {
+  const out: Record<string, Array<{ id: string; items: ItemResult[] }>> = {};
+
+  for (const [section, ids] of Object.entries(recordsBySection)) {
+    if (!SECTIONS[team].includes(section) || ids.length === 0) continue;
+    const mod = MODULE_FOR[section];
+    const fetched = await fetchByIds(deps.zohoToken, mod, ids);
+    const byId = new Map(fetched.map((r) => [String(r.id), r]));
+
+    out[section] = [];
+    for (const id of ids) {
+      const rec = byId.get(id);
+      // A record the auditor sampled but that no longer resolves is reported,
+      // not silently dropped — a missing row would quietly shrink the diff.
+      if (!rec) { out[section].push({ id, items: [] }); continue; }
+
+      const extra = await enrich(deps.zohoToken, section, rec);
+      const judgeItems = itemsForModule(section === "BusinessContacts" ? "BusinessContacts" : mod);
+      const notesJudgments = extra.notesUnavailable
+        ? {}
+        : await judgeNotes(noteText(extra.notes), judgeItems);
+      const scored = scoreRecord(team, section, {
+        record: rec as RecordContext["record"],
+        window: { startISO: window.startISO, endISO: window.endISO },
+        stageCategory: deps.stageCategory,
+        sourceCategory: deps.sourceCategory,
+        notesJudgments,
+        ...extra,
+      });
+
+      let items = scored;
+      if (!extra.notesUnavailable) {
+        const blanks = blankCandidates(scored);
+        if (blanks.length > 0) {
+          const labels = (team === "admissions" ? adminMap : bdMap).items as Record<string, { label?: string }>;
+          const excused = await judgeExcusedBlanks(
+            noteText(extra.notes),
+            blanks.map((item) => ({ item, label: labels[item]?.label ?? item })),
+          );
+          items = applyExcusedBlanks(scored, excused).results;
+        }
+      }
+      out[section].push({ id, items });
+    }
+  }
+  return out;
 }

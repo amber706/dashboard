@@ -16,7 +16,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { auditWindowFor, coqlBounds } from "./window.ts";
 import { getCachedZohoAccessToken, zohoTokenWorks } from "./zoho.ts";
 import { getGoogleAccessToken } from "./google-auth.ts";
-import { auditRep, type RosterRep } from "./audit-rep.ts";
+import { auditRep, replayRecords, type RosterRep } from "./audit-rep.ts";
 import { notifyAuditors, shareAndNotify, type RepResult } from "./notify.ts";
 import { judgeDiagnostics } from "./notes-judge.ts";
 import type { Team } from "./sheets.ts";
@@ -97,6 +97,20 @@ Deno.serve(async (req) => {
   let rosterQuery = supabase
     .from("crm_jail_roster").select("*").eq("active", true).order("team").order("full_name");
   if (onlyRep) rosterQuery = rosterQuery.eq("zoho_user_id", onlyRep);
+  // Replay: score an explicit record set (the one a human auditor sampled) and
+  // return raw item results for diffing. No sheets, no notifications.
+  if (body.replay && typeof body.replay === "object") {
+    const rp = body.replay as { team: Team; records: Record<string, string[]> };
+    try {
+      const scored = await replayRecords(rp.team, window, rp.records, {
+        zohoToken, googleToken, driveId: DRIVE_ID, stageCategory, sourceCategory, dryRun: true,
+      });
+      return json({ window, replay: true, team: rp.team, scored });
+    } catch (e) {
+      return json({ error: "REPLAY_FAILED", detail: String(e) }, 500);
+    }
+  }
+
   const { data: roster, error: rosterErr } = await rosterQuery;
   if (rosterErr) return json({ error: "ROSTER_FAILED", detail: rosterErr.message }, 500);
 

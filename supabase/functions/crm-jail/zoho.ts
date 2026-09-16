@@ -256,6 +256,23 @@ const RELATED_FIELDS: Record<string, string> = {
   Deals: "id,Deal_Name,Stage,Created_Time",
 };
 
+/**
+ * Fetches specific records by id. Used by the replay harness, which must score
+ * the exact records a human auditor sampled — comparing against a different
+ * draw would measure sampling noise, not rule agreement.
+ */
+export async function fetchByIds(
+  token: string,
+  module: string,
+  ids: string[],
+): Promise<Record<string, unknown>[]> {
+  if (ids.length === 0) return [];
+  const select = MODULE_SELECT[module];
+  if (!select) throw new Error(`No select list defined for module ${module}`);
+  const quoted = ids.map((i) => `'${i}'`).join(",");
+  return await coql(token, `select ${select} from ${module} where id in (${quoted}) limit 200`);
+}
+
 export async function fetchRelated(
   token: string,
   module: string,
