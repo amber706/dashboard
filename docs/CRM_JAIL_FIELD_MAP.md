@@ -201,3 +201,25 @@ They score ~5/9: M1–M4 and M6 pass (M2 is a presence check, so the auto-title 
 M5 fails because `Who_Id` is null and M7/M8 fail because "Left Card and Flyer with front desk" is
 neither an agenda nor a next step. That is real feedback about an incomplete meeting record, not a
 bot artifact — do not "fix" it.
+
+## CA6 is conditional on who the call was with
+
+`Contact_Type` on Contacts is a verified picklist: `-None-`, `Alumni`, `Lead`, `Family/Friend`,
+**`Business Contact`**, `Employee`, `Vendor`.
+
+Amber's rule (2026-09-16): a call should **always** have an associated contact (CA5) and **always**
+have notes (CA7/CA8) — both unconditional. An associated **company** (CA6) is expected *only* when
+the linked contact is a `Business Contact`. A Lead, a Family/Friend or anyone else has no company
+to associate, so CA6 is **N/A** and leaves both sides of the fraction.
+
+Scored flat, CA6 failed every call to a client or family member. On Mike Mcluty's 9/7–9/13 card it
+was 0 on all five sampled calls; four were calls to Leads. Only the fifth (Nick Regna, a Business
+Contact with no company on the call) was a real miss.
+
+Resolving this costs one extra COQL per sampled call — the Call's `Who_Id` is a lookup, so the
+contact has to be fetched to read its `Contact_Type`. An unreadable type **defers** rather than
+guessing, and a call with no contact at all is N/A rather than 0, since CA5 already fails for it.
+
+**Not changed:** M6 "Associated Company" on Meetings is still unconditional. BD meetings are with
+partner organisations, so a company is expected every time — but if meetings with non-business
+contacts turn out to be normal, M6 needs the same treatment.
