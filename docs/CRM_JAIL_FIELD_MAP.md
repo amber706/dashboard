@@ -216,9 +216,14 @@ Scored flat, CA6 failed every call to a client or family member. On Mike Mcluty'
 was 0 on all five sampled calls; four were calls to Leads. Only the fifth (Nick Regna, a Business
 Contact with no company on the call) was a real miss.
 
+A call with **no contact at all fails CA6** (0), it is not exempt — Amber, 2026-09-16: "no contact
+is a fail". The tempting reading is N/A, since CA5 already penalises the missing contact, but a
+call logged against nobody cannot be verified against a company either, and letting it leave the
+denominator would reward the emptiest record of all.
+
 Resolving this costs one extra COQL per sampled call — the Call's `Who_Id` is a lookup, so the
 contact has to be fetched to read its `Contact_Type`. An unreadable type **defers** rather than
-guessing, and a call with no contact at all is N/A rather than 0, since CA5 already fails for it.
+guessing.
 
 **Not changed:** M6 "Associated Company" on Meetings is still unconditional. BD meetings are with
 partner organisations, so a company is expected every time — but if meetings with non-business

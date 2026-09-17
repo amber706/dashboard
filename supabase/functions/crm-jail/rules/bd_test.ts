@@ -55,9 +55,11 @@ Deno.test("CA6 only applies when the call is with a Business Contact", () => {
   }
 });
 
-Deno.test("CA6 does not charge twice when the contact itself is missing", () => {
-  // CA5 already fails for a call with no contact; CA6 must not pile on.
-  assertEquals(s(CALL_RULES.CA6(ctx({ Who_Id: null, What_Id: null }))), "N/A");
+Deno.test("a call with no contact fails CA6 — it is not exempt", () => {
+  // Amber, 2026-09-16: "no contact is a fail". An empty call must not escape
+  // into N/A just because CA5 already caught it.
+  assertEquals(s(CALL_RULES.CA6(ctx({ Who_Id: null, What_Id: null }))), 0);
+  assertEquals(s(CALL_RULES.CA6(ctx({ Who_Id: null, What_Id: { id: "9" } }))), 0);
 });
 
 Deno.test("CA6 defers rather than guessing when the contact type is unreadable", () => {

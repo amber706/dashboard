@@ -60,13 +60,15 @@ const judged = (item: string): RuleFn => (c) => {
 const BUSINESS_CONTACT = "Business Contact";
 
 const callAssociatedCompany: RuleFn = (c) => {
-  // No contact at all: CA5 already fails for that, and "anything other than a
-  // business contact" does not need a company. Do not charge twice for one miss.
+  // No contact at all is a fail, not an exemption (Amber, 2026-09-16). It is
+  // tempting to call this N/A because CA5 already penalises it, but a call
+  // logged against nobody cannot be verified against a company either, and
+  // letting it leave the denominator rewards the emptiest record of all.
   if (!lookupPresent(c.record.Who_Id)) {
     return {
       item: "",
-      score: "N/A",
-      explanation: "No associated contact, so no company is expected — see CA5.",
+      score: 0,
+      explanation: "No associated contact on the call, so no company could be verified either.",
     };
   }
   if (c.whoContactType === null) {
