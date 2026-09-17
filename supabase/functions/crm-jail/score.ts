@@ -224,8 +224,11 @@ export function buildWrites(
       // rather than repeating it five times behind record numbers.
       const bare = list.map((t) => t.replace(/^#\d+: /, ""));
       const same = bare.every((t) => t === bare[0]);
+      // Name WHICH records failed. "All N sampled" counted the failures, not
+      // the sample, so two misses out of five read as every record failing.
+      const which = list.map((t) => (t.match(/^(#\d+):/) ?? [])[1]).filter(Boolean);
       const value = same
-        ? (list.length === 1 ? bare[0] : `All ${list.length} sampled: ${bare[0]}`)
+        ? (list.length === 1 ? bare[0] : `${which.join(", ")}: ${bare[0]}`)
         : list.join(" · ");
       writes.push({ a1: explanationCellFor(team, item), value });
     }

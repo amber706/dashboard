@@ -191,7 +191,7 @@ Deno.test("a blank field says which field, using the template's own wording", ()
   );
 });
 
-Deno.test("one shared reason is stated once, not repeated per record", () => {
+Deno.test("one shared reason is stated once, naming which records failed", () => {
   const rec = { record: { id: "1" }, name: "c", url: "u", createdDisplay: "d" };
   const { writes } = buildWrites(
     { rep: "R", team: "bd", auditor: "a@x.com", windowFrom: "9/7/2026", windowTo: "9/13/2026" },
@@ -208,6 +208,6 @@ Deno.test("one shared reason is stated once, not repeated per record", () => {
   );
   assertEquals(
     writes.find((w) => w.a1 === explanationCellFor("bd", "CA9"))?.value,
-    "All 3 sampled: Not met: Next call or meeting is scheduled on the record.",
+    "#1, #2, #3: Not met: Next call or meeting is scheduled on the record.",
   );
 });
