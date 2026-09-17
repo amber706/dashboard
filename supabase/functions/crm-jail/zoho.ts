@@ -36,7 +36,7 @@ export const MODULE_SELECT: Record<string, string> = {
     "BD_Rep", "Business_Contact_Name", "Referring_Contact_Business_Contact",
     "Insurance_Type", "Private_Insurance_Company", "AHCCCS_Insurance_Provider",
     "DOB", "Member_ID", "Insurance_Policy_Type",
-    "Created_Time", "Modified_Time",
+    "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
   Contacts: [
@@ -44,7 +44,7 @@ export const MODULE_SELECT: Record<string, string> = {
     "Emergency_Contact_Name", "Emergency_Contact_Phone_Number",
     "Contact_Type", "Owner", "Business_Contact_Role",
     "Account_Name", "Associated_Facility",
-    "Created_Time", "Modified_Time",
+    "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
   Deals: [
@@ -58,7 +58,7 @@ export const MODULE_SELECT: Record<string, string> = {
     "Referred_Out", "Outbound_Referral_BD_Rep", "Refer_Out_Type",
     "Admitted_at_Referred_Facility", "Refer_Out_Date",
     "Lost_Reasoning", "Close_Reasoning_DUI",
-    "Created_Time", "Modified_Time",
+    "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
   Accounts: [
@@ -69,7 +69,7 @@ export const MODULE_SELECT: Record<string, string> = {
     "In_Network_Payers_Accepted", "OON_Preferred_Policies",
     "Level_of_Care", "States_Services_Are_Provided_In", "What_do_they_treat",
     "Date_of_Next_Scheduled_Contact",
-    "Created_Time", "Modified_Time",
+    "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
   // "'$se_module'" (single-quoted, verified against live COQL) returns the
@@ -79,13 +79,13 @@ export const MODULE_SELECT: Record<string, string> = {
   // ("Made Contact"), not prose, so CA7/CA8 read Description, never Call_Result.
   Calls: [
     "id", "Subject", "Call_Start_Time", "Owner", "Who_Id", "What_Id", "'$se_module'",
-    "Call_Purpose", "Call_Result", "Description", "Created_Time", "Modified_Time",
+    "Call_Purpose", "Call_Result", "Description", "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
   Events: [
     "id", "Event_Title", "Start_DateTime", "End_DateTime", "Owner",
     "Who_Id", "What_Id", "'$se_module'", "Description", "Venue",
-    "Created_Time", "Modified_Time",
+    "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 };
 
@@ -215,6 +215,39 @@ export const ACTIVITY_DATE_FIELD: Record<string, string> = {
   Calls: "Call_Start_Time",
 };
 
+/**
+ * A record belongs in the sample only if the REP touched it in the window.
+ *
+ * Amber caught this on Sabrina Johnson's 9/7-9/13 scorecard: it sampled a lead
+ * created 2026-05-05. The lead qualified because Modified_Time fell in the
+ * window — but Modified_By was our own backfill-gclid-to-zoho edge function,
+ * not Sabrina. Modified_Time is a ROW-CHANGED stamp, and on this org's Leads it
+ * is moved constantly by machines: CTM's Zoho integration upserts by phone on
+ * every call and re-touches roughly every six hours, our gclid backfill runs
+ * hourly, and push-google-conversions writes as well. Last_Activity_Time is no
+ * better — on that same lead it is identical to Modified_Time.
+ *
+ * Reading "the row changed" as "the rep worked it" pulled records the rep had
+ * not opened in four months into an audit that decides whether they go to jail.
+ * It also made the draw unstable: Kristen Capito qualified when the audit ran
+ * and stopped qualifying three hours later when a bot re-stamped her.
+ *
+ * So a record qualifies two ways, and neither trusts an unattributed edit:
+ *   created in the window  — it landed in the rep's queue that week, whoever
+ *                            keyed it in, and working it is the rep's job
+ *   modified in the window BY THE REP — they actually edited it
+ *
+ * The trade-off is deliberate: a lead the rep edited on Tuesday and a bot
+ * re-stamped on Thursday carries the bot as Modified_By and drops out. Missing
+ * a record the rep did work is a far cheaper error than scoring one they never
+ * touched.
+ *
+ * Activities (Calls, Events) are exempt — they window on when the call or
+ * meeting happened, which is rep work by definition.
+ *
+ * The inner parentheses around the Modified_Time range are NOT decorative:
+ * COQL syntax-errors on `a and b and c` inside an `or` branch at this depth.
+ */
 export function buildWindowQuery(
   module: string,
   selectFields: string,
@@ -226,7 +259,8 @@ export function buildWindowQuery(
   const when = activityField
     ? `${activityField} >= '${bounds.from}' and ${activityField} < '${bounds.toExclusive}'`
     : `(Created_Time >= '${bounds.from}' and Created_Time < '${bounds.toExclusive}') ` +
-      `or (Modified_Time >= '${bounds.from}' and Modified_Time < '${bounds.toExclusive}')`;
+      `or ((Modified_Time >= '${bounds.from}' and Modified_Time < '${bounds.toExclusive}') ` +
+      `and Modified_By = '${ownerId}')`;
   return `select ${selectFields} from ${module} ` +
     `where Owner = '${ownerId}' and (${when}) ` +
     `limit ${PAGE_SIZE} offset ${offset}`;

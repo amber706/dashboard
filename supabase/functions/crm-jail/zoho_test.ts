@@ -90,6 +90,46 @@ Deno.test("record modules have no activity date and keep created-or-modified", (
   }
 });
 
+// Sabrina Johnson's 9/7-9/13 scorecard sampled a lead created 2026-05-05: it
+// qualified on Modified_Time, but the modifier was our own gclid backfill, not
+// her. An unattributed row change is not rep work.
+Deno.test("a record modified in the window counts only if the REP modified it", () => {
+  for (const m of ["Leads", "Contacts", "Deals", "Accounts"]) {
+    const q = buildWindowQuery(m, "id", "REP1", bounds, 0);
+    assertStringIncludes(q, "Modified_By = 'REP1'");
+  }
+});
+
+// COQL syntax-errors on `a and b and c` inside an `or` branch at this depth, so
+// the Modified_Time range has to be parenthesised on its own. Verified live
+// against Zoho 2026-09-17 — the unparenthesised form returns SYNTAX_ERROR.
+Deno.test("the modified-by-rep branch keeps its own parentheses", () => {
+  const q = buildWindowQuery("Leads", "id", "REP1", bounds, 0);
+  assertStringIncludes(
+    q,
+    `or ((Modified_Time >= '${bounds.from}' and Modified_Time < '${bounds.toExclusive}') ` +
+      `and Modified_By = 'REP1')`,
+  );
+});
+
+// Creation is not attributed to the rep on purpose: CTM keys in almost every
+// lead, and a lead that lands in the rep's queue on Monday is theirs to work.
+Deno.test("creation inside the window needs no modifier attribution", () => {
+  const q = buildWindowQuery("Leads", "id", "REP1", bounds, 0);
+  assertStringIncludes(
+    q,
+    `(Created_Time >= '${bounds.from}' and Created_Time < '${bounds.toExclusive}')`,
+  );
+});
+
+// A call or a meeting IS the rep's work — there is nothing for a bot to fake.
+Deno.test("activities are not narrowed by modifier", () => {
+  for (const m of ["Calls", "Events"]) {
+    const q = buildWindowQuery(m, "id", "REP1", bounds, 0);
+    assertEquals(q.includes("Modified_By ="), false);
+  }
+});
+
 Deno.test("every activity date field is actually selected, or it filters on a null", () => {
   for (const [m, field] of Object.entries(ACTIVITY_DATE_FIELD)) {
     assertStringIncludes(MODULE_SELECT[m], field);
