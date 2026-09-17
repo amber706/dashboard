@@ -12,8 +12,10 @@ import { isPresent, isProperCase, loggedSameDay, lookupPresent } from "./helpers
 
 type RuleFn = (c: RecordContext) => Score | ItemResult;
 
-const field = (name: string): RuleFn => (c) => (isPresent(c.record[name]) ? 1 : 0);
-const lookup = (name: string): RuleFn => (c) => (lookupPresent(c.record[name]) ? 1 : 0);
+const field = (name: string): RuleFn => (c) =>
+  isPresent(c.record[name]) ? 1 : { item: "", score: 0, reasonKind: "blank" };
+const lookup = (name: string): RuleFn => (c) =>
+  lookupPresent(c.record[name]) ? 1 : { item: "", score: 0, reasonKind: "notLinked" };
 
 /**
  * Language items.

@@ -4,7 +4,14 @@
 // already fetched, so the whole scoring surface is testable offline.
 
 import type { CellWrite, Team } from "./sheets.ts";
-import { cellFor, dailyCellFor, explanationCellFor, headerCell, identityCellsFor } from "./sheets.ts";
+import {
+  cellFor,
+  dailyCellFor,
+  explanationCellFor,
+  headerCell,
+  identityCellsFor,
+  labelFor,
+} from "./sheets.ts";
 import type { ItemResult, RecordContext, SampledRecord, Score } from "./types.ts";
 import { CONTACT_RULES, DAILY_RULES, DEAL_RULES, LEAD_RULES } from "./rules/admissions.ts";
 import { BC_RULES, BD_DAILY_RULES, CALL_RULES, COMPANY_RULES, MEETING_RULES } from "./rules/bd.ts";
@@ -143,6 +150,23 @@ function cellValue(score: Score): string | number | null {
  * asserts that again before sending, but building it correctly here means the
  * assertion should never fire.
  */
+/**
+ * The sentence written next to a 0.
+ *
+ * The template tells the auditor: "Every time you score a 0, write what was
+ * missing in the Explanation column. That's what the rep gets coached on." A
+ * 0 with an empty explanation is an unfinished line, so every 0 gets one —
+ * the rule's own words when it has them, otherwise the template's wording for
+ * that item.
+ */
+function reasonFor(team: Team, r: ItemResult): string {
+  if (r.explanation) return r.explanation;
+  const label = labelFor(team, r.item);
+  if (r.reasonKind === "blank") return `${label} is blank on the record.`;
+  if (r.reasonKind === "notLinked") return `${label} is not linked on the record.`;
+  return `Not met: ${label}.`;
+}
+
 export function buildWrites(
   header: AuditHeader,
   sections: SectionResult[],
@@ -165,7 +189,9 @@ export function buildWrites(
     const v = cellValue(d.score);
     if (v === null) { deferred++; continue; }
     writes.push({ a1: dailyCellFor(team, d.item), value: v });
-    if (d.explanation) writes.push({ a1: explanationCellFor(team, d.item), value: d.explanation });
+    if (d.score === 0 || d.explanation) {
+      writes.push({ a1: explanationCellFor(team, d.item), value: reasonFor(team, d) });
+    }
   }
 
   for (const sec of sections) {
@@ -186,15 +212,22 @@ export function buildWrites(
         const v = cellValue(r.score);
         if (v === null) { deferred++; continue; }
         writes.push({ a1: cellFor(team, r.item, i), value: v });
-        if (r.score === 0 && r.explanation) {
+        if (r.score === 0) {
           const list = reasons.get(r.item) ?? [];
-          list.push(`#${i + 1}: ${r.explanation}`);
+          list.push(`#${i + 1}: ${reasonFor(team, r)}`);
           reasons.set(r.item, list);
         }
       }
     });
     for (const [item, list] of reasons) {
-      writes.push({ a1: explanationCellFor(team, item), value: list.join(" · ") });
+      // When every sampled record failed for the same reason, say it once
+      // rather than repeating it five times behind record numbers.
+      const bare = list.map((t) => t.replace(/^#\d+: /, ""));
+      const same = bare.every((t) => t === bare[0]);
+      const value = same
+        ? (list.length === 1 ? bare[0] : `All ${list.length} sampled: ${bare[0]}`)
+        : list.join(" · ");
+      writes.push({ a1: explanationCellFor(team, item), value });
     }
   }
 

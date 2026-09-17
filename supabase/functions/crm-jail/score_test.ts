@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { applyExcusedBlanks, blankCandidates, buildWrites, displayName, scoreRecord, toSampledRecord, type SectionResult } from "./score.ts";
-import { isComputedCell } from "./sheets.ts";
+import { explanationCellFor, isComputedCell } from "./sheets.ts";
 import type { ItemResult, RecordContext } from "./types.ts";
 
 function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {}): RecordContext {
@@ -149,5 +149,65 @@ Deno.test("the excuse reason is written into the explanation for the auditor", (
   assertEquals(
     results[0].explanation,
     "Blank explained in the note: Client refused to give a DOB over the phone.",
+  );
+});
+
+// The template's own instruction: "Every time you score a 0, write what was
+// missing in the Explanation column. That's what the rep gets coached on."
+// Amber caught A5 scored 0 with an empty Explanation on Ben Coulter's card.
+// Only the LLM-judged items ever wrote a reason; every deterministic 0 was
+// silently blank, which is a scorecard a rep cannot be coached from.
+Deno.test("every 0 carries an explanation, never a blank cell", () => {
+  const { writes } = buildWrites(
+    { rep: "Ben Coulter", team: "bd", auditor: "a@x.com", windowFrom: "9/7/2026", windowTo: "9/13/2026" },
+    [],
+    [
+      { item: "A5", score: 0 },
+      { item: "A4", score: 1 },
+    ],
+  );
+  const a5Explanation = writes.find((w) => w.a1 === explanationCellFor("bd", "A5"));
+  assertEquals(
+    a5Explanation?.value,
+    "Not met: Every meeting that occurred in the window was logged the same day.",
+  );
+  // A 1 needs no explanation.
+  assertEquals(writes.find((w) => w.a1 === explanationCellFor("bd", "A4")), undefined);
+});
+
+Deno.test("a blank field says which field, using the template's own wording", () => {
+  const { writes } = buildWrites(
+    { rep: "R", team: "bd", auditor: "a@x.com", windowFrom: "9/7/2026", windowTo: "9/13/2026" },
+    [{
+      section: "Calls",
+      records: [{ record: { id: "1" }, name: "c1", url: "u", createdDisplay: "d" }],
+      results: [[{ item: "CA6", score: 0, reasonKind: "notLinked" }]],
+    }],
+    [],
+  );
+  assertEquals(
+    writes.find((w) => w.a1 === explanationCellFor("bd", "CA6"))?.value,
+    "Associated Company is not linked on the record.",
+  );
+});
+
+Deno.test("one shared reason is stated once, not repeated per record", () => {
+  const rec = { record: { id: "1" }, name: "c", url: "u", createdDisplay: "d" };
+  const { writes } = buildWrites(
+    { rep: "R", team: "bd", auditor: "a@x.com", windowFrom: "9/7/2026", windowTo: "9/13/2026" },
+    [{
+      section: "Calls",
+      records: [rec, rec, rec],
+      results: [
+        [{ item: "CA9", score: 0 }],
+        [{ item: "CA9", score: 0 }],
+        [{ item: "CA9", score: 0 }],
+      ],
+    }],
+    [],
+  );
+  assertEquals(
+    writes.find((w) => w.a1 === explanationCellFor("bd", "CA9"))?.value,
+    "All 3 sampled: Not met: Next call or meeting is scheduled on the record.",
   );
 });

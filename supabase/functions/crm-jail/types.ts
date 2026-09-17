@@ -9,6 +9,12 @@ export interface ItemResult {
   score: Score;
   /** Written to the Explanation column when the score is 0 or DEFER. */
   explanation?: string;
+  /**
+   * Why a 0 happened, for helpers that know the shape of the failure but not
+   * the item's template wording. Resolved into a sentence in buildWrites,
+   * which is the only place that has both the item id and the label.
+   */
+  reasonKind?: "blank" | "notLinked";
 }
 
 export interface ZohoRecord {

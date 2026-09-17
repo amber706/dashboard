@@ -18,7 +18,7 @@ interface TemplateMap {
   explanationColumn: string;
   header: Record<string, string>;
   identity: { name: number[]; link: number[]; date: number[] };
-  items: Record<string, { row: number }>;
+  items: Record<string, { row: number; label: string }>;
   computedCells: string[];
 }
 
@@ -55,6 +55,15 @@ export function explanationCellFor(team: Team, item: string): string {
   const row = MAPS[team].items[item]?.row;
   if (!row) throw new Error(`No template row for item ${item} on ${team}`);
   return `${MAPS[team].explanationColumn}${row}`;
+}
+
+/**
+ * The template's own wording for an item, used to explain a 0 to the rep.
+ * The template instructions say every 0 gets an explanation — "that's what the
+ * rep gets coached on" — so a score with no reason is an unfinished scorecard.
+ */
+export function labelFor(team: Team, item: string): string {
+  return MAPS[team].items[item]?.label ?? item;
 }
 
 /** The three identity cells (name, link, created) for one sampled record. */
