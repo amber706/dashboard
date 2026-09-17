@@ -24,6 +24,7 @@ function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {})
     futureActivityCount: 0,
     accountOwnerId: null,
     whatIdModule: null,
+    whoContactType: null,
     ...over,
   };
 }

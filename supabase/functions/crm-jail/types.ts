@@ -62,6 +62,13 @@ export interface RecordContext {
   accountOwnerId: string | null;
   /** Module that a polymorphic What_Id points at, e.g. "Accounts" or "Deals". */
   whatIdModule: string | null;
+  /**
+   * Contact_Type of the contact this activity is linked to, e.g. "Business
+   * Contact", "Lead", "Family/Friend". Null when there is no linked contact or
+   * the lookup could not be resolved. CA6 turns on it: only a business contact
+   * is expected to have a company behind them.
+   */
+  whoContactType: string | null;
   /** Raw Stage -> normalized category, from reporting.stage_mapping. */
   stageCategory: (raw: unknown) => string | null;
   /** Raw Source Category -> normalized, from reporting.source_category_mapping. */

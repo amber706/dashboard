@@ -42,6 +42,50 @@ const judged = (item: string): RuleFn => (c) => {
   return { item, score: v.score, explanation: v.reason };
 };
 
+/**
+ * CA6 "Associated Company" on a Call is CONDITIONAL, not universal.
+ *
+ * Amber, 2026-09-16: a call should always have an associated contact, and if
+ * that contact is a Business Contact it should also have an associated
+ * company — but for a Lead, a Family/Friend, or anyone else there is no
+ * company to associate, so the line does not apply.
+ *
+ * Scoring it as a flat requirement failed every call to a client or family
+ * member. On Mike Mcluty's 9/7-9/13 card CA6 was 0 on all five sampled calls,
+ * costing 5 points for records that were never expected to have a company.
+ *
+ * Contact_Type is a verified picklist: -None-, Alumni, Lead, Family/Friend,
+ * Business Contact, Employee, Vendor.
+ */
+const BUSINESS_CONTACT = "Business Contact";
+
+const callAssociatedCompany: RuleFn = (c) => {
+  // No contact at all: CA5 already fails for that, and "anything other than a
+  // business contact" does not need a company. Do not charge twice for one miss.
+  if (!lookupPresent(c.record.Who_Id)) {
+    return {
+      item: "",
+      score: "N/A",
+      explanation: "No associated contact, so no company is expected — see CA5.",
+    };
+  }
+  if (c.whoContactType === null) {
+    return {
+      item: "",
+      score: "DEFER",
+      explanation: "Could not read the linked contact's Contact Type.",
+    };
+  }
+  if (c.whoContactType !== BUSINESS_CONTACT) {
+    return {
+      item: "",
+      score: "N/A",
+      explanation: `Contact is a ${c.whoContactType}, not a Business Contact, so no company applies.`,
+    };
+  }
+  return relatedToAccount(c);
+};
+
 const fullName = (c: RecordContext) =>
   `${c.record.First_Name ?? ""} ${c.record.Last_Name ?? ""}`.trim();
 
@@ -96,7 +140,7 @@ export const CALL_RULES: Record<string, RuleFn> = {
   CA3: field("Call_Start_Time"),
   CA4: lookup("Owner"),
   CA5: lookup("Who_Id"), // labelled "Contact Name"
-  CA6: relatedToAccount,
+  CA6: callAssociatedCompany,
   CA7: judged("CA7"),
   CA8: judged("CA8"),
   CA9: hasFutureActivity,

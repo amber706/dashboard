@@ -79,7 +79,7 @@ async function enrich(
   token: string,
   section: string,
   record: Record<string, unknown>,
-): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule">> {
+): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule" | "whoContactType">> {
   const mod = MODULE_FOR[section];
   const id = String(record.id);
   const safe = async <T>(fn: () => Promise<T>, fallback: T): Promise<T> => {
@@ -124,6 +124,16 @@ async function enrich(
 
   const accountOwnerId = null; // resolved by the caller when C11 is in scope
 
+  // CA6 is conditional on who the call was with, so the linked contact's type
+  // has to be resolved. Left null on a failed lookup rather than guessed — the
+  // rule defers instead of inventing a verdict.
+  let whoContactType: string | null = null;
+  const whoId = record.Who_Id as { id?: string } | null;
+  if (section === "Calls" && whoId && typeof whoId === "object" && whoId.id) {
+    const [contact] = await safe(() => fetchByIds(token, "Contacts", [String(whoId.id)]), []);
+    if (contact) whoContactType = String(contact.Contact_Type ?? "") || null;
+  }
+
   return {
     notes,
     notesUnavailable,
@@ -133,6 +143,7 @@ async function enrich(
     futureActivityCount,
     accountOwnerId,
     whatIdModule: whatIdModuleOf(record),
+    whoContactType,
   };
 }
 

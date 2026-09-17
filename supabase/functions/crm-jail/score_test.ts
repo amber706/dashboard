@@ -11,7 +11,7 @@ function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {})
     sourceCategory: (r) => (r === "Business Development" ? "business_development" : null),
     window: { startISO: "2026-09-07", endISO: "2026-09-13" },
     notesJudgments: {},
-    relatedDealCount: 0, futureActivityCount: 0, accountOwnerId: null, whatIdModule: null,
+    relatedDealCount: 0, futureActivityCount: 0, accountOwnerId: null, whatIdModule: null, whoContactType: null,
     ...over,
   };
 }

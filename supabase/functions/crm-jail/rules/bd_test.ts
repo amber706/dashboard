@@ -9,7 +9,7 @@ function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {})
     stageCategory: () => null, sourceCategory: () => null,
     window: { startISO: "2026-08-31", endISO: "2026-09-06" },
     notesJudgments: {},
-    relatedDealCount: 0, futureActivityCount: 0, accountOwnerId: null, whatIdModule: null,
+    relatedDealCount: 0, futureActivityCount: 0, accountOwnerId: null, whatIdModule: null, whoContactType: null,
     ...over,
   };
 }
@@ -26,12 +26,48 @@ Deno.test("CA1 fails a call logged days after it occurred", () => {
   assertEquals(s(CALL_RULES.CA1(ctx({ Call_Start_Time: "2026-09-04T17:20:00Z", Created_Time: "2026-09-04T17:47:00Z" }))), 1);
 });
 
-Deno.test("CA6 requires Related To to point at a Company, not just be set", () => {
-  // Kenny failed this 5/5.
-  assertEquals(s(CALL_RULES.CA6(ctx({ What_Id: null }))), 0);
-  assertEquals(s(CALL_RULES.CA6(ctx({ What_Id: { id: "9" } }, { whatIdModule: "Accounts" }))), 1);
-  // Pointing at a Deal is not "Associated Company".
-  assertEquals(s(CALL_RULES.CA6(ctx({ What_Id: { id: "9" } }, { whatIdModule: "Deals" }))), 0);
+// Amber, 2026-09-16: a call always needs an associated contact, and only if
+// that contact is a Business Contact does it also need an associated company.
+// A Lead or a Family/Friend has no company to associate. Scored as a flat
+// requirement, CA6 failed every call to a client or a family member — 0 on all
+// five of Mike Mcluty's sampled calls, for records never expected to have one.
+Deno.test("CA6 only applies when the call is with a Business Contact", () => {
+  const withContact = { Who_Id: { id: "7" }, What_Id: { id: "9" } };
+
+  assertEquals(
+    s(CALL_RULES.CA6(ctx(withContact, { whoContactType: "Business Contact", whatIdModule: "Accounts" }))),
+    1,
+  );
+  // A business contact whose Related To points at a Deal is still a miss.
+  assertEquals(
+    s(CALL_RULES.CA6(ctx(withContact, { whoContactType: "Business Contact", whatIdModule: "Deals" }))),
+    0,
+  );
+  // ...and one with no company at all.
+  assertEquals(
+    s(CALL_RULES.CA6(ctx({ Who_Id: { id: "7" }, What_Id: null }, { whoContactType: "Business Contact" }))),
+    0,
+  );
+
+  // Anyone else: the line does not apply.
+  for (const type of ["Lead", "Family/Friend", "Alumni", "Employee", "Vendor"]) {
+    assertEquals(s(CALL_RULES.CA6(ctx(withContact, { whoContactType: type }))), "N/A", type);
+  }
+});
+
+Deno.test("CA6 does not charge twice when the contact itself is missing", () => {
+  // CA5 already fails for a call with no contact; CA6 must not pile on.
+  assertEquals(s(CALL_RULES.CA6(ctx({ Who_Id: null, What_Id: null }))), "N/A");
+});
+
+Deno.test("CA6 defers rather than guessing when the contact type is unreadable", () => {
+  const out = CALL_RULES.CA6(ctx({ Who_Id: { id: "7" }, What_Id: null }, { whoContactType: null }));
+  assertEquals(s(out), "DEFER");
+});
+
+Deno.test("CA5 requires an associated contact on every call, unconditionally", () => {
+  assertEquals(s(CALL_RULES.CA5(ctx({ Who_Id: null }))), 0);
+  assertEquals(s(CALL_RULES.CA5(ctx({ Who_Id: { id: "7" } }))), 1);
 });
 
 Deno.test("CA9 uses a forward-looking activity query — no field backs it", () => {
