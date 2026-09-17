@@ -61,7 +61,7 @@ module or the other. Rules are therefore defined per module, never shared across
 | L4 | Email | `Email` |
 | L5 | Emergency Contact | `Emergency_Contact_Name` + `Emergency_Contact_Phone_Number` |
 | L6 | Contact Type | `Contact_Type` |
-| L7 | Interaction Status | **`Lead_Status`** (label is "Interaction Status") |
+| L7 | Interaction Status | **`Lead_Status`** (label is "Interaction Status"). Not a presence check: a lead still reading "Pending Initial Contact…" scores 0, because that is the value every lead is created with. Windows that closed before 2026-09-14 defer instead — CTM reset this field on every call until Amber turned off "Overwrite Always" that day. |
 | L8 | Interaction Owner | **`Owner`** (label is "Interaction Owner") |
 | L9 | How Did You Hear About Us | `How_Did_You_Hear_About_Us` |
 | L10 | Treatment or Court Services | **`DUI_or_Treatment`** |

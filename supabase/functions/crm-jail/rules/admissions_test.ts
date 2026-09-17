@@ -45,9 +45,53 @@ Deno.test("L5 requires BOTH emergency contact fields", () => {
   assertEquals(s(LEAD_RULES.L5(ctx({ Emergency_Contact_Name: "Jo" }))), 0);
 });
 
-Deno.test("L7 reads Lead_Status, which is labelled Interaction Status", () => {
-  assertEquals(s(LEAD_RULES.L7(ctx({ Lead_Status: "Pending Initial Contact" }))), 1);
-  assertEquals(s(LEAD_RULES.L7(ctx({ Lead_Status: null }))), 0);
+// Windows either side of the day Amber turned off CTM's "Overwrite Always" on
+// Interaction Status (2026-09-14). Before it, a Pending status may not be the
+// rep's doing; after it, it is.
+const POST_CTM_FIX = { startISO: "2026-09-14", endISO: "2026-09-20" };
+const PRE_CTM_FIX = { startISO: "2026-09-07", endISO: "2026-09-13" };
+
+Deno.test("L7 fails a lead still sitting at Pending Initial Contact", () => {
+  assertEquals(
+    s(LEAD_RULES.L7(ctx(
+      { Lead_Status: "Pending Initial Contact: Urgent Follow Up Needed" },
+      { window: POST_CTM_FIX },
+    ))),
+    0,
+  );
+});
+
+Deno.test("L7 passes any status the rep has moved the lead to", () => {
+  for (const status of ["Unable to Contact: Follow Up Needed", "Junk/Spam/Sales", "Wrong Number"]) {
+    assertEquals(s(LEAD_RULES.L7(ctx({ Lead_Status: status }, { window: POST_CTM_FIX }))), 1);
+  }
+});
+
+Deno.test("L7 scores a blank Interaction Status 0, not DEFER", () => {
+  assertEquals(s(LEAD_RULES.L7(ctx({ Lead_Status: null }, { window: POST_CTM_FIX }))), 0);
+  assertEquals(s(LEAD_RULES.L7(ctx({ Lead_Status: "  " }, { window: POST_CTM_FIX }))), 0);
+});
+
+// The rep may have advanced the status and had CTM reset it. Charging them for
+// a system bug is the one outcome worse than missing the finding.
+Deno.test("L7 defers Pending in a window that closed before the CTM fix", () => {
+  assertEquals(
+    s(LEAD_RULES.L7(ctx(
+      { Lead_Status: "Pending Initial Contact: Urgent Follow Up Needed" },
+      { window: PRE_CTM_FIX },
+    ))),
+    "DEFER",
+  );
+  // A blank is still a blank — CTM never wrote an empty status.
+  assertEquals(s(LEAD_RULES.L7(ctx({ Lead_Status: null }, { window: PRE_CTM_FIX }))), 0);
+});
+
+Deno.test("L7 explains the failure in the rep's own words", () => {
+  const r = LEAD_RULES.L7(ctx(
+    { Lead_Status: "Pending Initial Contact: Urgent Follow Up Needed" },
+    { window: POST_CTM_FIX },
+  )) as ItemResult;
+  assertEquals(r.explanation?.includes("Pending Initial Contact"), true);
 });
 
 Deno.test("L13 reads Lead_Score_Rating, not Lead_Score", () => {

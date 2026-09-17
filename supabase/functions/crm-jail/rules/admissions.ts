@@ -101,6 +101,48 @@ const sameDayTouched: RuleFn = (item) => ({
   explanation: "Same-day logging is not derivable from Zoho timestamps — score by hand.",
 });
 
+/**
+ * L7 "Interaction Status" — Lead_Status.
+ *
+ * Presence alone is worth nothing here. Every lead is BORN "Pending Initial
+ * Contact: Urgent Follow Up Needed" — it is the CTM integration's default
+ * value on create — so a blank check handed out a free point on every record.
+ * Amber, 2026-09-17: once a rep touches the lead the status has to move off
+ * Pending. A sampled lead is by definition one the rep created or modified in
+ * the window, so "touched" needs no separate test.
+ *
+ * Before 2026-09-14 this would have been unfair rather than strict: CTM's Zoho
+ * field mapping carried Interaction Status with "Overwrite Zoho Value =
+ * Always", so every repeat call reset a correctly-advanced lead back to
+ * Pending. Amber set that row to Never on 2026-09-14. Windows that closed
+ * before the fix defer instead of failing — the rep may well have set the
+ * status and had it stomped.
+ */
+const CTM_OVERWRITE_FIXED_ON = "2026-09-14";
+const PENDING_INITIAL = "pending initial contact";
+
+const interactionStatus: RuleFn = (c) => {
+  const raw = String(c.record.Lead_Status ?? "").trim();
+  if (raw === "") return { item: "", score: 0, reasonKind: "blank" };
+  if (!raw.toLowerCase().startsWith(PENDING_INITIAL)) return 1;
+  if (c.window.endISO < CTM_OVERWRITE_FIXED_ON) {
+    return {
+      item: "",
+      score: "DEFER",
+      explanation:
+        `Interaction Status is "${raw}", but until ${CTM_OVERWRITE_FIXED_ON} the CTM ` +
+        `integration reset this field to Pending on every call — score by hand.`,
+    };
+  }
+  return {
+    item: "",
+    score: 0,
+    explanation:
+      `Interaction Status is still "${raw}". It has to be moved off Pending Initial ` +
+      `Contact once the lead has been worked.`,
+  };
+};
+
 const fullName = (c: RecordContext) =>
   `${c.record.First_Name ?? ""} ${c.record.Last_Name ?? ""}`.trim();
 
@@ -111,7 +153,7 @@ export const LEAD_RULES: Record<string, RuleFn> = {
   L4: field("Email"),
   L5: allOf("Emergency_Contact_Name", "Emergency_Contact_Phone_Number"),
   L6: field("Contact_Type"),
-  L7: field("Lead_Status"), // labelled "Interaction Status"
+  L7: interactionStatus, // labelled "Interaction Status"
   L8: lookup("Owner"), // labelled "Interaction Owner"
   L9: field("How_Did_You_Hear_About_Us"),
   L10: field("DUI_or_Treatment"), // labelled "Treatment or Court Services"
