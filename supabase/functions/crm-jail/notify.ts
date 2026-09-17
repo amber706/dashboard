@@ -48,7 +48,17 @@ export function buildShareMessage(
     `The score is not final until you have reviewed it. Nothing has been sent to ${rep}.`;
 }
 
-/** Summary sheet rows. Employee-level facts only — no client names, no record ids. */
+/**
+ * Summary sheet rows. Employee-level facts only — no client names, no record ids.
+ *
+ * Jail renders "—" when the run did not carry a verdict, NOT "No". The score
+ * is computed by the scorecard's own formulas, so a notify-only send — which
+ * reads crm_jail_runs and never opens a sheet — has no verdict to report. It
+ * printed "No" for every rep on 2026-09-17 while Sabrina Johnson's own
+ * scorecard read "Materially Non-Compliant · JAIL: YES". A blank that sends the
+ * auditor to the scorecard is safe; a confident "No" is how someone skips a
+ * jail assignment.
+ */
 export function buildSummaryRows(w: AuditWindowLabel, results: RepResult[]): string[][] {
   const header = ["Rep", "Team", "Score", "Status", "Jail", "Cells needing you", "Scorecard"];
   const body = results.map((r) => [
@@ -56,7 +66,7 @@ export function buildSummaryRows(w: AuditWindowLabel, results: RepResult[]): str
     r.team ?? "",
     r.score ?? "—",
     r.status,
-    r.jail ? "Yes" : "No",
+    r.jail === undefined ? "— open the scorecard" : r.jail ? "Yes" : "No",
     String(r.deferredCells ?? 0),
     r.sheetUrl ?? r.error ?? "",
   ]);

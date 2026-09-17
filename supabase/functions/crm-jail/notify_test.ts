@@ -131,3 +131,24 @@ Deno.test("cc gets every scorecard, and an auditor on cc is not mailed twice", a
   // team's auditor, who has nothing new to review.
   assertEquals(sent.filter(([f]) => f === "sum").map(([, e]) => e), ["aaron@x.com", "amber@x.com"]);
 });
+
+// The 2026-09-17 admissions send printed "Jail: No" for all nine reps because a
+// notify-only send reads crm_jail_runs, which stores no verdict. Sabrina
+// Johnson's own scorecard said JAIL: YES. A missing verdict must read as
+// missing.
+Deno.test("an unknown jail verdict is not reported as No", () => {
+  const rows = buildSummaryRows(
+    { startISO: "2026-09-07", endISO: "2026-09-13", label: "9/7-9/13/2026" },
+    [{ rep: "Sabrina Johnson", team: "admissions", status: "ok", deferredCells: 49 }],
+  );
+  const row = rows[rows.length - 1];
+  assertEquals(row[4], "— open the scorecard");
+});
+
+Deno.test("a verdict the run does carry is still reported plainly", () => {
+  const w = { startISO: "2026-09-07", endISO: "2026-09-13", label: "9/7-9/13/2026" };
+  const yes = buildSummaryRows(w, [{ rep: "A", status: "ok", jail: true }]);
+  const no = buildSummaryRows(w, [{ rep: "B", status: "ok", jail: false }]);
+  assertEquals(yes[yes.length - 1][4], "Yes");
+  assertEquals(no[no.length - 1][4], "No");
+});
