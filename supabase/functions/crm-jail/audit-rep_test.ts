@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import { dailyResults } from "./audit-rep.ts";
 
 Deno.test("admissions A3 passes only when everything touched was logged same day", () => {
@@ -38,4 +38,47 @@ Deno.test("deferred daily items carry a reason the auditor can act on", () => {
   const a1 = dailyResults("bd", {}).find((r) => r.item === "A1");
   assertEquals(a1?.score, "DEFER");
   assertEquals(typeof a1?.explanation === "string" && a1.explanation.length > 0, true);
+});
+
+// Section A EOD items. A2/A3 on BD, A1/A2 on admissions.
+Deno.test("a rep who filed every expected day passes, and 'complete' follows", () => {
+  const eod = { expectedDays: ["2026-09-08", "2026-09-09"], missing: [], late: [], any: true };
+  const bd = dailyResults("bd", {}, eod);
+  assertEquals(bd.find((r) => r.item === "A2")?.score, 1);
+  assertEquals(bd.find((r) => r.item === "A3")?.score, 1);
+  const adm = dailyResults("admissions", {}, eod);
+  assertEquals(adm.find((r) => r.item === "A1")?.score, 1);
+  assertEquals(adm.find((r) => r.item === "A2")?.score, 1);
+});
+
+Deno.test("missing and late days are named, and holidays are already excluded", () => {
+  const eod = {
+    expectedDays: ["2026-09-08", "2026-09-09", "2026-09-11"],
+    missing: ["2026-09-11"],
+    late: ["2026-09-09"],
+    any: true,
+  };
+  const a2 = dailyResults("bd", {}, eod).find((r) => r.item === "A2")!;
+  assertEquals(a2.score, 0);
+  assertStringIncludes(a2.explanation ?? "", "no EOD on 9/11");
+  assertStringIncludes(a2.explanation ?? "", "filed late on 9/9");
+  assertStringIncludes(a2.explanation ?? "", "Holidays and weekends are already excluded");
+});
+
+// The sheets were dead for seven months and nobody noticed. Scoring an
+// unreadable sheet as 0 would put that failure on a rep's record.
+Deno.test("unreadable EOD sheets DEFER, they never fail the rep", () => {
+  const bd = dailyResults("bd", {}, null);
+  assertEquals(bd.find((r) => r.item === "A2")?.score, "DEFER");
+  assertEquals(bd.find((r) => r.item === "A3")?.score, "DEFER");
+});
+
+Deno.test("no EOD at all in the window fails 'complete'", () => {
+  const eod = { expectedDays: ["2026-09-08"], missing: ["2026-09-08"], late: [], any: false };
+  assertEquals(dailyResults("bd", {}, eod).find((r) => r.item === "A3")?.score, 0);
+});
+
+Deno.test("a window with no working days is N/A, not a miss", () => {
+  const eod = { expectedDays: [], missing: [], late: [], any: false };
+  assertEquals(dailyResults("bd", {}, eod).find((r) => r.item === "A2")?.score, "N/A");
 });

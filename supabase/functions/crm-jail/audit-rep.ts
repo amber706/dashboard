@@ -8,6 +8,8 @@
 // slow and pointless when only 5 per section are scored.
 
 import { fetchByIds, fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
+import { EOD_SHEETS, fetchEodValues, judgeEod, parseEodSheet, rowsForRep, type EodRow } from "./eod.ts";
+import { expectedEodDays } from "./holidays.ts";
 import { sampleRecords, sampleSeed } from "./sampler.ts";
 import { judgeExcusedBlanks, judgeNotes, judgeDiagnostics } from "./notes-judge.ts";
 import { itemsForModule } from "./notes-judge.ts";
@@ -161,6 +163,8 @@ async function enrich(
 }
 
 export interface AuditDeps {
+  /** Every active rep on the team, so a first-name-only EOD row can be resolved. */
+  rosterNames?: string[];
   zohoToken: string;
   googleToken: string;
   driveId: string;
@@ -255,7 +259,11 @@ export async function auditRep(
     };
   }
 
-  const daily = dailyResults(team, allWindowRecords);
+  // EOD sheets are Google, not Zoho, so this costs no CRM quota.
+  const eod = await eodContextFor(
+    deps.googleToken, team, rep.full_name, deps.rosterNames ?? [rep.full_name], window,
+  );
+  const daily = dailyResults(team, allWindowRecords, eod);
 
   const { writes, deferredCells } = buildWrites(
     {
@@ -289,16 +297,90 @@ export async function auditRep(
   };
 }
 
+/**
+ * The EOD picture for one rep, or null when the sheets could not be read.
+ *
+ * Null means DEFER, never 0: a sheet the bot cannot open is not evidence that
+ * a rep filed nothing. Both EOD pipes were silently dead for seven months and
+ * nobody noticed — scoring that as a rep failure would have been the same
+ * mistake with a person's name on it.
+ */
+export interface EodContext {
+  expectedDays: string[];
+  missing: string[];
+  late: string[];
+  any: boolean;
+}
+
+/** Reads both of a team's EOD sheets and judges one rep against the window. */
+export async function eodContextFor(
+  googleToken: string,
+  team: Team,
+  repFullName: string,
+  rosterNames: string[],
+  window: { startISO: string; endISO: string },
+): Promise<EodContext | null> {
+  try {
+    const grids = await Promise.all(
+      (EOD_SHEETS[team] ?? []).map((id) => fetchEodValues(googleToken, id)),
+    );
+    const rows: EodRow[] = grids.flatMap((g) => parseEodSheet(g));
+    const mine = rowsForRep(rows, repFullName, rosterNames);
+    if (mine === null) return null; // ambiguous rep name — do not guess
+    // BD is weekdays only (Amber). Admissions covers weekends, so every
+    // non-holiday day counts until told otherwise.
+    const expectedDays = expectedEodDays(window.startISO, window.endISO, team === "bd");
+    return { expectedDays, ...judgeEod(expectedDays, mine) };
+  } catch {
+    return null;
+  }
+}
+
+const dayLabel = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+
+/** A2 on BD, A1 on admissions: filed on every expected day, on the day. */
+function eodSubmitted(eod: EodContext | null): ItemResult {
+  const item = "";
+  if (!eod) return { item, score: "DEFER", explanation: "Could not read the EOD sheets." };
+  if (eod.expectedDays.length === 0) {
+    return { item, score: "N/A", explanation: "No working days in the window." };
+  }
+  if (eod.missing.length === 0 && eod.late.length === 0) return { item, score: 1 };
+  const bits: string[] = [];
+  if (eod.missing.length) bits.push(`no EOD on ${eod.missing.map(dayLabel).join(", ")}`);
+  if (eod.late.length) bits.push(`filed late on ${eod.late.map(dayLabel).join(", ")}`);
+  return {
+    item,
+    score: 0,
+    explanation: `${bits.join("; ")}. Holidays and weekends are already excluded.`,
+  };
+}
+
+/**
+ * A3 on BD, A2 on admissions: the EOD was complete.
+ *
+ * Zoho now enforces the mandatory fields at submission (Amber, 2026-09-17), so
+ * a submission that exists cannot be missing them. The control moved from
+ * detection to prevention and this line simply confirms something was filed.
+ */
+function eodComplete(eod: EodContext | null): ItemResult {
+  const item = "";
+  if (!eod) return { item, score: "DEFER", explanation: "Could not read the EOD sheets." };
+  if (eod.any) return { item, score: 1 };
+  return { item, score: 0, explanation: "No EOD report was submitted in the window." };
+}
+
 /** Section A is scored once per cycle over ALL window activity, not the sample. */
 export function dailyResults(
   team: Team,
   all: Record<string, Record<string, unknown>[]>,
+  eod: EodContext | null = null,
 ): ItemResult[] {
   if (team === "admissions") {
     const touched = [...(all.Leads ?? []), ...(all.Contacts ?? []), ...(all.Deals ?? [])];
     return [
-      { item: "A1", score: DAILY_RULES.A1, explanation: "EOD report — Google Sheet, Phase 2." },
-      { item: "A2", score: DAILY_RULES.A2, explanation: "EOD report — Google Sheet, Phase 2." },
+      { ...eodSubmitted(eod), item: "A1" },
+      { ...eodComplete(eod), item: "A2" },
       { item: "A3", score: DAILY_RULES.A3(touched) },
       { item: "A4", score: DAILY_RULES.A4, explanation: "Daily Census — Google Sheet, Phase 2." },
       { item: "A5", score: DAILY_RULES.A5, explanation: "Daily Census — Google Sheet, Phase 2." },
@@ -307,8 +389,8 @@ export function dailyResults(
   }
   return [
     { item: "A1", score: BD_DAILY_RULES.A1, explanation: "Referral form — Zoho Forms, Phase 2." },
-    { item: "A2", score: BD_DAILY_RULES.A2, explanation: "EOD report — PDFs in Drive, Phase 2." },
-    { item: "A3", score: BD_DAILY_RULES.A3, explanation: "EOD report — PDFs in Drive, Phase 2." },
+    { ...eodSubmitted(eod), item: "A2" },
+    { ...eodComplete(eod), item: "A3" },
     { item: "A4", score: BD_DAILY_RULES.A4(all.Calls ?? []) },
     { item: "A5", score: BD_DAILY_RULES.A5(all.Meetings ?? []) },
     { item: "A6", score: BD_DAILY_RULES.A6, explanation: "Assigned spreadsheet — Phase 2." },

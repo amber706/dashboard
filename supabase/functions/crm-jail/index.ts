@@ -268,6 +268,7 @@ Deno.serve(async (req) => {
     try {
       const r = await auditRep(row, window, bounds, {
         zohoToken, googleToken, driveId: DRIVE_ID, stageCategory, sourceCategory, dryRun,
+        rosterNames: ((roster ?? []) as unknown as Array<RosterRep>).map((x) => x.full_name),
       });
       results.push({
         rep: r.rep, team: r.team, status: r.status, sheetId: r.sheetId, sheetUrl: r.sheetUrl,
