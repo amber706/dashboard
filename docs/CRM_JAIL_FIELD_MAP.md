@@ -249,3 +249,36 @@ This raises Meetings scores on cards built before 2026-09-16, including Mike Mcl
 **Open:** Calls have a `Description` too, and CA7/CA8 currently read only Notes. If the same
 transition happened on calls, `Calls` needs the same treatment and `Description` adding to its
 select list.
+
+## Where a call's narrative lives (CA7/CA8)
+
+Amber, 2026-09-16: *"calls should be going in description and outcome of outgoing call"*, and
+*"if incoming theres another under reason for incoming call"*.
+
+Verified field metadata on `Calls` (33 fields):
+
+| API name | Label | Type |
+|---|---|---|
+| `Description` | Description | textarea |
+| `Call_Result` | Call Result — *"Outcome of Outgoing Call"* on the outbound layout | picklist |
+| `Incoming_Call_Result` | Incoming Call Result | picklist |
+| `Call_Purpose` | Call Purpose — *"Reason for Incoming Call"* on the inbound layout | picklist |
+| `Call_Agenda` | Call Agenda | text |
+| `Call_Type` | Call Type (Inbound / Outbound) | picklist |
+
+**`Description` is the narrative in both directions.** Sampled live: outbound calls carry prose
+there ("Called Felisha to make an introduction… we are going to meet up there"), and so do inbound
+("caller was informing us about a direct admit being in route to Scottsdale OTC"). Across a full
+page of Mike Mcluty's inbound calls, `Call_Purpose`, `Incoming_Call_Result` and `Call_Agenda` were
+all null.
+
+So CA7/CA8 read **`Description`**, folded into the judged text in `enrich()`, plus the Notes related
+list for anyone still using it. Both count; only a call with neither scores 0.
+
+**`Call_Result` is deliberately NOT folded in.** It is a picklist — "Made Contact" — and cannot
+describe a conversation. Folding it in would pass CA7 for every call a rep clicked through without
+writing anything, which is the exact failure the item exists to catch.
+
+**Open:** no template item scores the outcome/reason picklists themselves. If "Outcome of Outgoing
+Call" and "Reason for Incoming Call" should be required fields, that is a NEW scorecard row on the
+BD template, not a change to CA7/CA8.

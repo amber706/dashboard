@@ -95,11 +95,13 @@ async function enrich(
     notesUnavailable = true;
   }
 
-  // Meetings: the agenda and next steps used to be written in the Event's
-  // Description and have since moved to the Notes section (Amber, 2026-09-16).
-  // Both count, so the Description is folded in as a note and M7/M8 only score
-  // 0 when there is nothing in either.
-  const notesIncludeDescription = section === "Meetings";
+  // Where the rep is expected to write the narrative. Meetings moved from the
+  // Event Description to the Notes section and both still count; calls are
+  // expected in the Call's Description outright (Amber, 2026-09-16), with Notes
+  // kept for anyone who used it. Call_Result is deliberately NOT folded in —
+  // it is a picklist outcome ("Made Contact"), and it must never pass CA7 on
+  // its own when there is no narrative behind it.
+  const notesIncludeDescription = section === "Meetings" || section === "Calls";
   const description = notesIncludeDescription ? String(record.Description ?? "").trim() : "";
   if (description !== "") {
     notes = [...notes, { Note_Title: "Description", Note_Content: description }];

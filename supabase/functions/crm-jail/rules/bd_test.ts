@@ -151,3 +151,32 @@ Deno.test("sections without a Description keep the plain no-note wording", () =>
   const out = CALL_RULES.CA7(ctx({}, { notes: [], notesIncludeDescription: false }));
   assertEquals((out as { explanation?: string }).explanation, "No note on the record.");
 });
+
+// Amber, 2026-09-16: "calls should be going in description and outcome of
+// outgoing call", "if incoming theres another under reason for incoming call".
+// Verified against live Zoho: Description is the narrative in BOTH directions,
+// while Call_Result / Incoming_Call_Result / Call_Purpose are picklists.
+// CA7 reads the prose; a picklist outcome must never satisfy it on its own.
+Deno.test("CA7 passes on a call written up in the Description", () => {
+  const c = ctx({ Call_Result: "Made Contact" }, {
+    notes: [{ Note_Title: "Description", Note_Content: "Called Luke to prep him on a referral." }],
+    notesIncludeDescription: true,
+    notesJudgments: { CA7: { score: 1, reason: "Narrative present." } },
+  });
+  assertEquals(s(CALL_RULES.CA7(c)), 1);
+});
+
+Deno.test('"Made Contact" alone is an outcome, not a narrative, so CA7 still fails', () => {
+  // Call_Result is deliberately not folded into the judged text: a picklist
+  // cannot describe a conversation, and letting it count would pass every call
+  // a rep clicked through without writing anything.
+  const out = CALL_RULES.CA7(ctx({ Call_Result: "Made Contact" }, {
+    notes: [],
+    notesIncludeDescription: true,
+  }));
+  assertEquals(s(out), 0);
+  assertEquals(
+    (out as { explanation?: string }).explanation,
+    "Nothing in the Notes section and nothing in the Description.",
+  );
+});

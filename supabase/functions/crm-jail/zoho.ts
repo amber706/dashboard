@@ -75,9 +75,11 @@ export const MODULE_SELECT: Record<string, string> = {
   // "'$se_module'" (single-quoted, verified against live COQL) returns the
   // module What_Id points at. CA6/M6 need it: "Associated Company" is only
   // satisfied when Related To resolves to Accounts, not to a Deal.
+  // Description carries the call narrative; Call_Result is a picklist outcome
+  // ("Made Contact"), not prose, so CA7/CA8 read Description, never Call_Result.
   Calls: [
     "id", "Subject", "Call_Start_Time", "Owner", "Who_Id", "What_Id", "'$se_module'",
-    "Call_Purpose", "Call_Result", "Created_Time", "Modified_Time",
+    "Call_Purpose", "Call_Result", "Description", "Created_Time", "Modified_Time",
   ].join(","),
 
   Events: [
