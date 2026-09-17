@@ -79,7 +79,7 @@ async function enrich(
   token: string,
   section: string,
   record: Record<string, unknown>,
-): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule" | "whoContactType">> {
+): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "notesIncludeDescription" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule" | "whoContactType">> {
   const mod = MODULE_FOR[section];
   const id = String(record.id);
   const safe = async <T>(fn: () => Promise<T>, fallback: T): Promise<T> => {
@@ -93,6 +93,16 @@ async function enrich(
   } catch {
     // Distinguished from "no notes" on purpose — see judged() in the rules.
     notesUnavailable = true;
+  }
+
+  // Meetings: the agenda and next steps used to be written in the Event's
+  // Description and have since moved to the Notes section (Amber, 2026-09-16).
+  // Both count, so the Description is folded in as a note and M7/M8 only score
+  // 0 when there is nothing in either.
+  const notesIncludeDescription = section === "Meetings";
+  const description = notesIncludeDescription ? String(record.Description ?? "").trim() : "";
+  if (description !== "") {
+    notes = [...notes, { Note_Title: "Description", Note_Content: description }];
   }
 
   const attachments = section === "Deals"
@@ -137,6 +147,7 @@ async function enrich(
   return {
     notes,
     notesUnavailable,
+    notesIncludeDescription,
     attachments,
     relatedMeetings,
     relatedDealCount,

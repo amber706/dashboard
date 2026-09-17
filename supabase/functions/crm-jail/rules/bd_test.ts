@@ -124,3 +124,30 @@ Deno.test("BC6 accepts only Associated_Facility, not Company Name", () => {
   assertEquals(s(BC_RULES.BC6(ctx({ Account_Name: { id: "9" } }))), 0);
   assertEquals(s(BC_RULES.BC6(ctx({}))), 0);
 });
+
+// Amber, 2026-09-16: "they were filling out the description field but now its
+// notes. you can use both if theres nothing in either than its a 0." The
+// Event's Description is folded into the notes the judge reads, so a meeting
+// documented in either place counts and only an empty one fails.
+Deno.test("M7 passes on a meeting documented in the Description alone", () => {
+  const c = ctx({}, {
+    notes: [{ Note_Title: "Description", Note_Content: "Account review. Next meeting: 9/23." }],
+    notesIncludeDescription: true,
+    notesJudgments: { M7: { score: 1, reason: "Agenda present." } },
+  });
+  assertEquals(s(MEETING_RULES.M7(c)), 1);
+});
+
+Deno.test("M7 fails only when Notes and Description are both empty, and says so", () => {
+  const out = MEETING_RULES.M7(ctx({}, { notes: [], notesIncludeDescription: true }));
+  assertEquals(s(out), 0);
+  assertEquals(
+    (out as { explanation?: string }).explanation,
+    "Nothing in the Notes section and nothing in the Description.",
+  );
+});
+
+Deno.test("sections without a Description keep the plain no-note wording", () => {
+  const out = CALL_RULES.CA7(ctx({}, { notes: [], notesIncludeDescription: false }));
+  assertEquals((out as { explanation?: string }).explanation, "No note on the record.");
+});

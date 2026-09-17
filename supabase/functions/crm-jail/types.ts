@@ -39,6 +39,13 @@ export interface RecordContext {
   /** Notes attached to the record, newest first. */
   notes: ZohoNote[];
   /**
+   * True when the record's Description has been folded into `notes`. Meetings
+   * only: reps used to write the agenda and next steps in the Event's
+   * Description and have since moved to the Notes section, so both count. Only
+   * used to word the explanation accurately when there is neither.
+   */
+  notesIncludeDescription?: boolean;
+  /**
    * True when the notes fetch ERRORED, as opposed to the record genuinely
    * having none. The difference decides whether a language item scores 0 or
    * defers — a broken fetch must never be read as "the rep wrote no note".

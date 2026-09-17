@@ -36,7 +36,15 @@ const judged = (item: string): RuleFn => (c) => {
   const hasNote = c.notes.some((n) =>
     String(n.Note_Content ?? "").trim() !== "" || String(n.Note_Title ?? "").trim() !== ""
   );
-  if (!hasNote) return { item, score: 0, explanation: "No note on the record." };
+  if (!hasNote) {
+    return {
+      item,
+      score: 0,
+      explanation: c.notesIncludeDescription
+        ? "Nothing in the Notes section and nothing in the Description."
+        : "No note on the record.",
+    };
+  }
   const v = c.notesJudgments[item];
   if (!v) return { item, score: "DEFER", explanation: "Notes judging unavailable." };
   return { item, score: v.score, explanation: v.reason };
