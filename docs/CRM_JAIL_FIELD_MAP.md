@@ -228,3 +228,16 @@ guessing.
 **Not changed:** M6 "Associated Company" on Meetings is still unconditional. BD meetings are with
 partner organisations, so a company is expected every time — but if meetings with non-business
 contacts turn out to be normal, M6 needs the same treatment.
+
+## M7/M8 read the Notes section — this is correct, do not "fix" it
+
+BD reps write meeting agendas and next steps in the Event's **`Description`** field. M7 ("Meeting
+Notes include the agenda") and M8 ("include next steps") read the **Notes related list**, so a
+meeting with a full structured agenda in Description and nothing in Notes scores 0 on both.
+
+That looks like a bug and is not. Amber, 2026-09-16: *"M7/M8 is not the description field it is the
+notes section."* The rep is supposed to put it in Notes. A meeting documented only in Description is
+exactly the miss the audit exists to catch, and the 0 is the correct, intended outcome.
+
+On Mike Mcluty's 9/7–9/13 card this made Meetings 51.1% and the overall 77.3% — a legitimate score
+on this point, not an artefact.
