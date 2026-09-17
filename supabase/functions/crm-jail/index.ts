@@ -84,6 +84,71 @@ Deno.serve(async (req) => {
   });
 
 
+  // Can the bot actually read a given sheet? EOD sheets are created by Zoho in
+  // a person's own Drive, so whether the service account can see one depends on
+  // where it was filed and who shared it — and guessing wrong sends someone
+  // hunting a permission problem that may not exist.
+  if (typeof body.sheet_probe === "string") {
+    try {
+      const gt = await getGoogleAccessToken();
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${body.sheet_probe}` +
+          `?includeGridData=false`,
+        { headers: { Authorization: `Bearer ${gt}` } },
+      );
+      if (!res.ok) {
+        return json({ readable: false, status: res.status, detail: (await res.text()).slice(0, 300) });
+      }
+      const meta = await res.json();
+      return json({
+        readable: true,
+        title: meta.properties?.title,
+        tabs: (meta.sheets ?? []).map((sh: Record<string, Record<string, unknown>>) =>
+          sh.properties?.title
+        ),
+      });
+    } catch (e) {
+      return json({ readable: false, detail: String(e) }, 500);
+    }
+  }
+
+  // Backfill: create an EOD sheet in the CRM Audits drive and append rows to it.
+  //
+  // Both EOD pipes had been silently dead for months (BD's Google auth lapsed,
+  // the admissions Zap stopped), so ~90 days of submissions exist only inside
+  // Zoho Forms. Zoho pushes new entries only and never backfills, so the
+  // history has to be loaded once by hand or A1-A3 cannot be scored for any
+  // window before the pipes were fixed.
+  //
+  // Rows are posted straight from the exported CSV over HTTP. Deliberately a
+  // separate action rather than a general "write any sheet" endpoint: it only
+  // ever creates or appends inside DRIVE_ID.
+  if (body.backfill && typeof body.backfill === "object") {
+    const bf = body.backfill as { title?: string; sheetId?: string; rows?: string[][] };
+    const rows = Array.isArray(bf.rows) ? bf.rows : [];
+    if (rows.length === 0) return json({ error: "BACKFILL_NO_ROWS" }, 400);
+    try {
+      const gt = await getGoogleAccessToken();
+      if (bf.sheetId) {
+        const res = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${bf.sheetId}/values/A1:append` +
+            `?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${gt}`, "content-type": "application/json" },
+            body: JSON.stringify({ values: rows }),
+          },
+        );
+        if (!res.ok) return json({ error: "APPEND_FAILED", detail: await res.text() }, 500);
+        return json({ ok: true, sheetId: bf.sheetId, appended: rows.length });
+      }
+      const made = await createSummarySheet(gt, bf.title ?? "EOD Backfill", rows);
+      return json({ ok: true, sheetId: made.id, url: made.url, appended: rows.length });
+    } catch (e) {
+      return json({ error: "BACKFILL_FAILED", detail: String(e) }, 500);
+    }
+  }
+
   // Auth and taxonomy up front: if any of this is broken, produce nothing.
   let zohoToken: string, googleToken: string;
   let stageCategory: (r: unknown) => string | null;
