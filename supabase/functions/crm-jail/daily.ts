@@ -97,11 +97,12 @@ export function missesFor(
 ): DailyMiss[] {
   const out: DailyMiss[] = [];
   records.forEach((rec, i) => {
+    const forRecord: DailyMiss[] = [];
     for (const r of results[i] ?? []) {
       // 0 only. "N/A" does not apply, 1 passed, and "DEFER" means nobody has
       // judged it yet — none of the three is something a rep can act on.
       if (r.score !== 0) continue;
-      out.push({
+      forRecord.push({
         section,
         recordName: rec.name,
         url: rec.url,
@@ -110,6 +111,7 @@ export function missesFor(
         reason: reasonFor(team, r),
       });
     }
+    out.push(...relevantMisses(section, rec.record, forRecord));
   });
   return out;
 }
@@ -260,4 +262,77 @@ export function dailyTitle(rep: string, dateISO: string): string {
 /** Today in Phoenix. The 8am job runs at 15:00 UTC, which is the same date. */
 export function phoenixToday(now: Date = new Date()): string {
   return new Date(now.getTime() - 7 * 3600_000).toISOString().slice(0, 10);
+}
+
+// ---------------------------------------------------------------------------
+// Relevance: what a rep could actually have captured.
+//
+// The first live dry run produced 220 corrections across 32 of Taylor
+// Bertchie's 34 records for one Thursday. Among them: "WIRELESS CALLER",
+// "TUCSON AZ" and "PHOENIX AZ" — caller-ID rows CTM creates for every inbound
+// call, each carrying a demand for Date of Birth, Member ID and Insurance
+// Policy Type. A list like that gets ignored on day one, and then the whole
+// channel is dead.
+//
+// A blank is only a correction if the rep could have filled it. Three cases
+// where they could not, keyed off Lead_Status:
+//
+//   disqualified — wrong number, spam, a staff call. There is nothing to
+//                  collect; dispositioning it WAS the work.
+//   never reached — the rep called and nobody answered. You cannot take a date
+//                  of birth from someone who did not pick up. The note is still
+//                  expected, so note misses survive; field blanks do not.
+//   not yet worked — still sitting at Pending Initial Contact. The one true
+//                  correction is that it has no disposition, so only that line
+//                  survives.
+//
+// Leads only. Contacts and Deals reach those modules by being worked already,
+// and neither carries a status that means "this was never a real prospect".
+
+/** Not a prospect, or not reachable. Dispositioning it was the whole job. */
+export const DISQUALIFIED_LEAD_STATUSES = [
+  "junk/spam/sales",
+  "wrong number",
+  "hang up",
+  "client care call/hr/admin",
+  "requested no further contact",
+  "dui - service not offered",
+  "dv - service not offered",
+];
+
+/** The rep tried and got nobody. Field blanks are not their doing. */
+export const UNREACHED_LEAD_STATUSES = [
+  "unable to contact: follow up needed",
+  ">10 outreach attempts made, no contact",
+];
+
+/** Items that survive "never reached" — logging the attempt is still the job. */
+const NOTE_ITEMS = new Set(["L26", "L27", "C12", "D22", "D23", "D37"]);
+/** Interaction Status. The only correction a never-worked lead can carry. */
+const STATUS_ITEM = "L7";
+
+function statusOf(record: Record<string, unknown>): string {
+  return String(record.Lead_Status ?? "").trim().toLowerCase();
+}
+
+/**
+ * Drops the misses a rep could not have prevented. Returns the misses worth
+ * sending for one record, given the record itself.
+ */
+export function relevantMisses(
+  section: string,
+  record: Record<string, unknown>,
+  misses: DailyMiss[],
+): DailyMiss[] {
+  if (section !== "Leads") return misses;
+  const status = statusOf(record);
+
+  if (DISQUALIFIED_LEAD_STATUSES.includes(status)) return [];
+  if (UNREACHED_LEAD_STATUSES.includes(status)) {
+    return misses.filter((m) => NOTE_ITEMS.has(m.item));
+  }
+  if (status.startsWith("pending initial contact")) {
+    return misses.filter((m) => m.item === STATUS_ITEM);
+  }
+  return misses;
 }

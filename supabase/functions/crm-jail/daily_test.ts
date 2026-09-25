@@ -205,3 +205,73 @@ Deno.test("the 8am job audits the day that just ended", () => {
   const today = phoenixToday(new Date("2026-09-25T15:00:00Z"));
   assertEquals(previousDay(today), "2026-09-24");
 });
+
+// The first live dry run asked Taylor Bertchie to supply a Date of Birth and a
+// Member ID for "WIRELESS CALLER" — a caller-ID row CTM creates for every
+// inbound call. 220 corrections across 32 of 34 records. A list like that is
+// ignored on day one.
+const leadRec = (name: string, id: string, status: string): SampledRecord => ({
+  record: { id, Lead_Status: status },
+  name,
+  url: `https://crm.zoho.com/crm/cornerstone/tab/Leads/${id}`,
+  createdDisplay: "",
+});
+const blanks: ItemResult[] = [
+  { item: "L4", score: 0, reasonKind: "blank" },
+  { item: "L23", score: 0, reasonKind: "blank" },
+  { item: "L26", score: 0, explanation: "No note on the record." },
+];
+
+Deno.test("a disqualified lead carries no corrections at all", () => {
+  for (const status of ["Wrong Number", "Junk/Spam/Sales", "Client Care Call/HR/Admin"]) {
+    const misses = missesFor("admissions", "Leads", [leadRec("X", "1", status)], [blanks]);
+    assertEquals(misses, []);
+  }
+});
+
+Deno.test("a lead nobody reached still owes a note, but not a date of birth", () => {
+  const misses = missesFor(
+    "admissions",
+    "Leads",
+    [leadRec("TUCSON AZ", "1", "Unable to Contact: Follow Up Needed")],
+    [blanks],
+  );
+  assertEquals(misses.map((m) => m.item), ["L26"]);
+});
+
+Deno.test("a lead never dispositioned is told only that", () => {
+  const results: ItemResult[] = [
+    ...blanks,
+    { item: "L7", score: 0, explanation: "Interaction Status is still Pending." },
+  ];
+  const misses = missesFor(
+    "admissions",
+    "Leads",
+    [leadRec("X", "1", "Pending Initial Contact: Urgent Follow Up Needed")],
+    [results],
+  );
+  assertEquals(misses.map((m) => m.item), ["L7"]);
+});
+
+Deno.test("a lead the rep actually worked keeps every miss", () => {
+  const misses = missesFor(
+    "admissions",
+    "Leads",
+    [leadRec("Tarren Compton", "1", "Potential: Still Assessing/Info Missing")],
+    [blanks],
+  );
+  assertEquals(misses.map((m) => m.item), ["L4", "L23", "L26"]);
+});
+
+// Contacts and Deals are reached by being worked; neither carries a status
+// meaning "never a real prospect", so the filter must not touch them.
+Deno.test("the lead-status filter does not reach Contacts or Deals", () => {
+  const rec2: SampledRecord = {
+    record: { id: "1", Lead_Status: "Wrong Number" },
+    name: "X",
+    url: "u",
+    createdDisplay: "",
+  };
+  assertEquals(missesFor("admissions", "Contacts", [rec2], [blanks]).length, 3);
+  assertEquals(missesFor("admissions", "Deals", [rec2], [blanks]).length, 3);
+});
