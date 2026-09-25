@@ -48,3 +48,16 @@ Deno.test("re-deriving a child window from a date inside it is the old bug", () 
   assertEquals(reDerived.startISO, "2026-08-31");
   assertEquals(windowFrom(parent.startISO).startISO, "2026-09-07");
 });
+
+// Delivery is its own cron job (migration 202): crm-jail-weekly writes the
+// scorecards at 16:00 UTC Wednesday and crm-jail-weekly-notify shares them at
+// 16:25. Neither is told the window — each derives it from its own trigger
+// time — so the whole arrangement rests on the two agreeing.
+Deno.test("the audit job and the notify job 25 minutes later agree on the window", () => {
+  const audit = auditWindowFor(new Date("2026-09-30T16:00:00Z"));
+  const notify = auditWindowFor(new Date("2026-09-30T16:25:00Z"));
+  assertEquals(notify.startISO, audit.startISO);
+  assertEquals(notify.endISO, audit.endISO);
+  assertEquals(audit.startISO, "2026-09-21");
+  assertEquals(audit.endISO, "2026-09-27");
+});
