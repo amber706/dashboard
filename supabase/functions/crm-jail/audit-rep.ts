@@ -10,6 +10,7 @@
 import { fetchByIds, fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
 import { EOD_SHEETS, fetchEodValues, judgeEod, parseEodSheet, rowsForRep, type EodRow } from "./eod.ts";
 import { expectedEodDays } from "./holidays.ts";
+import { dailyBounds, missesFor, type DailyMiss } from "./daily.ts";
 import { sampleRecords, sampleSeed } from "./sampler.ts";
 import { judgeExcusedBlanks, judgeNotes, judgeDiagnostics } from "./notes-judge.ts";
 import { itemsForModule } from "./notes-judge.ts";
@@ -23,9 +24,12 @@ import {
   copyTemplate, ensureFolderPath, scorecardFolderPath, scorecardTitle, writeCells, type Team,
 } from "./sheets.ts";
 import { noteText } from "./rules/helpers.ts";
-import type { ItemResult, RecordContext, ZohoNote } from "./types.ts";
+import type { ItemResult, RecordContext, SampledRecord, ZohoNote } from "./types.ts";
 
 const SAMPLE_SIZE = 5;
+
+/** Per-section ceiling on the daily list. Observed real days are ~15 per rep. */
+const DAILY_SECTION_CAP = 50;
 
 const SECTIONS: Record<Team, string[]> = {
   admissions: ["Leads", "Contacts", "Deals"],
@@ -174,6 +178,71 @@ export interface AuditDeps {
   dryRun?: boolean;
 }
 
+/**
+ * Enriches and scores a set of already-chosen records for one section.
+ *
+ * Shared by the weekly scorecard (5 sampled records) and the daily correction
+ * list (every record the rep touched). They must not drift: a rep who fixes
+ * what the daily list asked for and is then failed by the weekly on the same
+ * field would rightly stop trusting both.
+ *
+ * Records are independent, so they enrich and judge together. Serially this was
+ * ~3s of Claude per record on top of several related-list round trips each,
+ * which timed the whole run out at the edge function's wall clock.
+ *
+ * `judgeNotesQuality` is false for the daily list. Whether a note reads as a
+ * clear narrative with a next step is a model's opinion, and it goes to the rep
+ * unreviewed there — that judgment belongs in the weekly, where an auditor sees
+ * it first. A record with NO note still scores 0 either way: judged() returns
+ * that without consulting the judge. The excused-blanks check below always
+ * runs, because skipping it would have the daily nag reps about fields their
+ * note already accounts for.
+ */
+export async function scoreDrawn(
+  team: Team,
+  section: string,
+  mod: string,
+  drawn: Record<string, unknown>[],
+  window: AuditWindowish,
+  deps: AuditDeps,
+  judgeNotesQuality: boolean,
+): Promise<{ records: SampledRecord[]; results: ItemResult[][] }> {
+  const records = drawn.map((r) => toSampledRecord(section, r));
+  const judgeItems = itemsForModule(section === "BusinessContacts" ? "BusinessContacts" : mod);
+
+  const results: ItemResult[][] = await Promise.all(
+    drawn.map(async (r) => {
+      const extra = await enrich(deps.zohoToken, section, r);
+      const notesJudgments = extra.notesUnavailable || !judgeNotesQuality
+        ? {}
+        : await judgeNotes(noteText(extra.notes), judgeItems);
+      const scored = scoreRecord(team, section, {
+        record: r as RecordContext["record"],
+        window: { startISO: window.startISO, endISO: window.endISO },
+        stageCategory: deps.stageCategory,
+        sourceCategory: deps.sourceCategory,
+        notesJudgments,
+        ...extra,
+      });
+
+      // Policy OPS-CRM-001 §2: a blank the note explains is not a miss.
+      // Without this the bot ran 13-25 points below the human auditors.
+      if (extra.notesUnavailable) return scored;
+      const blanks = blankCandidates(scored);
+      if (blanks.length === 0) return scored;
+      const labels = (team === "admissions" ? adminMap : bdMap).items as Record<string, { label?: string }>;
+      const excused = await judgeExcusedBlanks(
+        noteText(extra.notes),
+        blanks.map((item) => ({ item, label: labels[item]?.label ?? item })),
+      );
+      const applied = applyExcusedBlanks(scored, excused);
+      judgeDiagnostics.excused += applied.excusedCount;
+      return applied.results;
+    }),
+  );
+  return { records, results };
+}
+
 export async function auditRep(
   rep: RosterRep,
   window: AuditWindowish,
@@ -207,44 +276,8 @@ export async function auditRep(
     );
     sampled[section] = drawn.length;
 
-    const records = drawn.map((r) => toSampledRecord(section, r));
-    const judgeItems = itemsForModule(section === "BusinessContacts" ? "BusinessContacts" : mod);
-
-    // Sampled records are independent, so enrich and judge them together.
-    // Serially this was ~3s of Claude per record on top of several related-list
-    // round trips each, which timed the whole run out at the edge function's
-    // wall clock.
     const t1 = Date.now();
-    const results: ItemResult[][] = await Promise.all(
-      drawn.map(async (r) => {
-        const extra = await enrich(deps.zohoToken, section, r);
-        const notesJudgments = extra.notesUnavailable
-          ? {}
-          : await judgeNotes(noteText(extra.notes), judgeItems);
-        const scored = scoreRecord(team, section, {
-          record: r as RecordContext["record"],
-          window: { startISO: window.startISO, endISO: window.endISO },
-          stageCategory: deps.stageCategory,
-          sourceCategory: deps.sourceCategory,
-          notesJudgments,
-          ...extra,
-        });
-
-        // Policy OPS-CRM-001 §2: a blank the note explains is not a miss.
-        // Without this the bot ran 13-25 points below the human auditors.
-        if (extra.notesUnavailable) return scored;
-        const blanks = blankCandidates(scored);
-        if (blanks.length === 0) return scored;
-        const labels = (team === "admissions" ? adminMap : bdMap).items as Record<string, { label?: string }>;
-        const excused = await judgeExcusedBlanks(
-          noteText(extra.notes),
-          blanks.map((item) => ({ item, label: labels[item]?.label ?? item })),
-        );
-        const applied = applyExcusedBlanks(scored, excused);
-        judgeDiagnostics.excused += applied.excusedCount;
-        return applied.results;
-      }),
-    );
+    const { records, results } = await scoreDrawn(team, section, mod, drawn, window, deps, true);
     timings.enrichJudgeMs += Date.now() - t1;
     sections.push({ section, records, results });
   }
@@ -457,4 +490,60 @@ export async function replayRecords(
     }
   }
   return out;
+}
+
+/**
+ * One rep, one day, the list of things they can fix this morning.
+ *
+ * Differs from auditRep in three ways, all of them because a rep reads this
+ * unreviewed: every record they touched is scored rather than five sampled
+ * ones, note *quality* is not judged, and only outright misses survive. See
+ * the header of daily.ts for why each of those follows from the audience.
+ *
+ * No calendar logic. A rep who did not work yesterday owns no records from
+ * yesterday and comes back "no_activity", which is the same path a rep on PTO
+ * takes — weekends and holidays need no special case.
+ */
+export async function auditRepDaily(
+  rep: RosterRep,
+  dateISO: string,
+  deps: AuditDeps,
+): Promise<{
+  rep: string;
+  team: Team;
+  recordsChecked: number;
+  misses: DailyMiss[];
+  truncated: boolean;
+}> {
+  const team = rep.team;
+  const bounds = dailyBounds(dateISO);
+  // A single day's window, for the rules that read one — L7 defers on windows
+  // that closed before the CTM Interaction Status fix.
+  const window = { startISO: dateISO, endISO: dateISO, label: dayLabel(dateISO) };
+
+  const misses: DailyMiss[] = [];
+  let recordsChecked = 0;
+  let truncated = false;
+
+  for (const section of SECTIONS[team]) {
+    const mod = MODULE_FOR[section];
+    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
+    if (section === "BusinessContacts") {
+      pool = pool.filter((r) => String(r.Business_Contact_Role ?? "").trim() !== "");
+    }
+    // Every record costs a related-list round trip and possibly a Claude call.
+    // A day that somehow produces hundreds must not take the whole run down;
+    // the overflow is reported rather than silently dropped.
+    if (pool.length > DAILY_SECTION_CAP) {
+      truncated = true;
+      pool = pool.slice(0, DAILY_SECTION_CAP);
+    }
+    if (pool.length === 0) continue;
+    recordsChecked += pool.length;
+
+    const { records, results } = await scoreDrawn(team, section, mod, pool, window, deps, false);
+    misses.push(...missesFor(team, section, records, results));
+  }
+
+  return { rep: rep.full_name, team, recordsChecked, misses, truncated };
 }

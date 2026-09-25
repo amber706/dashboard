@@ -159,7 +159,7 @@ function cellValue(score: Score): string | number | null {
  * the rule's own words when it has them, otherwise the template's wording for
  * that item.
  */
-function reasonFor(team: Team, r: ItemResult): string {
+export function reasonFor(team: Team, r: ItemResult): string {
   if (r.explanation) return r.explanation;
   const label = labelFor(team, r.item);
   if (r.reasonKind === "blank") return `${label} is blank on the record.`;
