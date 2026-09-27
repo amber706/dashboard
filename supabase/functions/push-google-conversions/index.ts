@@ -1,4 +1,9 @@
-// push-google-conversions v40 — v39 plus Zoho-outage resilience.
+// push-google-conversions v41 — v40 plus a correct Admit trigger.
+// CHANGES from v40:
+//   - Admit events (commercial_admit / ahcccs_admit → the $2,000 PRIMARY "Admit - LIVE" actions) now
+//     fire only on a real Admit: Admit_Date set, else Stage 'Closed - Admitted'. Was Probability >= 50,
+//     which also fired for pre-admit stages and Referred Out Unattached. Dated at Admit_Date
+//     (fallback Closing_Date → Created_Time); the 90-day window is on that date, not Modified_Time.
 // CHANGES from v39:
 //   - If the Zoho OAuth token is unavailable (expired/revoked refresh token), no longer 502-bail the
 //     whole run. Skip the Zoho-sourced paths (VOB/admit/leads/DUI-deals/backstop + Zoho writeback) but
@@ -304,12 +309,23 @@ async function fetchZohoVobEvents(zohoToken: string, limit: number): Promise<{ e
 }
 
 async function fetchZohoAdmitEvents(zohoToken: string, limit: number): Promise<{ events: UnifiedEvent[]; tooOld: number }> {
-  const query = `select id, Deal_Name, Pipeline, Probability, Created_Time, Modified_Time, Closing_Date, Email, Phone, Phone_2, City, State, Mailing_Zip, Recovered_GCLID, Contact_Name.id, Contact_Name.First_Name, Contact_Name.Last_Name, Contact_Name.Email, Contact_Name.Phone, Contact_Name.Mobile, Contact_Name.Mailing_City, Contact_Name.Mailing_State, Contact_Name.Mailing_Zip, Contact_Name.GCLID, Contact_Name.Recovered_GCLID from Deals where Probability >= 50 and Conversion_Event_Sent_to_Google = false order by Modified_Time desc limit ${limit}`;
+  // v41: an Admit is Admit_Date set, else Stage 'Closed - Admitted' (METRIC_DEFINITIONS §6 /
+  // CONFIRMED.md #34). This used to be Probability >= 50, which in Zoho also matches PA - Completed,
+  // Pre Screen - Completed (50), Direct Admit / Intake Assessment - Scheduled, Referred Out - Coming
+  // Back (75) and Closed - Referred Out Unattached (100). Those fired the $2,000 PRIMARY Admit action
+  // for people who never admitted — ~460 deals now Closed - Lost were counted as Admits in Google.
+  // Pipeline is filtered in COQL, not just in code: recent ZocDoc/DV admits are never pushed or
+  // stamped, so without it they'd fill the limit and starve the real ones. COQL needs the parens
+  // for more than two conditions.
+  const query = `select id, Deal_Name, Pipeline, Stage, Probability, Admit_Date, Created_Time, Modified_Time, Closing_Date, Email, Phone, Phone_2, City, State, Mailing_Zip, Recovered_GCLID, Contact_Name.id, Contact_Name.First_Name, Contact_Name.Last_Name, Contact_Name.Email, Contact_Name.Phone, Contact_Name.Mobile, Contact_Name.Mailing_City, Contact_Name.Mailing_State, Contact_Name.Mailing_Zip, Contact_Name.GCLID, Contact_Name.Recovered_GCLID from Deals where ((Stage = 'Closed - Admitted' or Admit_Date is not null) and Conversion_Event_Sent_to_Google = false) and Pipeline in ('Commercial-Cash', 'AHCCCS') order by Modified_Time desc limit ${limit}`;
   const rows = await zohoCoql(zohoToken, query);
   const events: UnifiedEvent[] = [];
   let tooOld = 0;
   for (const r of rows) {
-    if (!isWithinDays(r.Modified_Time, MAX_DEAL_AGE_DAYS)) { tooOld++; continue; }
+    if (!r.Admit_Date && r.Stage !== "Closed - Admitted") continue;
+    // Window on the admit itself, not Modified_Time (bumped by any edit, including our writeback).
+    const admitDate = r.Admit_Date ?? r.Closing_Date ?? r.Created_Time;
+    if (!isWithinDays(admitDate, MAX_DEAL_AGE_DAYS)) { tooOld++; continue; }
     let event_type: EventType;
     if (r.Pipeline === "Commercial-Cash") event_type = "commercial_admit";
     else if (r.Pipeline === "AHCCCS")     event_type = "ahcccs_admit";
@@ -327,7 +343,9 @@ async function fetchZohoAdmitEvents(zohoToken: string, limit: number): Promise<{
     const postal_code = pickFirst(r.Mailing_Zip, r["Contact_Name.Mailing_Zip"]);
     const city = pickFirst(r.City, r["Contact_Name.Mailing_City"]);
     const state = pickFirst(r.State, r["Contact_Name.Mailing_State"]);
-    const admitTimeIso = r.Closing_Date ? `${r.Closing_Date}T12:00:00Z` : (r.Created_Time ?? new Date().toISOString());
+    const admitTimeIso = r.Admit_Date ? `${r.Admit_Date}T12:00:00Z`
+      : r.Closing_Date ? `${r.Closing_Date}T12:00:00Z`
+      : (r.Created_Time ?? new Date().toISOString());
     events.push({ event_type, audit_lead_id: r["Contact_Name.id"] ?? null, audit_zoho_id: r.id, email, phone, first_name, last_name, postal_code, city, state, gclid, gclid_source, event_time_iso: admitTimeIso, zoho_module: "Deals", zoho_record_id: r.id, zoho_idempotency_field: "Conversion_Event_Sent_to_Google" });
   }
   return { events, tooOld };
@@ -747,7 +765,7 @@ Deno.serve(async (req) => {
     // was spotted (2026-09-09). The CTM work above is already committed and is still reported here
     // — but the response is marked failed so pg_net's status_code surfaces it.
     const zohoOk = !!zohoToken;
-    return jsonResponse({ ok: zohoOk, ...(zohoOk ? {} : { error: "zoho_auth_unavailable: refresh returned no access token; Zoho-sourced conversions were skipped this run (CTM-sourced still pushed)" }), version: "v40", dry_run: dryRun, zoho_token_ok: zohoOk, max_deal_age_days: MAX_DEAL_AGE_DAYS, api_version: GA_API_VERSION, scanned: { dui_closed_won: dui.events.length, vob: vob.events.length, admit: admit.events.length, zoho_leads: zLeads.events.length, ctm: ctm.events.length, commercial_ctm_45: ctmCommercial.length, commercial_backstop: backstop.events.length }, backstop: { scanned: backstop.scanned, skipped_covered: backstop.skipped_covered, skipped_already_sent: backstop.skipped_already_sent }, pushed, dry_run_only: dryRunOnly, skipped_no_identifier: skippedNoIdent, failed, permanent_failures: permanentFailures, transient_failures: transientFailures, error_breakdown: errorBreakdown, zoho_writeback: zohoWriteback, ctm_call_scores_stamped: totalCtmStamps }, zohoOk ? 200 : 502);
+    return jsonResponse({ ok: zohoOk, ...(zohoOk ? {} : { error: "zoho_auth_unavailable: refresh returned no access token; Zoho-sourced conversions were skipped this run (CTM-sourced still pushed)" }), version: "v41", dry_run: dryRun, zoho_token_ok: zohoOk, max_deal_age_days: MAX_DEAL_AGE_DAYS, api_version: GA_API_VERSION, scanned: { dui_closed_won: dui.events.length, vob: vob.events.length, admit: admit.events.length, zoho_leads: zLeads.events.length, ctm: ctm.events.length, commercial_ctm_45: ctmCommercial.length, commercial_backstop: backstop.events.length }, backstop: { scanned: backstop.scanned, skipped_covered: backstop.skipped_covered, skipped_already_sent: backstop.skipped_already_sent }, pushed, dry_run_only: dryRunOnly, skipped_no_identifier: skippedNoIdent, failed, permanent_failures: permanentFailures, transient_failures: transientFailures, error_breakdown: errorBreakdown, zoho_writeback: zohoWriteback, ctm_call_scores_stamped: totalCtmStamps }, zohoOk ? 200 : 502);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return jsonResponse({ ok: false, error: message }, 500);
