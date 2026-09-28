@@ -148,6 +148,7 @@ export const MASTER_TABS: MasterTab[] = [
       "/ops/training-analytics", "/ops/kb-drafts", "/ops/objections",
       // Admin
       "/admin/leads", "/admin/health", "/admin/audit", "/admin/settings",
+      "/admin/crm-jail",
       "/admin", "/settings",
     ],
     sections: ["Reporting", "Op Reporting", "Analytics", "Quality", "Staffing", "Insights", "Admin"],
