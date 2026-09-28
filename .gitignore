@@ -16,3 +16,13 @@ supabase/.temp/
 .agents/
 .claude/
 skills-lock.json
+
+# Generated workbooks and scratch scripts (spreadsheet builds, EOD backfill
+# CSVs, logos). Working files, not project source.
+output/
+tmp/
+
+# Deno lockfile, created by running the edge-function tests locally. Nothing
+# in the repo or the deploy path reads it today, and committing it would start
+# pinning edge-function deps as a side effect of running tests.
+deno.lock
