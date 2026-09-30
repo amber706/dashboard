@@ -19,7 +19,7 @@ import { getGoogleAccessToken } from "./google-auth.ts";
 import { auditRep, auditRepDaily, replayRecords, type RosterRep } from "./audit-rep.ts";
 import {
   buildDailyMessage, buildDailyRows, buildDigestRows, dailyFolderPath, dailyTitle,
-  phoenixToday, previousDay, type RepDay,
+  phoenixToday, previousDay, repDayFromChild, type RepDay,
 } from "./daily.ts";
 import { notifyAuditors, shareAndNotify, type RepResult } from "./notify.ts";
 import { judgeDiagnostics } from "./notes-judge.ts";
@@ -303,7 +303,9 @@ Deno.serve(async (req) => {
     );
     const to = previewTo ?? rep.email;
     await shareAndNotify(googleToken, sheet.id, to, message);
-    return json({ ...base, status: "sent", sentTo: to, sheetUrl: sheet.url });
+    // misses go back to the dispatcher so the auditor's digest can count them.
+    // Without them every rep reads "0 fields to fix" on the day they were sent 30.
+    return json({ ...base, status: "sent", sentTo: to, sheetUrl: sheet.url, misses: day.misses });
   }
 
   // Dispatcher: fan out one invocation per rep, then summarise what comes back.
@@ -560,30 +562,7 @@ async function dispatchDaily(
           ...(previewTo ? { preview_to: previewTo } : {}),
         }),
       });
-      const b = await res.json();
-      if (!res.ok) {
-        return {
-          rep: rep.full_name, team: rep.team, recordsChecked: 0, misses: [],
-          status: "failed", error: b.detail ?? b.error ?? `HTTP ${res.status}`,
-        };
-      }
-      return {
-        rep: b.rep ?? rep.full_name,
-        team: rep.team,
-        recordsChecked: b.recordsChecked ?? 0,
-        misses: b.misses ?? [],
-        sheetUrl: b.sheetUrl,
-        // The child reports what it did; missCount survives even when the
-        // misses themselves are not returned.
-        status: b.status === "sent"
-          ? "sent"
-          : b.status === "clean"
-          ? "clean"
-          : b.status === "no_activity"
-          ? "no_activity"
-          : "sent",
-        error: undefined,
-      } as RepDay;
+      return repDayFromChild(rep, res.ok, res.status, await res.json());
     } catch (e) {
       return {
         rep: rep.full_name, team: rep.team, recordsChecked: 0, misses: [],
@@ -628,6 +607,7 @@ async function dispatchDaily(
     daily: true, date: dateISO, dryRun, previewTo,
     reps: days.length,
     sent: days.filter((d) => d.status === "sent").length,
+    wouldSend: days.filter((d) => d.status === "dry_run").length,
     clean: days.filter((d) => d.status === "clean").length,
     noActivity: days.filter((d) => d.status === "no_activity").length,
     failed: days.filter((d) => d.status === "failed").map((d) => `${d.rep}: ${d.error}`),

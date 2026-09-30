@@ -53,8 +53,43 @@ export interface RepDay {
   recordsChecked: number;
   misses: DailyMiss[];
   sheetUrl?: string;
-  status: "sent" | "clean" | "no_activity" | "failed";
+  status: "sent" | "dry_run" | "clean" | "no_activity" | "failed";
   error?: string;
+}
+
+/**
+ * What the dispatcher makes of one child's reply. An unrecognised status is a
+ * failure, never "sent": the weekly run's `9 ok / 0 failed` that delivered
+ * nothing is what a hopeful default looks like from the outside.
+ */
+export function repDayFromChild(
+  rep: { full_name: string; team: Team },
+  httpOk: boolean,
+  httpStatus: number,
+  b: Record<string, unknown>,
+): RepDay {
+  const base = { rep: (b.rep as string) ?? rep.full_name, team: rep.team };
+  if (!httpOk) {
+    return {
+      ...base, recordsChecked: 0, misses: [], status: "failed",
+      error: String(b.detail ?? b.error ?? `HTTP ${httpStatus}`),
+    };
+  }
+  const known = ["sent", "dry_run", "clean", "no_activity"] as const;
+  const status = known.find((k) => k === b.status);
+  if (!status) {
+    return {
+      ...base, recordsChecked: 0, misses: [], status: "failed",
+      error: `unexpected child status: ${String(b.status)}`,
+    };
+  }
+  return {
+    ...base,
+    recordsChecked: Number(b.recordsChecked ?? 0),
+    misses: Array.isArray(b.misses) ? (b.misses as DailyMiss[]) : [],
+    sheetUrl: b.sheetUrl as string | undefined,
+    status,
+  };
 }
 
 /** The audited day, as COQL bounds. Midnight to midnight, Phoenix. */
@@ -246,6 +281,7 @@ export function buildDigestRows(dateISO: string, days: RepDay[]): string[][] {
 function labelForStatus(d: RepDay): string {
   if (d.status === "no_activity") return "no records worked";
   if (d.status === "clean") return "nothing to fix";
+  if (d.status === "dry_run") return "dry run, not sent";
   return d.error ?? "";
 }
 

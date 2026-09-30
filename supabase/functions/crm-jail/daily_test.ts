@@ -11,6 +11,7 @@ import {
   missesFor,
   phoenixToday,
   previousDay,
+  repDayFromChild,
   singular,
   type DailyMiss,
   type RepDay,
@@ -274,4 +275,42 @@ Deno.test("the lead-status filter does not reach Contacts or Deals", () => {
   };
   assertEquals(missesFor("admissions", "Contacts", [rec2], [blanks]).length, 3);
   assertEquals(missesFor("admissions", "Deals", [rec2], [blanks]).length, 3);
+});
+
+// The dispatcher used to map any status it did not recognise to "sent", so a
+// whole-team dry run reported fourteen lists sent while sending none.
+const taylor = { full_name: "Taylor Bertchie", team: "admissions" as const };
+const miss: DailyMiss = {
+  section: "Leads", recordName: "Jane D", url: "https://crm.zoho.com/x", item: "L4",
+  label: "Date of Birth", reason: "blank",
+};
+
+Deno.test("a dry-run child is counted as a dry run, not as sent", () => {
+  const d = repDayFromChild(taylor, true, 200, { status: "dry_run", recordsChecked: 12, misses: [miss] });
+  assertEquals(d.status, "dry_run");
+  assertEquals(d.misses.length, 1);
+});
+
+Deno.test("an unrecognised child status is a failure, never sent", () => {
+  const d = repDayFromChild(taylor, true, 200, { status: "something_new" });
+  assertEquals(d.status, "failed");
+  assertStringIncludes(d.error ?? "", "something_new");
+});
+
+Deno.test("an HTTP error from a child is a failure carrying its detail", () => {
+  const d = repDayFromChild(taylor, false, 500, { error: "ZOHO_AUTH_FAILED", detail: "token expired" });
+  assertEquals(d.status, "failed");
+  assertEquals(d.error, "token expired");
+});
+
+// A sent child returns its misses so the digest can count them. Before, the
+// digest read "0 fields to fix" for every rep on every live day.
+Deno.test("a sent child's misses reach the digest counts", () => {
+  const d = repDayFromChild(taylor, true, 200, {
+    status: "sent", recordsChecked: 12, misses: [miss, { ...miss, item: "L23" }],
+    sheetUrl: "https://docs.google.com/spreadsheets/d/abc/edit",
+  });
+  const rows = buildDigestRows("2026-09-24", [d]);
+  const row = rows.find((r) => r[0] === "Taylor Bertchie")!;
+  assertEquals(row[4], "2");
 });
