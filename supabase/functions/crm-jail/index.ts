@@ -536,13 +536,13 @@ function json(payload: unknown, status = 200): Response {
  * Megan a summary, not fourteen people their corrections.
  */
 /**
- * Who gets the daily counts. Both auditors get both teams' digests; the reps'
- * own lists go to the reps.
+ * Who gets each team's daily count. Aaron sees both teams; Megan audits
+ * admissions only. The reps' own lists go to the reps.
  */
-const DIGEST_RECIPIENTS = [
-  "aaron@cornerstonehealingcenter.com",
-  "megan@cornerstonehealingcenter.com",
-];
+const DIGEST_RECIPIENTS: Record<string, string[]> = {
+  admissions: ["aaron@cornerstonehealingcenter.com", "megan@cornerstonehealingcenter.com"],
+  bd: ["aaron@cornerstonehealingcenter.com"],
+};
 
 async function dispatchDaily(
   roster: RosterRep[],
@@ -600,7 +600,7 @@ async function dispatchDaily(
       }
       // Shared one recipient at a time, so one failed share does not cost the
       // other auditor their copy.
-      for (const to of previewTo ? [previewTo] : DIGEST_RECIPIENTS) {
+      for (const to of previewTo ? [previewTo] : DIGEST_RECIPIENTS[team]) {
         try {
           await shareAndNotify(
             googleToken, sheet.id, to,
