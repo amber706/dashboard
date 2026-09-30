@@ -10,7 +10,7 @@
 -- weekends and holidays need no calendar logic.
 --
 -- PREVIEW PHASE. Every rep's list goes to Aaron instead of the rep, and both
--- team digests go to Aaron too. The only live test of this mode so far was one
+-- digests go to Aaron only. The only live test of this mode so far was one
 -- dry run on one rep, and that run produced 220 corrections across 32 of 34
 -- records. Nothing that mails fourteen employees unprompted should reach them
 -- before one person has read a week of it. To go live, a later migration

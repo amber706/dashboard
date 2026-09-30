@@ -535,11 +535,14 @@ function json(payload: unknown, status = 200): Response {
  * Here the parent only owns the manager digest — losing it costs Aaron and
  * Megan a summary, not fourteen people their corrections.
  */
-/** Who gets each team's daily count. The reps' own lists go to the reps. */
-const DIGEST_RECIPIENT: Record<string, string> = {
-  admissions: "megan@cornerstonehealingcenter.com",
-  bd: "aaron@cornerstonehealingcenter.com",
-};
+/**
+ * Who gets the daily counts. Both auditors get both teams' digests; the reps'
+ * own lists go to the reps.
+ */
+const DIGEST_RECIPIENTS = [
+  "aaron@cornerstonehealingcenter.com",
+  "megan@cornerstonehealingcenter.com",
+];
 
 async function dispatchDaily(
   roster: RosterRep[],
@@ -584,21 +587,30 @@ async function dispatchDaily(
     for (const team of ["admissions", "bd"] as const) {
       const mine = days.filter((d) => d.team === team);
       if (mine.length === 0) continue;
-      const to = previewTo ?? DIGEST_RECIPIENT[team];
+      let sheet: { id: string; url: string };
       try {
-        const sheet = await createSummarySheet(
+        sheet = await createSummarySheet(
           googleToken,
           `CRM daily corrections — ${team} — ${dateISO}`,
           buildDigestRows(dateISO, mine),
         );
-        await shareAndNotify(
-          googleToken, sheet.id, to,
-          `Daily CRM corrections for ${dateISO}. Each rep has already been sent ` +
-            `their own list; this is the count. Nothing here has been reviewed.`,
-        );
-        digests.push({ team, url: sheet.url, to });
       } catch (e) {
-        failures.push(`${team} digest -> ${to}: ${String(e)}`);
+        failures.push(`${team} digest: ${String(e)}`);
+        continue;
+      }
+      // Shared one recipient at a time, so one failed share does not cost the
+      // other auditor their copy.
+      for (const to of previewTo ? [previewTo] : DIGEST_RECIPIENTS) {
+        try {
+          await shareAndNotify(
+            googleToken, sheet.id, to,
+            `Daily CRM corrections for ${dateISO}. Each rep has already been sent ` +
+              `their own list; this is the count. Nothing here has been reviewed.`,
+          );
+          digests.push({ team, url: sheet.url, to });
+        } catch (e) {
+          failures.push(`${team} digest -> ${to}: ${String(e)}`);
+        }
       }
     }
   }
