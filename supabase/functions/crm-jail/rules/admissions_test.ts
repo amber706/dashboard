@@ -286,3 +286,14 @@ Deno.test("D39 and D40 still match the names real attachments actually use", () 
   assertEquals(s(DEAL_RULES.D39(ctx({}, { attachments: ["VOB Severns.pdf"] }))), 1);
   assertEquals(s(DEAL_RULES.D40(ctx({}, { attachments: ["PreAssessment.pdf"] }))), 1);
 });
+
+// Jonathan Justice, 2026-09-30: the pre-assessment was attached as
+// "BHRFMentalHealthPA.pdf" and the daily list still asked for one.
+Deno.test("D40 accepts PA as the pre-assessment abbreviation", () => {
+  assertEquals(s(DEAL_RULES.D40(ctx({}, { attachments: ["BHRFMentalHealthPA.pdf"] }))), 1);
+  assertEquals(s(DEAL_RULES.D40(ctx({}, { attachments: ["PA - Jonathan Justice.pdf"] }))), 1);
+});
+
+Deno.test("D40 does not read PA inside another word", () => {
+  assertEquals(s(DEAL_RULES.D40(ctx({}, { attachments: ["PAYMENT.pdf", "Pacific Ins.pdf"] }))), 0);
+});

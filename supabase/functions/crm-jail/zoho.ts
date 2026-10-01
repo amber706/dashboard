@@ -36,6 +36,8 @@ export const MODULE_SELECT: Record<string, string> = {
     "BD_Rep", "Business_Contact_Name", "Referring_Contact_Business_Contact",
     "Insurance_Type", "Private_Insurance_Company", "AHCCCS_Insurance_Provider",
     "DOB", "Member_ID", "Insurance_Policy_Type",
+    // Where reps write the narrative on these modules; folded into notes.
+    "Description",
     "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
@@ -44,6 +46,8 @@ export const MODULE_SELECT: Record<string, string> = {
     "Emergency_Contact_Name", "Emergency_Contact_Phone_Number",
     "Contact_Type", "Owner", "Business_Contact_Role",
     "Account_Name", "Associated_Facility",
+    // Where reps write the narrative on these modules; folded into notes.
+    "Description",
     "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
@@ -58,6 +62,8 @@ export const MODULE_SELECT: Record<string, string> = {
     "Referred_Out", "Outbound_Referral_BD_Rep", "Refer_Out_Type",
     "Admitted_at_Referred_Facility", "Refer_Out_Date",
     "Lost_Reasoning", "Close_Reasoning_DUI",
+    // Where reps write the narrative on these modules; folded into notes.
+    "Description",
     "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 

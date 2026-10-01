@@ -29,6 +29,7 @@
 
 import { labelFor, type Team } from "./sheets.ts";
 import { reasonFor } from "./score.ts";
+import { REFERRED_OUT_STAGES } from "./rules/admissions.ts";
 import type { ItemResult, SampledRecord } from "./types.ts";
 
 const DAY_MS = 86_400_000;
@@ -129,6 +130,7 @@ export function missesFor(
   section: string,
   records: SampledRecord[],
   results: ItemResult[][],
+  stageCategory: (raw: unknown) => string | null = () => null,
 ): DailyMiss[] {
   const out: DailyMiss[] = [];
   records.forEach((rec, i) => {
@@ -146,7 +148,7 @@ export function missesFor(
         reason: reasonFor(team, r),
       });
     }
-    out.push(...relevantMisses(section, rec.record, forRecord));
+    out.push(...relevantMisses(section, rec.record, forRecord, stageCategory));
   });
   return out;
 }
@@ -322,8 +324,13 @@ export function phoenixToday(now: Date = new Date()): string {
 //                  correction is that it has no disposition, so only that line
 //                  survives.
 //
-// Leads only. Contacts and Deals reach those modules by being worked already,
-// and neither carries a status that means "this was never a real prospect".
+// Deals have no lead status, but they have one equivalent: a deal that is
+// already closed lost or referred out. The client is gone, so nothing that has
+// to come from them can be collected now, however the deal got there. The
+// first live list (2026-09-30) asked Sabrina Johnson for a pre-screen on Rene
+// Roberson Ep2, closed Unwilling after he hung up, and on Candi Obrien Ep2,
+// closed Non-Responsive. What the rep sets themselves survives: owner, source,
+// BD attribution, the close reason, the referral fields, the note.
 
 /** Not a prospect, or not reachable. Dispositioning it was the whole job. */
 export const DISQUALIFIED_LEAD_STATUSES = [
@@ -344,6 +351,19 @@ export const UNREACHED_LEAD_STATUSES = [
 
 /** Items that survive "never reached" — logging the attempt is still the job. */
 const NOTE_ITEMS = new Set(["L26", "L27", "C12", "D22", "D23", "D37"]);
+/** Deal items whose answer has to come from the client. */
+export const CLIENT_SOURCED_DEAL_ITEMS = new Set([
+  "D5", // emergency contact
+  "D9", // level of care requested
+  "D10", // age group
+  "D16", "D17", "D18", "D19", "D20", // insurance type, provider, DOB, member ID, policy type
+  "D39", // VOB attached
+  "D40", // pre-screen / pre-assessment attached
+  "D41", // insurance card attached
+]);
+
+const CLOSED_DEAL_CATEGORIES: readonly string[] = ["closed_lost", ...REFERRED_OUT_STAGES];
+
 /** Interaction Status. The only correction a never-worked lead can carry. */
 const STATUS_ITEM = "L7";
 
@@ -359,7 +379,14 @@ export function relevantMisses(
   section: string,
   record: Record<string, unknown>,
   misses: DailyMiss[],
+  stageCategory: (raw: unknown) => string | null = () => null,
 ): DailyMiss[] {
+  if (section === "Deals") {
+    const cat = stageCategory(record.Stage) ?? "";
+    return CLOSED_DEAL_CATEGORIES.includes(cat)
+      ? misses.filter((m) => !CLIENT_SOURCED_DEAL_ITEMS.has(m.item))
+      : misses;
+  }
   if (section !== "Leads") return misses;
   const status = statusOf(record);
 

@@ -11,6 +11,7 @@ import {
   missesFor,
   phoenixToday,
   previousDay,
+  relevantMisses,
   repDayFromChild,
   singular,
   type DailyMiss,
@@ -313,4 +314,40 @@ Deno.test("a sent child's misses reach the digest counts", () => {
   const rows = buildDigestRows("2026-09-24", [d]);
   const row = rows.find((r) => r[0] === "Taylor Bertchie")!;
   assertEquals(row[4], "2");
+});
+
+// Rene Roberson Ep2 and Candi Obrien Ep2, 2026-09-30: both closed lost after
+// the client hung up or went silent, and both were sent a pre-screen to do.
+const dealMiss = (item: string): DailyMiss => ({
+  section: "Deals", recordName: "Rene Roberson Ep2", url: "https://crm.zoho.com/d", item,
+  label: item, reason: "blank",
+});
+const stageCat = (raw: unknown) =>
+  raw === "Closed - Lost (Treatment)" ? "closed_lost"
+    : raw === "Closed - Referred Out Unattached" ? "closed_won_referred_out_unattached"
+    : raw === "Pre Screen - Completed" ? "open"
+    : null;
+const dealItems = (ms: DailyMiss[]) => ms.map((m) => m.item);
+
+Deno.test("a closed-lost deal drops what only the client could supply", () => {
+  const out = relevantMisses(
+    "Deals", { Stage: "Closed - Lost (Treatment)" },
+    ["D5", "D18", "D40", "D41", "D36", "D11"].map(dealMiss), stageCat,
+  );
+  assertEquals(dealItems(out), ["D36", "D11"]);
+});
+
+Deno.test("a referred-out deal drops client items but keeps the referral fields", () => {
+  const out = relevantMisses(
+    "Deals", { Stage: "Closed - Referred Out Unattached" },
+    ["D40", "D41", "D28", "D30"].map(dealMiss), stageCat,
+  );
+  assertEquals(dealItems(out), ["D28", "D30"]);
+});
+
+Deno.test("an open deal keeps every miss, pre-screen included", () => {
+  const out = relevantMisses(
+    "Deals", { Stage: "Pre Screen - Completed" }, ["D5", "D40", "D12"].map(dealMiss), stageCat,
+  );
+  assertEquals(dealItems(out), ["D5", "D40", "D12"]);
 });

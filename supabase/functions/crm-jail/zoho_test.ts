@@ -135,3 +135,9 @@ Deno.test("every activity date field is actually selected, or it filters on a nu
     assertStringIncludes(MODULE_SELECT[m], field);
   }
 });
+
+// Admissions reps write the lead narrative in Description. Without it in the
+// select, the notes fold reads undefined and every such lead "has no note".
+Deno.test("Leads, Contacts and Deals select Description", () => {
+  for (const m of ["Leads", "Contacts", "Deals"]) assertStringIncludes(MODULE_SELECT[m], "Description");
+});

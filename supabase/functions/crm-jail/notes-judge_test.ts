@@ -94,3 +94,15 @@ Deno.test("a failed excuse call excuses nothing rather than everything", () => {
   // Erring the other way would forgive every blank on a judge outage.
   assertEquals(Object.keys(parseExcuseResponse("not json")).length, 0);
 });
+
+// Sabrina Johnson, 2026-09-30: "He said he already had another place picking
+// him up, hung up" and "Caller refused to give insurance" were not read as
+// explaining the blank client fields.
+Deno.test("excuse prompt treats an unreachable or refusing client as explaining client fields", () => {
+  const p = buildExcusePrompt("Caller refused to give insurance. UNABLE TO OBTAIN INSURANCE INFO", [
+    { item: "L21", label: "Insurance Type" },
+  ]);
+  assertStringIncludes(p, "hung up, refused");
+  assertStringIncludes(p, "excuses the insurance fields");
+  assertStringIncludes(p, "never excuses what the rep sets themselves");
+});

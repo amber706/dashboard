@@ -107,7 +107,14 @@ async function enrich(
   // kept for anyone who used it. Call_Result is deliberately NOT folded in —
   // it is a picklist outcome ("Made Contact"), and it must never pass CA7 on
   // its own when there is no narrative behind it.
-  const notesIncludeDescription = section === "Meetings" || section === "Calls";
+  //
+  // Leads, Contacts and Deals too. Admissions reps write the first-call
+  // narrative in the lead's Description, not the Notes section. Reading Notes
+  // alone, the first live daily list (2026-09-30) told Sabrina Johnson that
+  // Logan Mintz had no note while the Description read "Caller refused to give
+  // insurance ... UNABLE TO OBTAIN INSURANCE INFO" — and, seeing no note, never
+  // asked whether that note excused the blank insurance fields.
+  const notesIncludeDescription = section !== "Accounts";
   const description = notesIncludeDescription ? String(record.Description ?? "").trim() : "";
   if (description !== "") {
     notes = [...notes, { Note_Title: "Description", Note_Content: description }];
@@ -542,7 +549,7 @@ export async function auditRepDaily(
     recordsChecked += pool.length;
 
     const { records, results } = await scoreDrawn(team, section, mod, pool, window, deps, false);
-    misses.push(...missesFor(team, section, records, results));
+    misses.push(...missesFor(team, section, records, results, deps.stageCategory));
   }
 
   return { rep: rep.full_name, team, recordsChecked, misses, truncated };
