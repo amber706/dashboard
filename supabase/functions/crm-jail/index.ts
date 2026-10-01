@@ -586,7 +586,9 @@ async function dispatchDaily(
   if (!dryRun) {
     for (const team of ["admissions", "bd"] as const) {
       const mine = days.filter((d) => d.team === team);
-      if (mine.length === 0) continue;
+      // Nobody on the team worked the day (a Saturday, a holiday): no digest.
+      // A summary of zeros is the auditor's version of a "nothing to fix" mail.
+      if (mine.every((d) => d.status === "no_activity")) continue;
       let sheet: { id: string; url: string };
       try {
         sheet = await createSummarySheet(

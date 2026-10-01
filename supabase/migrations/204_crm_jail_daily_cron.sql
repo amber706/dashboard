@@ -3,30 +3,29 @@
 -- Schedule the daily correction lists (see the header of
 -- supabase/functions/crm-jail/daily.ts).
 --
--- 15:00 UTC is 08:00 Phoenix year round (Arizona has no DST), which is the
--- time daily.ts's phoenixToday() and previousDay() were written against: the
--- job audits the day that just ended. It runs every day on purpose. A rep who
--- did not work yesterday owns no records from yesterday and hears nothing, so
--- weekends and holidays need no calendar logic.
+-- 15:10 UTC is 08:10 Phoenix year round (Arizona has no DST). Ten minutes past
+-- the hour on purpose: the reporting-sync-* jobs hit Zoho at :00-:03 every
+-- third hour, 15:00 included. The first live run (2026-09-30, 08:10) covered
+-- all 14 reps in about two minutes.
 --
--- PREVIEW PHASE. Every rep's list goes to Aaron instead of the rep, and both
--- digests go to Aaron only. The only live test of this mode so far was one
--- dry run on one rep, and that run produced 220 corrections across 32 of 34
--- records. Nothing that mails fourteen employees unprompted should reach them
--- before one person has read a week of it. To go live, a later migration
--- reschedules this job without preview_to.
+-- Every day, auditing the day before. Who gets a list is decided by activity,
+-- not by a calendar (Aaron, 2026-10-01):
+--   - A rep with no records created or modified on the audited day was not on
+--     shift and hears nothing. Weekday-only reps get no list on Sunday for
+--     Saturday.
+--   - Friday's list goes out Saturday morning, so it is waiting on Monday.
+--   - A rep who worked and has nothing to fix also hears nothing.
+--   - A team digest is skipped when nobody on the team worked.
 --
--- Zoho load: this checks EVERY record each rep touched, not the weekly's
--- sample of five. Run one whole-team dry run by hand before applying this and
--- note its duration and failures; the weekly's ~575 calls in two minutes is
--- the known ceiling that other syncs tolerate.
+-- Recipients: each rep their own list; admissions digest to Aaron and Megan,
+-- BD digest to Aaron (DIGEST_RECIPIENTS in index.ts).
 
 select cron.unschedule('crm-jail-daily')
 where exists (select 1 from cron.job where jobname = 'crm-jail-daily');
 
 select cron.schedule(
   'crm-jail-daily',
-  '0 15 * * *',
+  '10 15 * * *',
   $$
   select net.http_post(
     url     := 'https://fortdxbbazifklqwydnk.supabase.co/functions/v1/crm-jail',
@@ -35,8 +34,7 @@ select cron.schedule(
       'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key'),
       'Content-Type', 'application/json'
     ),
-    -- Preview: every list and digest goes to Aaron, none to reps.
-    body    := '{"daily": true, "preview_to": "aaron@cornerstonehealingcenter.com"}'::jsonb,
+    body    := '{"daily": true}'::jsonb,
     timeout_milliseconds := 600000
   );
   $$
