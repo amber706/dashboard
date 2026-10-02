@@ -131,6 +131,7 @@ export function missesFor(
   records: SampledRecord[],
   results: ItemResult[][],
   stageCategory: (raw: unknown) => string | null = () => null,
+  auditedDay = "",
 ): DailyMiss[] {
   const out: DailyMiss[] = [];
   records.forEach((rec, i) => {
@@ -148,7 +149,7 @@ export function missesFor(
         reason: reasonFor(team, r),
       });
     }
-    out.push(...relevantMisses(section, rec.record, forRecord, stageCategory));
+    out.push(...relevantMisses(section, rec.record, forRecord, stageCategory, auditedDay));
   });
   return out;
 }
@@ -364,6 +365,14 @@ export const CLIENT_SOURCED_DEAL_ITEMS = new Set([
 
 const CLOSED_DEAL_CATEGORIES: readonly string[] = ["closed_lost", ...REFERRED_OUT_STAGES];
 
+/**
+ * What a meeting booked for a later day can already carry: who, when, with
+ * whom, about what. Logging it the same day it happens (M1), the write-up
+ * (M7/M8) and the follow-up booked after it (M9) only exist once it has
+ * happened.
+ */
+const BOOKING_MEETING_ITEMS = new Set(["M2", "M3", "M4", "M5", "M6"]);
+
 /** Interaction Status. The only correction a never-worked lead can carry. */
 const STATUS_ITEM = "L7";
 
@@ -380,7 +389,15 @@ export function relevantMisses(
   record: Record<string, unknown>,
   misses: DailyMiss[],
   stageCategory: (raw: unknown) => string | null = () => null,
+  auditedDay = "",
 ): DailyMiss[] {
+  if (section === "Meetings") {
+    const start = String(record.Start_DateTime ?? "");
+    const startDay = start ? phoenixToday(new Date(start)) : "";
+    return auditedDay && startDay > auditedDay
+      ? misses.filter((m) => BOOKING_MEETING_ITEMS.has(m.item))
+      : misses;
+  }
   if (section === "Deals") {
     const cat = stageCategory(record.Stage) ?? "";
     return CLOSED_DEAL_CATEGORIES.includes(cat)

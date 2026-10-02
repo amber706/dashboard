@@ -534,7 +534,7 @@ export async function auditRepDaily(
 
   for (const section of SECTIONS[team]) {
     const mod = MODULE_FOR[section];
-    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
+    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds, true);
     if (section === "BusinessContacts") {
       pool = pool.filter((r) => String(r.Business_Contact_Role ?? "").trim() !== "");
     }
@@ -549,7 +549,7 @@ export async function auditRepDaily(
     recordsChecked += pool.length;
 
     const { records, results } = await scoreDrawn(team, section, mod, pool, window, deps, false);
-    misses.push(...missesFor(team, section, records, results, deps.stageCategory));
+    misses.push(...missesFor(team, section, records, results, deps.stageCategory, dateISO));
   }
 
   return { rep: rep.full_name, team, recordsChecked, misses, truncated };

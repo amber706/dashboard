@@ -141,3 +141,14 @@ Deno.test("every activity date field is actually selected, or it filters on a nu
 Deno.test("Leads, Contacts and Deals select Description", () => {
   for (const m of ["Leads", "Contacts", "Deals"]) assertStringIncludes(MODULE_SELECT[m], "Description");
 });
+
+// Joey Masterson and Kenny Reitz, 2026-10-01: each booked a meeting for the
+// following week and nothing else. Windowed on Start alone, both read as idle.
+Deno.test("the daily window also takes activities created that day", () => {
+  const b = { from: "2026-10-01T00:00:00-07:00", toExclusive: "2026-10-02T00:00:00-07:00" };
+  const q = buildWindowQuery("Events", "id", "42", b, 0, true);
+  assertStringIncludes(q, "Start_DateTime >= '2026-10-01T00:00:00-07:00'");
+  assertStringIncludes(q, "or (Created_Time >= '2026-10-01T00:00:00-07:00'");
+  const weekly = buildWindowQuery("Events", "id", "42", b, 0);
+  assertEquals(weekly.includes("Created_Time"), false);
+});

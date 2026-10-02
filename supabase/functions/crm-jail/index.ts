@@ -258,6 +258,39 @@ Deno.serve(async (req) => {
   const { data: roster, error: rosterErr } = await rosterQuery;
   if (rosterErr) return json({ error: "ROSTER_FAILED", detail: rosterErr.message }, 500);
 
+  // Daily digests, built from crm_jail_daily_runs by their own job 30 minutes
+  // after the lists go out. The dispatcher used to send them as its last step,
+  // after awaiting every rep — and on 2026-10-02 the run passed the 150s
+  // gateway limit, the reps' lists went out and neither auditor got a digest.
+  // Same split, same reason, as crm-jail-weekly-notify (migration 202).
+  if (body.daily_digest) {
+    const dateISO = typeof body.date === "string" ? body.date : previousDay(phoenixToday());
+    const previewTo = typeof body.preview_to === "string" ? body.preview_to : null;
+    const { data: rows, error } = await supabase
+      .from("crm_jail_daily_runs").select("*").eq("run_date", dateISO);
+    if (error) return json({ error: "DAILY_RUNS_FAILED", detail: error.message }, 500);
+    const byRep = new Map((rows ?? []).map((r) => [String(r.zoho_user_id), r]));
+    const days: RepDay[] = ((roster ?? []) as unknown as RosterRep[]).map((rep) => {
+      const r = byRep.get(rep.zoho_user_id);
+      if (!r) {
+        return {
+          rep: rep.full_name, team: rep.team, recordsChecked: 0, misses: [],
+          status: "failed", error: "no result recorded — this rep's check did not finish",
+        };
+      }
+      return {
+        rep: rep.full_name, team: rep.team,
+        recordsChecked: Number(r.records_checked ?? 0),
+        misses: (r.misses ?? []) as RepDay["misses"],
+        sheetUrl: r.sheet_url ?? undefined,
+        status: r.status as RepDay["status"],
+        error: r.error_msg ?? undefined,
+      };
+    });
+    const sent = await sendDailyDigests(days, dateISO, previewTo, googleToken);
+    return json({ dailyDigest: true, date: dateISO, reps: days.length, ...sent });
+  }
+
   // Daily corrections. Different artifact, different audience: the weekly
   // scorecard goes to an auditor who decides jail, this goes to the rep so they
   // can fix things the same morning. See the header of daily.ts.
@@ -278,9 +311,20 @@ Deno.serve(async (req) => {
     const rep = reps[0];
     if (!rep) return json({ error: "REP_NOT_ON_ROSTER", rep: onlyRep }, 404);
 
-    const day = await auditRepDaily(rep, dateISO, {
-      zohoToken, googleToken, driveId: DRIVE_ID, stageCategory, sourceCategory, dryRun,
-    });
+    // Every live outcome goes in the ledger the digest job reads — including
+    // "nothing to send", so the digest can tell an idle rep from a check that
+    // never finished.
+    const record = (status: string, extra: Record<string, unknown> = {}) =>
+      dryRun ? Promise.resolve() : recordDaily(supabase, dateISO, rep, status, extra);
+    let day: Awaited<ReturnType<typeof auditRepDaily>>;
+    try {
+      day = await auditRepDaily(rep, dateISO, {
+        zohoToken, googleToken, driveId: DRIVE_ID, stageCategory, sourceCategory, dryRun,
+      });
+    } catch (e) {
+      await record("failed", { error_msg: String(e) });
+      throw e;
+    }
     const base = {
       date: dateISO, rep: rep.full_name, team: rep.team,
       recordsChecked: day.recordsChecked, missCount: day.misses.length,
@@ -288,8 +332,14 @@ Deno.serve(async (req) => {
     };
     // Nothing worked, or nothing wrong. Either way the rep hears nothing —
     // a daily "you have no corrections" mail is how a channel gets muted.
-    if (day.recordsChecked === 0) return json({ ...base, status: "no_activity" });
-    if (day.misses.length === 0) return json({ ...base, status: "clean" });
+    if (day.recordsChecked === 0) {
+      await record("no_activity");
+      return json({ ...base, status: "no_activity" });
+    }
+    if (day.misses.length === 0) {
+      await record("clean", { records_checked: day.recordsChecked });
+      return json({ ...base, status: "clean" });
+    }
 
     const rows = buildDailyRows(rep.full_name, dateISO, day.recordsChecked, day.misses);
     const message = buildDailyMessage(rep.full_name, dateISO, day.recordsChecked, day.misses);
@@ -303,6 +353,9 @@ Deno.serve(async (req) => {
     );
     const to = previewTo ?? rep.email;
     await shareAndNotify(googleToken, sheet.id, to, message);
+    await record("sent", {
+      records_checked: day.recordsChecked, misses: day.misses, sheet_url: sheet.url, sent_to: to,
+    });
     // misses go back to the dispatcher so the auditor's digest can count them.
     // Without them every rep reads "0 fields to fix" on the day they were sent 30.
     return json({ ...base, status: "sent", sentTo: to, sheetUrl: sheet.url, misses: day.misses });
@@ -579,44 +632,8 @@ async function dispatchDaily(
     days.push(...await Promise.all(roster.slice(i, i + CONCURRENCY).map(one)));
   }
 
-  // One digest per team, to that team's auditor. Counts only — the client
-  // detail stays in the rep's own list.
-  const digests: Array<{ team: string; url: string; to: string }> = [];
-  const failures: string[] = [];
-  if (!dryRun) {
-    for (const team of ["admissions", "bd"] as const) {
-      const mine = days.filter((d) => d.team === team);
-      // Nobody on the team worked the day (a Saturday, a holiday): no digest.
-      // A summary of zeros is the auditor's version of a "nothing to fix" mail.
-      if (mine.every((d) => d.status === "no_activity")) continue;
-      let sheet: { id: string; url: string };
-      try {
-        sheet = await createSummarySheet(
-          googleToken,
-          `CRM daily corrections — ${team} — ${dateISO}`,
-          buildDigestRows(dateISO, mine),
-        );
-      } catch (e) {
-        failures.push(`${team} digest: ${String(e)}`);
-        continue;
-      }
-      // Shared one recipient at a time, so one failed share does not cost the
-      // other auditor their copy.
-      for (const to of previewTo ? [previewTo] : DIGEST_RECIPIENTS[team]) {
-        try {
-          await shareAndNotify(
-            googleToken, sheet.id, to,
-            `Daily CRM corrections for ${dateISO}. Each rep has already been sent ` +
-              `their own list; this is the count. Nothing here has been reviewed.`,
-          );
-          digests.push({ team, url: sheet.url, to });
-        } catch (e) {
-          failures.push(`${team} digest -> ${to}: ${String(e)}`);
-        }
-      }
-    }
-  }
-
+  // No digest here. It is crm-jail-daily-digest's job, read from the ledger
+  // each child writes — see the daily_digest branch in the handler.
   return json({
     daily: true, date: dateISO, dryRun, previewTo,
     reps: days.length,
@@ -625,6 +642,73 @@ async function dispatchDaily(
     clean: days.filter((d) => d.status === "clean").length,
     noActivity: days.filter((d) => d.status === "no_activity").length,
     failed: days.filter((d) => d.status === "failed").map((d) => `${d.rep}: ${d.error}`),
-    digests, digestFailures: failures,
   });
+}
+
+/** One digest per team. Counts only — the client detail stays in the rep's own list. */
+async function sendDailyDigests(
+  days: RepDay[],
+  dateISO: string,
+  previewTo: string | null,
+  googleToken: string,
+): Promise<{ digests: Array<{ team: string; url: string; to: string }>; digestFailures: string[] }> {
+  const digests: Array<{ team: string; url: string; to: string }> = [];
+  const failures: string[] = [];
+  for (const team of ["admissions", "bd"] as const) {
+    const mine = days.filter((d) => d.team === team);
+    // Nobody on the team worked the day (a Saturday, a holiday): no digest.
+    // A summary of zeros is the auditor's version of a "nothing to fix" mail.
+    if (mine.every((d) => d.status === "no_activity")) continue;
+    let sheet: { id: string; url: string };
+    try {
+      sheet = await createSummarySheet(
+        googleToken,
+        `CRM daily corrections — ${team} — ${dateISO}`,
+        buildDigestRows(dateISO, mine),
+      );
+    } catch (e) {
+      failures.push(`${team} digest: ${String(e)}`);
+      continue;
+    }
+    // Shared one recipient at a time, so one failed share does not cost the
+    // other auditor their copy.
+    for (const to of previewTo ? [previewTo] : DIGEST_RECIPIENTS[team]) {
+      try {
+        await shareAndNotify(
+          googleToken, sheet.id, to,
+          `Daily CRM corrections for ${dateISO}. Each rep has already been sent ` +
+            `their own list; this is the count. Nothing here has been reviewed.`,
+        );
+        digests.push({ team, url: sheet.url, to });
+      } catch (e) {
+        failures.push(`${team} digest -> ${to}: ${String(e)}`);
+      }
+    }
+  }
+  return { digests, digestFailures: failures };
+}
+
+async function recordDaily(
+  supabase: SupabaseClient,
+  dateISO: string,
+  rep: RosterRep,
+  status: string,
+  extra: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await supabase.from("crm_jail_daily_runs").upsert({
+    run_date: dateISO,
+    zoho_user_id: rep.zoho_user_id,
+    full_name: rep.full_name,
+    team: rep.team,
+    status,
+    records_checked: 0,
+    misses: [],
+    sheet_url: null,
+    sent_to: null,
+    error_msg: null,
+    ...extra,
+    recorded_at: new Date().toISOString(),
+  }, { onConflict: "run_date,zoho_user_id" });
+  // A ledger write failing must not cost the rep a list already sent.
+  if (error) console.error(`crm_jail_daily_runs upsert failed for ${rep.full_name}: ${error.message}`);
 }

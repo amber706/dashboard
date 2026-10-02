@@ -260,10 +260,19 @@ export function buildWindowQuery(
   ownerId: string,
   bounds: { from: string; toExclusive: string },
   offset: number,
+  activityOrCreated = false,
 ): string {
   const activityField = ACTIVITY_DATE_FIELD[module];
+  const happened = activityField &&
+    `${activityField} >= '${bounds.from}' and ${activityField} < '${bounds.toExclusive}'`;
+  // The daily list also wants activities the rep LOGGED that day: a meeting
+  // booked Thursday for next Monday is Thursday's work. Windowing on Start
+  // alone told Joey Masterson and Kenny Reitz (2026-10-01) they had done
+  // nothing, and they got no list.
   const when = activityField
-    ? `${activityField} >= '${bounds.from}' and ${activityField} < '${bounds.toExclusive}'`
+    ? activityOrCreated
+      ? `(${happened}) or (Created_Time >= '${bounds.from}' and Created_Time < '${bounds.toExclusive}')`
+      : happened
     : `(Created_Time >= '${bounds.from}' and Created_Time < '${bounds.toExclusive}') ` +
       `or ((Modified_Time >= '${bounds.from}' and Modified_Time < '${bounds.toExclusive}') ` +
       `and Modified_By = '${ownerId}')`;
@@ -294,12 +303,13 @@ export async function fetchWindow(
   module: string,
   ownerId: string,
   bounds: { from: string; toExclusive: string },
+  activityOrCreated = false,
 ): Promise<Record<string, unknown>[]> {
   const select = MODULE_SELECT[module];
   if (!select) throw new Error(`No select list defined for module ${module}`);
   const out: Record<string, unknown>[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const page = await coql(token, buildWindowQuery(module, select, ownerId, bounds, offset));
+    const page = await coql(token, buildWindowQuery(module, select, ownerId, bounds, offset, activityOrCreated));
     out.push(...page);
     if (page.length < PAGE_SIZE) break;
   }

@@ -351,3 +351,26 @@ Deno.test("an open deal keeps every miss, pre-screen included", () => {
   );
   assertEquals(dealItems(out), ["D5", "D40", "D12"]);
 });
+
+// A meeting booked on the audited day for a later one can only carry its
+// booking fields; the write-up and same-day logging come after it happens.
+const meetingMiss = (item: string): DailyMiss => ({
+  section: "Meetings", recordName: "Thrivewell Breakfast/CHC", url: "https://crm.zoho.com/e", item,
+  label: item, reason: "blank",
+});
+
+Deno.test("a meeting booked for a later day keeps only booking items", () => {
+  const out = relevantMisses(
+    "Meetings", { Start_DateTime: "2026-10-06T10:00:00-07:00" },
+    ["M1", "M5", "M6", "M7", "M9"].map(meetingMiss), () => null, "2026-10-01",
+  );
+  assertEquals(out.map((m) => m.item), ["M5", "M6"]);
+});
+
+Deno.test("a meeting that happened on the audited day keeps every miss", () => {
+  const out = relevantMisses(
+    "Meetings", { Start_DateTime: "2026-10-01T10:00:00-07:00" },
+    ["M1", "M7", "M9"].map(meetingMiss), () => null, "2026-10-01",
+  );
+  assertEquals(out.map((m) => m.item), ["M1", "M7", "M9"]);
+});
