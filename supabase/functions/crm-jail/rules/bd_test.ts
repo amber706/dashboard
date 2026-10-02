@@ -189,3 +189,52 @@ Deno.test('"Made Contact" alone is an outcome, not a narrative, so CA7 still fai
     "Nothing in the Notes section and nothing in the Description.",
   );
 });
+
+// Ben Coulter's "Lunch with Horizon integrated", verified in Zoho 2026-10-02:
+// booked 9/22 for 10/1 11:00-12:00, edited by Ben 10/1 1:51pm, meeting note
+// written 10/1 1:59pm. Logged the same day; the Created_Time test failed it.
+const ben = { id: "5162065000329857001" };
+const horizon = {
+  Start_DateTime: "2026-10-01T11:00:00-07:00",
+  End_DateTime: "2026-10-01T12:00:00-07:00",
+  Created_Time: "2026-09-22T15:26:18-07:00",
+  Owner: ben,
+};
+
+Deno.test("M1 passes a meeting booked ahead and edited by its owner on the day", () => {
+  const rec = { ...horizon, Modified_Time: "2026-10-01T13:51:16-07:00", Modified_By: ben };
+  assertEquals(s(MEETING_RULES.M1(ctx(rec))), 1);
+});
+
+Deno.test("M1 passes a meeting booked ahead whose note was written on the day", () => {
+  const rec = { ...horizon, Modified_Time: "2026-10-03T09:00:00-07:00", Modified_By: ben };
+  const notes = [{ Note_Title: "First Meeting", Note_Content: "", Created_Time: "2026-10-01T13:59:36-07:00" }];
+  assertEquals(s(MEETING_RULES.M1(ctx(rec, { notes }))), 1);
+});
+
+Deno.test("M1 fails a meeting booked ahead and never touched on the day", () => {
+  const rec = { ...horizon, Modified_Time: "2026-09-22T15:26:18-07:00", Modified_By: ben };
+  assertEquals(s(MEETING_RULES.M1(ctx(rec))), 0);
+});
+
+Deno.test("M1 does not count a same-day edit by someone other than the owner", () => {
+  const rec = { ...horizon, Modified_Time: "2026-10-01T13:51:16-07:00", Modified_By: { id: "999" } };
+  assertEquals(s(MEETING_RULES.M1(ctx(rec))), 0);
+});
+
+Deno.test("M1 accepts the To day for a meeting that runs past midnight", () => {
+  const rec = {
+    ...horizon, Start_DateTime: "2026-10-01T22:00:00-07:00", End_DateTime: "2026-10-02T01:00:00-07:00",
+    Modified_Time: "2026-10-02T08:00:00-07:00", Modified_By: ben,
+  };
+  assertEquals(s(MEETING_RULES.M1(ctx(rec))), 1);
+});
+
+Deno.test("CA1 passes a scheduled call its owner updated on the day it happened", () => {
+  const rec = {
+    Call_Start_Time: "2026-10-01T10:00:00-07:00", Created_Time: "2026-09-28T09:00:00-07:00",
+    Modified_Time: "2026-10-01T10:30:00-07:00", Modified_By: ben, Owner: ben,
+  };
+  assertEquals(s(CALL_RULES.CA1(ctx(rec))), 1);
+  assertEquals(BD_DAILY_RULES.A4([rec]), 1);
+});
