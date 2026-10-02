@@ -152,8 +152,14 @@ export const CALL_RULES: Record<string, RuleFn> = {
   CA5: lookup("Who_Id"), // labelled "Contact Name"
   CA6: callAssociatedCompany,
   CA7: judged("CA7"),
-  CA8: judged("CA8"),
-  CA9: hasFutureActivity,
+  // Next steps are dropped on Calls (Aaron, 2026-10-02). Most BD calls are
+  // with potential referrals that get handed to admissions, so neither a
+  // written next step nor a scheduled follow-up belongs to the BD rep; only
+  // calls that set up a meeting would carry one, and the Call module has no
+  // field that tells those apart. N/A rather than DEFER so both leave the
+  // denominator instead of waiting on a human — same as D7.
+  CA8: () => "N/A",
+  CA9: () => "N/A",
 };
 
 export const COMPANY_RULES: Record<string, RuleFn> = {

@@ -41,7 +41,7 @@ Deno.test("only the items asked for are kept", () => {
 
 Deno.test("each module asks only for its own language items", () => {
   assertEquals(itemsForModule("Leads"), ["L26", "L27"]);
-  assertEquals(itemsForModule("Calls"), ["CA7", "CA8"]);
+  assertEquals(itemsForModule("Calls"), ["CA7"]);
   assertEquals(itemsForModule("Events"), ["M7", "M8"]);
   assertEquals(itemsForModule("Accounts"), []);
 });

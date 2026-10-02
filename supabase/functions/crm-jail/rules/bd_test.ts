@@ -72,9 +72,18 @@ Deno.test("CA5 requires an associated contact on every call, unconditionally", (
   assertEquals(s(CALL_RULES.CA5(ctx({ Who_Id: { id: "7" } }))), 1);
 });
 
-Deno.test("CA9 uses a forward-looking activity query — no field backs it", () => {
-  assertEquals(s(CALL_RULES.CA9(ctx({}, { futureActivityCount: 0 }))), 0);
-  assertEquals(s(CALL_RULES.CA9(ctx({}, { futureActivityCount: 2 }))), 1);
+// Aaron, 2026-10-02: BD calls are mostly referrals handed to admissions, so
+// next steps are not the BD rep's to give.
+Deno.test("CA8 and CA9 are N/A on every call, with or without a next step", () => {
+  const withNext = ctx({}, {
+    futureActivityCount: 2,
+    notes: [{ Note_Title: "", Note_Content: "Referral for J.D., passed to admissions. Call back Monday." }],
+    notesJudgments: { CA8: { score: 1, reason: "Next step present." } },
+  });
+  for (const c of [withNext, ctx({}, { futureActivityCount: 0 })]) {
+    assertEquals(s(CALL_RULES.CA8(c)), "N/A");
+    assertEquals(s(CALL_RULES.CA9(c)), "N/A");
+  }
 });
 
 Deno.test("CO12 reads Zoho's misspelled API name", () => {

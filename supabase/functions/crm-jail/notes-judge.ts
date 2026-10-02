@@ -47,7 +47,8 @@ export function itemsForModule(module: string): string[] {
     case "Deals":
       return ["D22", "D23", "D37"];
     case "Calls":
-      return ["CA7", "CA8"];
+      // CA8 (next step) is N/A on Calls — see CALL_RULES.
+      return ["CA7"];
     case "Events":
       return ["M7", "M8"];
     default:

@@ -136,7 +136,9 @@ async function enrich(
 
   // "Is a follow-up scheduled?" — a future Call or Task on the record.
   const now = new Date().toISOString();
-  const futureActivityCount = ["Calls", "Meetings", "Deals"].includes(section)
+  // Not Calls: CA9 is N/A, so the two related-list round trips per call
+  // would buy nothing.
+  const futureActivityCount = ["Meetings", "Deals"].includes(section)
     ? [
       ...(await safe(() => fetchRelated(token, mod, id, "Calls"), [])),
       ...(await safe(() => fetchRelated(token, mod, id, "Tasks"), [])),
