@@ -304,7 +304,12 @@ export const DEAL_RULES: Record<string, RuleFn> = {
     explanation: "A referral packet cannot be identified from a filename — score by hand.",
   })),
   D39: hasAttachment(/vob/i),
-  D40: hasAttachment(/pre[-_ ]?(screen|assess)/i),
+  // "PA" is how reps abbreviate pre-assessment in filenames —
+  // "BHRFMentalHealthPA.pdf" on Jonathan Justice failed D40 on 2026-09-30.
+  // Case-sensitive and not followed by a letter, so "PAYMENT" or "Pacific"
+  // do not count.
+  D40: (c) =>
+    c.attachments.some((a) => /pre[-_ ]?(screen|assess)/i.test(a) || /PA(?![A-Za-z])/.test(a)) ? 1 : 0,
   D41: when(
     (c) => String(c.record.Insurance_Type ?? "").toLowerCase().includes("commercial"),
     hasAttachment(/insurance[-_ ]?card|ins[-_ ]?card/i),

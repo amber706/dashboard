@@ -8,7 +8,7 @@
 // Payors, and Niche not Niche_Code.
 
 import type { ItemResult, RecordContext, Score } from "../types.ts";
-import { isPresent, isProperCase, loggedSameDay, lookupPresent } from "./helpers.ts";
+import { isPresent, isProperCase, loggedOnActivityDay, lookupPresent } from "./helpers.ts";
 
 type RuleFn = (c: RecordContext) => Score | ItemResult;
 
@@ -144,16 +144,21 @@ export const BC_RULES: Record<string, RuleFn> = {
 };
 
 export const CALL_RULES: Record<string, RuleFn> = {
-  CA1: (c) =>
-    loggedSameDay(String(c.record.Call_Start_Time ?? ""), String(c.record.Created_Time ?? "")) ? 1 : 0,
+  CA1: (c) => (loggedOnActivityDay(c.record, ["Call_Start_Time"], c.notes) ? 1 : 0),
   CA2: field("Subject"),
   CA3: field("Call_Start_Time"),
   CA4: lookup("Owner"),
   CA5: lookup("Who_Id"), // labelled "Contact Name"
   CA6: callAssociatedCompany,
   CA7: judged("CA7"),
-  CA8: judged("CA8"),
-  CA9: hasFutureActivity,
+  // Next steps are dropped on Calls (Aaron, 2026-10-02). Most BD calls are
+  // with potential referrals that get handed to admissions, so neither a
+  // written next step nor a scheduled follow-up belongs to the BD rep; only
+  // calls that set up a meeting would carry one, and the Call module has no
+  // field that tells those apart. N/A rather than DEFER so both leave the
+  // denominator instead of waiting on a human — same as D7.
+  CA8: () => "N/A",
+  CA9: () => "N/A",
 };
 
 export const COMPANY_RULES: Record<string, RuleFn> = {
@@ -182,8 +187,7 @@ export const COMPANY_RULES: Record<string, RuleFn> = {
 };
 
 export const MEETING_RULES: Record<string, RuleFn> = {
-  M1: (c) =>
-    loggedSameDay(String(c.record.Start_DateTime ?? ""), String(c.record.Created_Time ?? "")) ? 1 : 0,
+  M1: (c) => (loggedOnActivityDay(c.record, ["Start_DateTime", "End_DateTime"], c.notes) ? 1 : 0),
   M2: field("Event_Title"), // labelled "Title"
   M3: field("Start_DateTime"), // labelled "From"
   M4: lookup("Owner"), // labelled "Host"
@@ -199,20 +203,19 @@ export const BD_DAILY_RULES = {
   A1: "DEFER" as const, // Referral form complete — Zoho Forms, Phase 2
   A2: "DEFER" as const, // EOD report same-day — PDFs in Drive, Phase 2
   A3: "DEFER" as const, // EOD report complete — PDFs in Drive, Phase 2
-  A4: (calls: Array<{ Call_Start_Time?: string; Created_Time?: string }>): Score =>
+  // Same test as CA1/M1, minus the notes: Section A runs over every activity
+  // in the window, and fetching each one's notes would double the Zoho calls.
+  // An owner edit on the day still counts.
+  A4: (calls: Array<Record<string, unknown>>): Score =>
     calls.length === 0
       ? "N/A"
-      : calls.every((r) =>
-          loggedSameDay(String(r.Call_Start_Time ?? ""), String(r.Created_Time ?? ""))
-        )
+      : calls.every((r) => loggedOnActivityDay(r, ["Call_Start_Time"]))
       ? 1
       : 0,
-  A5: (meetings: Array<{ Start_DateTime?: string; Created_Time?: string }>): Score =>
+  A5: (meetings: Array<Record<string, unknown>>): Score =>
     meetings.length === 0
       ? "N/A"
-      : meetings.every((r) =>
-          loggedSameDay(String(r.Start_DateTime ?? ""), String(r.Created_Time ?? ""))
-        )
+      : meetings.every((r) => loggedOnActivityDay(r, ["Start_DateTime", "End_DateTime"]))
       ? 1
       : 0,
   A6: "DEFER" as const, // Assigned spreadsheet updated — Google Sheet, Phase 2

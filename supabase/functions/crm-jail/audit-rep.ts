@@ -107,7 +107,14 @@ async function enrich(
   // kept for anyone who used it. Call_Result is deliberately NOT folded in —
   // it is a picklist outcome ("Made Contact"), and it must never pass CA7 on
   // its own when there is no narrative behind it.
-  const notesIncludeDescription = section === "Meetings" || section === "Calls";
+  //
+  // Leads, Contacts and Deals too. Admissions reps write the first-call
+  // narrative in the lead's Description, not the Notes section. Reading Notes
+  // alone, the first live daily list (2026-09-30) told Sabrina Johnson that
+  // Logan Mintz had no note while the Description read "Caller refused to give
+  // insurance ... UNABLE TO OBTAIN INSURANCE INFO" — and, seeing no note, never
+  // asked whether that note excused the blank insurance fields.
+  const notesIncludeDescription = section !== "Accounts";
   const description = notesIncludeDescription ? String(record.Description ?? "").trim() : "";
   if (description !== "") {
     notes = [...notes, { Note_Title: "Description", Note_Content: description }];
@@ -129,7 +136,9 @@ async function enrich(
 
   // "Is a follow-up scheduled?" — a future Call or Task on the record.
   const now = new Date().toISOString();
-  const futureActivityCount = ["Calls", "Meetings", "Deals"].includes(section)
+  // Not Calls: CA9 is N/A, so the two related-list round trips per call
+  // would buy nothing.
+  const futureActivityCount = ["Meetings", "Deals"].includes(section)
     ? [
       ...(await safe(() => fetchRelated(token, mod, id, "Calls"), [])),
       ...(await safe(() => fetchRelated(token, mod, id, "Tasks"), [])),
@@ -527,7 +536,7 @@ export async function auditRepDaily(
 
   for (const section of SECTIONS[team]) {
     const mod = MODULE_FOR[section];
-    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
+    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds, true);
     if (section === "BusinessContacts") {
       pool = pool.filter((r) => String(r.Business_Contact_Role ?? "").trim() !== "");
     }
@@ -542,7 +551,7 @@ export async function auditRepDaily(
     recordsChecked += pool.length;
 
     const { records, results } = await scoreDrawn(team, section, mod, pool, window, deps, false);
-    misses.push(...missesFor(team, section, records, results));
+    misses.push(...missesFor(team, section, records, results, deps.stageCategory, dateISO));
   }
 
   return { rep: rep.full_name, team, recordsChecked, misses, truncated };

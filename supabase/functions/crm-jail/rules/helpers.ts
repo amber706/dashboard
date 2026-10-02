@@ -44,6 +44,39 @@ export function loggedSameDay(occurredISO: string, loggedISO: string): boolean {
   return phoenixDay(occurredISO) === phoenixDay(loggedISO);
 }
 
+/**
+ * Was this call or meeting logged on the day it happened?
+ *
+ * Created_Time alone is the wrong test for anything booked ahead. Ben Coulter
+ * booked "Lunch with Horizon integrated" on 9/22 for 10/1 11:00-12:00, then on
+ * 10/1 updated the meeting at 1:51pm and wrote the meeting note at 1:59pm.
+ * That is same-day logging, and comparing Start to Created_Time failed it —
+ * as it failed every meeting or call booked in advance.
+ *
+ * The day it happened is the From day or the To day. The record was logged
+ * that day if, on either of them, it was created, edited by its owner (a
+ * machine re-stamp must not count — see buildWindowQuery), or had a note
+ * written on it.
+ */
+export function loggedOnActivityDay(
+  record: Record<string, unknown>,
+  occurredFields: string[],
+  notes: ZohoNote[] = [],
+): boolean {
+  const days = new Set(
+    occurredFields.map((f) => String(record[f] ?? "")).filter(Boolean).map(phoenixDay),
+  );
+  if (days.size === 0) return false;
+  const ownerId = (record.Owner as { id?: string } | null)?.id;
+  const editorId = (record.Modified_By as { id?: string } | null)?.id;
+  const evidence = [
+    String(record.Created_Time ?? ""),
+    ownerId && editorId === ownerId ? String(record.Modified_Time ?? "") : "",
+    ...notes.map((n) => String(n.Created_Time ?? "")),
+  ];
+  return evidence.some((t) => t !== "" && days.has(phoenixDay(t)));
+}
+
 /** Inclusive of both ends, in Phoenix calendar days. */
 export function inWindow(iso: string, w: { startISO: string; endISO: string }): boolean {
   if (!iso) return false;

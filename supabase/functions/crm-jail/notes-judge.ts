@@ -47,7 +47,8 @@ export function itemsForModule(module: string): string[] {
     case "Deals":
       return ["D22", "D23", "D37"];
     case "Calls":
-      return ["CA7", "CA8"];
+      // CA8 (next step) is N/A on Calls — see CALL_RULES.
+      return ["CA7"];
     case "Events":
       return ["M7", "M8"];
     default:
@@ -239,6 +240,15 @@ insurance details" excuses insurance fields, not the emergency contact.
 - A general apology, a status update, or a vague "will follow up" excuses nothing.
 - A note about a different field excuses nothing.
 - If the note does not mention the reason for that field being empty, it is not excused.
+- A note showing the client could not be reached or would not engage — no \
+answer, voicemail only, a form fill nobody ever spoke to, hung up, refused, went \
+non-responsive — explains every field that has to come FROM the client: contact \
+details, emergency contact, date of birth, insurance details, level of care, a \
+pre-screen or pre-assessment, an insurance card. "Refused to give insurance" \
+excuses the insurance fields. A note that the rep could not obtain "any empty \
+fields" counts when the notes also show why (no answer, hung up, refused).
+- Being unable to reach the client never excuses what the rep sets themselves: \
+name capitalization, owner, status, source, BD rep, referring company.
 
 Missing fields:
 ${list}
