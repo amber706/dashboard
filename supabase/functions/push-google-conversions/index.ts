@@ -1,4 +1,8 @@
-// push-google-conversions v40 — v39 plus Zoho-outage resilience.
+// push-google-conversions v41 — v40 plus end-of-day stamping for date-only fields.
+// CHANGES from v40:
+//   - VOB / Admit / DUI conversions dated from a Zoho date-only field were stamped 12:00 UTC
+//     (05:00 Arizona), so a click later that same day made Google reject the conversion as
+//     CONVERSION_PRECEDES_EVENT. Now stamped 23:59:59 Arizona (-07:00), capped at "now".
 // CHANGES from v39:
 //   - If the Zoho OAuth token is unavailable (expired/revoked refresh token), no longer 502-bail the
 //     whole run. Skip the Zoho-sourced paths (VOB/admit/leads/DUI-deals/backstop + Zoho writeback) but
@@ -164,6 +168,12 @@ function toGaTimestamp(iso: string): string { const d = new Date(iso); const pad
 // v34: Google rejects conversions dated in the future (LATER_THAN_MAXIMUM_DATE). Some DUI
 // Screening_Closed_Date/Course_Closed_Date values are future-scheduled; cap any conversion
 // timestamp at "now" so it is always accepted.
+// Zoho date-only fields (VOB_Submitted_Date, Closing_Date, Screening/Course_Closed_Date) carry no
+// time. They used to be stamped T12:00:00Z, which is 05:00 in Arizona — before nearly any same-day
+// click, so Google rejected those as CONVERSION_PRECEDES_EVENT (permanent, never retried). Stamp the
+// END of the Arizona day instead (AZ is UTC-7 year-round, no DST); clampNotFuture pulls today's
+// dates back to "now".
+function endOfArizonaDay(date: string): string { return `${date}T23:59:59-07:00`; }
 function clampNotFuture(iso: string): string { const t = new Date(iso).getTime(); if (isNaN(t)) return new Date().toISOString(); return t > Date.now() ? new Date().toISOString() : iso; }
 function toZohoDateTime(iso: string): string { const d = new Date(iso); const pad = (n: number) => String(n).padStart(2, "0"); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}+00:00`; }
 function isWithinDays(iso: string | null | undefined, days: number): boolean { if (!iso) return false; const ms = new Date(iso).getTime(); if (isNaN(ms)) return false; return ms >= Date.now() - days * 86400000; }
@@ -297,7 +307,7 @@ async function fetchZohoVobEvents(zohoToken: string, limit: number): Promise<{ e
     const postal_code = pickFirst(r.Mailing_Zip, r["Contact_Name.Mailing_Zip"]);
     const city = pickFirst(r.City, r["Contact_Name.Mailing_City"]);
     const state = pickFirst(r.State, r["Contact_Name.Mailing_State"]);
-    const eventTimeIso = r.VOB_Submitted_Date ? `${r.VOB_Submitted_Date}T12:00:00Z` : (r.Created_Time ?? new Date().toISOString());
+    const eventTimeIso = r.VOB_Submitted_Date ? endOfArizonaDay(r.VOB_Submitted_Date) : (r.Created_Time ?? new Date().toISOString());
     events.push({ event_type, audit_lead_id: r["Contact_Name.id"] ?? null, audit_zoho_id: r.id, email, phone, first_name, last_name, postal_code, city, state, gclid, gclid_source, event_time_iso: eventTimeIso, zoho_module: "Deals", zoho_record_id: r.id, zoho_idempotency_field: "VOB_Approved_Conversion_Sent_to_G_Ads" });
   }
   return { events, tooOld };
@@ -327,7 +337,7 @@ async function fetchZohoAdmitEvents(zohoToken: string, limit: number): Promise<{
     const postal_code = pickFirst(r.Mailing_Zip, r["Contact_Name.Mailing_Zip"]);
     const city = pickFirst(r.City, r["Contact_Name.Mailing_City"]);
     const state = pickFirst(r.State, r["Contact_Name.Mailing_State"]);
-    const admitTimeIso = r.Closing_Date ? `${r.Closing_Date}T12:00:00Z` : (r.Created_Time ?? new Date().toISOString());
+    const admitTimeIso = r.Closing_Date ? endOfArizonaDay(r.Closing_Date) : (r.Created_Time ?? new Date().toISOString());
     events.push({ event_type, audit_lead_id: r["Contact_Name.id"] ?? null, audit_zoho_id: r.id, email, phone, first_name, last_name, postal_code, city, state, gclid, gclid_source, event_time_iso: admitTimeIso, zoho_module: "Deals", zoho_record_id: r.id, zoho_idempotency_field: "Conversion_Event_Sent_to_Google" });
   }
   return { events, tooOld };
@@ -364,9 +374,9 @@ async function fetchZohoDuiClosedWonEvents(zohoToken: string, limit: number): Pr
     const city = pickFirst(r.City, r["Contact_Name.Mailing_City"]);
     const state = pickFirst(r.State, r["Contact_Name.Mailing_State"]);
     // v33: DUI ts fallback chain Screening_Closed_Date -> Course_Closed_Date -> Closing_Date -> Created_Time.
-    const duiTimeIso = r.Screening_Closed_Date ? `${r.Screening_Closed_Date}T12:00:00Z`
-      : r.Course_Closed_Date ? `${r.Course_Closed_Date}T12:00:00Z`
-      : r.Closing_Date ? `${r.Closing_Date}T12:00:00Z`
+    const duiTimeIso = r.Screening_Closed_Date ? endOfArizonaDay(r.Screening_Closed_Date)
+      : r.Course_Closed_Date ? endOfArizonaDay(r.Course_Closed_Date)
+      : r.Closing_Date ? endOfArizonaDay(r.Closing_Date)
       : (r.Created_Time ?? new Date().toISOString());
     events.push({ event_type: "dui_closed_won", audit_lead_id: r["Contact_Name.id"] ?? null, audit_zoho_id: r.id, email, phone, first_name, last_name, postal_code, city, state, gclid, gclid_source, event_time_iso: duiTimeIso, zoho_module: "Deals", zoho_record_id: r.id, zoho_idempotency_field: "Conversion_Event_Sent_to_Google" });
   }
@@ -747,7 +757,7 @@ Deno.serve(async (req) => {
     // was spotted (2026-09-09). The CTM work above is already committed and is still reported here
     // — but the response is marked failed so pg_net's status_code surfaces it.
     const zohoOk = !!zohoToken;
-    return jsonResponse({ ok: zohoOk, ...(zohoOk ? {} : { error: "zoho_auth_unavailable: refresh returned no access token; Zoho-sourced conversions were skipped this run (CTM-sourced still pushed)" }), version: "v40", dry_run: dryRun, zoho_token_ok: zohoOk, max_deal_age_days: MAX_DEAL_AGE_DAYS, api_version: GA_API_VERSION, scanned: { dui_closed_won: dui.events.length, vob: vob.events.length, admit: admit.events.length, zoho_leads: zLeads.events.length, ctm: ctm.events.length, commercial_ctm_45: ctmCommercial.length, commercial_backstop: backstop.events.length }, backstop: { scanned: backstop.scanned, skipped_covered: backstop.skipped_covered, skipped_already_sent: backstop.skipped_already_sent }, pushed, dry_run_only: dryRunOnly, skipped_no_identifier: skippedNoIdent, failed, permanent_failures: permanentFailures, transient_failures: transientFailures, error_breakdown: errorBreakdown, zoho_writeback: zohoWriteback, ctm_call_scores_stamped: totalCtmStamps }, zohoOk ? 200 : 502);
+    return jsonResponse({ ok: zohoOk, ...(zohoOk ? {} : { error: "zoho_auth_unavailable: refresh returned no access token; Zoho-sourced conversions were skipped this run (CTM-sourced still pushed)" }), version: "v41", dry_run: dryRun, zoho_token_ok: zohoOk, max_deal_age_days: MAX_DEAL_AGE_DAYS, api_version: GA_API_VERSION, scanned: { dui_closed_won: dui.events.length, vob: vob.events.length, admit: admit.events.length, zoho_leads: zLeads.events.length, ctm: ctm.events.length, commercial_ctm_45: ctmCommercial.length, commercial_backstop: backstop.events.length }, backstop: { scanned: backstop.scanned, skipped_covered: backstop.skipped_covered, skipped_already_sent: backstop.skipped_already_sent }, pushed, dry_run_only: dryRunOnly, skipped_no_identifier: skippedNoIdent, failed, permanent_failures: permanentFailures, transient_failures: transientFailures, error_breakdown: errorBreakdown, zoho_writeback: zohoWriteback, ctm_call_scores_stamped: totalCtmStamps }, zohoOk ? 200 : 502);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return jsonResponse({ ok: false, error: message }, 500);
