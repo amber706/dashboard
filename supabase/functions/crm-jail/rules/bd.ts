@@ -7,8 +7,8 @@
 // Watch for: Commerical_or_AHCCCS (typo is in Zoho, not here), Payers not
 // Payors, and Niche not Niche_Code.
 
-import type { ItemResult, RecordContext, Score } from "../types.ts";
-import { isPresent, isProperCase, loggedSameDay, lookupPresent } from "./helpers.ts";
+import type { ZohoNote, ItemResult, RecordContext, Score } from "../types.ts";
+import { isPresent, isProperCase, loggedOnActivityDay, lookupPresent } from "./helpers.ts";
 
 type RuleFn = (c: RecordContext) => Score | ItemResult;
 
@@ -143,17 +143,44 @@ export const BC_RULES: Record<string, RuleFn> = {
   BC11: judged("BC11"),
 };
 
+/**
+ * True when a call never reached anyone, from the Call Result or the notes.
+ *
+ * "LVM" is the only Call_Result that means nobody was reached; the others
+ * (Made Contact, Interested, Requested call back, ...) mean someone answered.
+ * Reps often leave Call_Result blank, so the notes are read too (Aaron,
+ * 2026-10-14): voicemail or no-answer wording counts unless the same notes
+ * also say a conversation happened — "LVM, then she called back and we
+ * talked" is a real call and still needs its narrative.
+ */
+const VOICEMAIL_RE =
+  /\b(lvm|vm|vmail|voice ?mail|mailbox (is )?full|no answer|did ?n[o']?t answer|not answering|left (a )?message|unable to reach|could ?n[o']?t reach|rang out)\b/i;
+const CONTACT_RE = /\b(spoke|spoken|speaking|talked|talking|made contact|discussed|explained|we went over)\b/i;
+
+export function isVoicemailAttempt(record: Record<string, unknown>, notes: ZohoNote[]): boolean {
+  if (String(record.Call_Result ?? "").trim().toUpperCase() === "LVM") return true;
+  const text = notes.map((n) => `${n.Note_Title ?? ""} ${n.Note_Content ?? ""}`).join("\n")
+    .replace(/<[^>]*>/g, " ");
+  return VOICEMAIL_RE.test(text) && !CONTACT_RE.test(text);
+}
+
 export const CALL_RULES: Record<string, RuleFn> = {
-  CA1: (c) =>
-    loggedSameDay(String(c.record.Call_Start_Time ?? ""), String(c.record.Created_Time ?? "")) ? 1 : 0,
+  CA1: (c) => (loggedOnActivityDay(c.record, ["Call_Start_Time"], c.notes) ? 1 : 0),
   CA2: field("Subject"),
   CA3: field("Call_Start_Time"),
   CA4: lookup("Owner"),
   CA5: lookup("Who_Id"), // labelled "Contact Name"
   CA6: callAssociatedCompany,
-  CA7: judged("CA7"),
-  CA8: judged("CA8"),
-  CA9: hasFutureActivity,
+  // A voicemail attempt has no conversation to narrate (Aaron, 2026-10-14).
+  CA7: (c) => (isVoicemailAttempt(c.record, c.notes) ? "N/A" : judged("CA7")(c)),
+  // Next steps are dropped on Calls (Aaron, 2026-10-02). Most BD calls are
+  // with potential referrals that get handed to admissions, so neither a
+  // written next step nor a scheduled follow-up belongs to the BD rep; only
+  // calls that set up a meeting would carry one, and the Call module has no
+  // field that tells those apart. N/A rather than DEFER so both leave the
+  // denominator instead of waiting on a human — same as D7.
+  CA8: () => "N/A",
+  CA9: () => "N/A",
 };
 
 export const COMPANY_RULES: Record<string, RuleFn> = {
@@ -182,8 +209,7 @@ export const COMPANY_RULES: Record<string, RuleFn> = {
 };
 
 export const MEETING_RULES: Record<string, RuleFn> = {
-  M1: (c) =>
-    loggedSameDay(String(c.record.Start_DateTime ?? ""), String(c.record.Created_Time ?? "")) ? 1 : 0,
+  M1: (c) => (loggedOnActivityDay(c.record, ["Start_DateTime", "End_DateTime"], c.notes) ? 1 : 0),
   M2: field("Event_Title"), // labelled "Title"
   M3: field("Start_DateTime"), // labelled "From"
   M4: lookup("Owner"), // labelled "Host"
@@ -199,19 +225,21 @@ export const BD_DAILY_RULES = {
   A1: "DEFER" as const, // Referral form complete — Zoho Forms, Phase 2
   A2: "DEFER" as const, // EOD report same-day — PDFs in Drive, Phase 2
   A3: "DEFER" as const, // EOD report complete — PDFs in Drive, Phase 2
-  A4: (calls: Array<{ Call_Start_Time?: string; Created_Time?: string }>): Score =>
+  // Same test as CA1/M1 over every activity in the window. `notesById` holds
+  // the notes of the activities that fail on their own timestamps — only those
+  // are fetched (see auditRep), so a note created or edited on the day can
+  // still clear them without a notes call for every activity.
+  A4: (calls: Array<Record<string, unknown>>, notesById: ReadonlyMap<string, ZohoNote[]> = new Map()): Score =>
     calls.length === 0
       ? "N/A"
-      : calls.every((r) =>
-          loggedSameDay(String(r.Call_Start_Time ?? ""), String(r.Created_Time ?? ""))
-        )
+      : calls.every((r) => loggedOnActivityDay(r, ["Call_Start_Time"], notesById.get(String(r.id)) ?? []))
       ? 1
       : 0,
-  A5: (meetings: Array<{ Start_DateTime?: string; Created_Time?: string }>): Score =>
+  A5: (meetings: Array<Record<string, unknown>>, notesById: ReadonlyMap<string, ZohoNote[]> = new Map()): Score =>
     meetings.length === 0
       ? "N/A"
       : meetings.every((r) =>
-          loggedSameDay(String(r.Start_DateTime ?? ""), String(r.Created_Time ?? ""))
+          loggedOnActivityDay(r, ["Start_DateTime", "End_DateTime"], notesById.get(String(r.id)) ?? [])
         )
       ? 1
       : 0,
