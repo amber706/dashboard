@@ -347,7 +347,9 @@ export async function fetchWindow(
  * failed every rep on every language item.
  */
 const RELATED_FIELDS: Record<string, string> = {
-  Notes: "id,Note_Title,Note_Content,Created_Time",
+  // Modified_Time/By: a rep often writes the agenda the day before and edits the
+  // same note with the outcome on the day (Mike Mcluty, Nexus tour 10/7).
+  Notes: "id,Note_Title,Note_Content,Created_Time,Modified_Time,Modified_By",
   Attachments: "id,File_Name,Created_Time",
   Events: "id,Event_Title,Start_DateTime,Created_Time",
   Calls: "id,Subject,Call_Start_Time,Created_Time",

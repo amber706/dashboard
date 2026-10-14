@@ -56,7 +56,12 @@ export function loggedSameDay(occurredISO: string, loggedISO: string): boolean {
  * The day it happened is the From day or the To day. The record was logged
  * that day if, on either of them, it was created, edited by its owner (a
  * machine re-stamp must not count — see buildWindowQuery), or had a note
- * written on it.
+ * written or edited on it by its owner.
+ *
+ * Note edits count because the agenda is often written ahead and the outcome
+ * added to the same note afterwards: Mike Mcluty's Nexus tour on 10/7 had its
+ * agenda note created 10/6 at 6:05pm and edited with the tour's outcome on
+ * 10/7 at 2:32pm. Reading only Created_Time failed it.
  */
 export function loggedOnActivityDay(
   record: Record<string, unknown>,
@@ -72,7 +77,10 @@ export function loggedOnActivityDay(
   const evidence = [
     String(record.Created_Time ?? ""),
     ownerId && editorId === ownerId ? String(record.Modified_Time ?? "") : "",
-    ...notes.map((n) => String(n.Created_Time ?? "")),
+    ...notes.flatMap((n) => [
+      String(n.Created_Time ?? ""),
+      n.Modified_By?.id && n.Modified_By.id === ownerId ? String(n.Modified_Time ?? "") : "",
+    ]),
   ];
   return evidence.some((t) => t !== "" && days.has(phoenixDay(t)));
 }

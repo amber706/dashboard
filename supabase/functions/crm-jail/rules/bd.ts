@@ -7,7 +7,7 @@
 // Watch for: Commerical_or_AHCCCS (typo is in Zoho, not here), Payers not
 // Payors, and Niche not Niche_Code.
 
-import type { ItemResult, RecordContext, Score } from "../types.ts";
+import type { ZohoNote, ItemResult, RecordContext, Score } from "../types.ts";
 import { isPresent, isProperCase, loggedOnActivityDay, lookupPresent } from "./helpers.ts";
 
 type RuleFn = (c: RecordContext) => Score | ItemResult;
@@ -203,19 +203,22 @@ export const BD_DAILY_RULES = {
   A1: "DEFER" as const, // Referral form complete — Zoho Forms, Phase 2
   A2: "DEFER" as const, // EOD report same-day — PDFs in Drive, Phase 2
   A3: "DEFER" as const, // EOD report complete — PDFs in Drive, Phase 2
-  // Same test as CA1/M1, minus the notes: Section A runs over every activity
-  // in the window, and fetching each one's notes would double the Zoho calls.
-  // An owner edit on the day still counts.
-  A4: (calls: Array<Record<string, unknown>>): Score =>
+  // Same test as CA1/M1 over every activity in the window. `notesById` holds
+  // the notes of the activities that fail on their own timestamps — only those
+  // are fetched (see auditRep), so a note created or edited on the day can
+  // still clear them without a notes call for every activity.
+  A4: (calls: Array<Record<string, unknown>>, notesById: ReadonlyMap<string, ZohoNote[]> = new Map()): Score =>
     calls.length === 0
       ? "N/A"
-      : calls.every((r) => loggedOnActivityDay(r, ["Call_Start_Time"]))
+      : calls.every((r) => loggedOnActivityDay(r, ["Call_Start_Time"], notesById.get(String(r.id)) ?? []))
       ? 1
       : 0,
-  A5: (meetings: Array<Record<string, unknown>>): Score =>
+  A5: (meetings: Array<Record<string, unknown>>, notesById: ReadonlyMap<string, ZohoNote[]> = new Map()): Score =>
     meetings.length === 0
       ? "N/A"
-      : meetings.every((r) => loggedOnActivityDay(r, ["Start_DateTime", "End_DateTime"]))
+      : meetings.every((r) =>
+          loggedOnActivityDay(r, ["Start_DateTime", "End_DateTime"], notesById.get(String(r.id)) ?? [])
+        )
       ? 1
       : 0,
   A6: "DEFER" as const, // Assigned spreadsheet updated — Google Sheet, Phase 2

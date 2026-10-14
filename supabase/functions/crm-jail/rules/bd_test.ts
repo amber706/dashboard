@@ -238,3 +238,40 @@ Deno.test("CA1 passes a scheduled call its owner updated on the day it happened"
   assertEquals(s(CALL_RULES.CA1(ctx(rec))), 1);
   assertEquals(BD_DAILY_RULES.A4([rec]), 1);
 });
+
+// Mike Mcluty's "Nexus - CHC - Tour", verified in Zoho 2026-10-14: meeting
+// 10/7 9:30-10:30, record last edited 10/6, agenda note created 10/6 6:05pm
+// and edited by Mike with the outcome 10/7 2:32pm.
+const mike = { id: "5162065000138237001" };
+const nexus = {
+  Start_DateTime: "2026-10-07T09:30:00-07:00",
+  End_DateTime: "2026-10-07T10:30:00-07:00",
+  Created_Time: "2026-10-01T11:08:14-07:00",
+  Modified_Time: "2026-10-06T18:03:40-07:00",
+  Modified_By: mike,
+  Owner: mike,
+};
+
+Deno.test("M1 passes when the owner edits the agenda note on the meeting day", () => {
+  const notes = [{
+    Note_Content: "Nexus tour — 10/7/2026 ...", Created_Time: "2026-10-06T18:05:23-07:00",
+    Modified_Time: "2026-10-07T14:32:35-07:00", Modified_By: mike,
+  }];
+  assertEquals(s(MEETING_RULES.M1(ctx(nexus, { notes }))), 1);
+});
+
+Deno.test("M1 does not count a note edited on the day by someone else", () => {
+  const notes = [{
+    Note_Content: "Nexus tour", Created_Time: "2026-10-06T18:05:23-07:00",
+    Modified_Time: "2026-10-07T14:32:35-07:00", Modified_By: { id: "5162065000000520063" },
+  }];
+  assertEquals(s(MEETING_RULES.M1(ctx(nexus, { notes }))), 0);
+});
+
+Deno.test("A5 clears a meeting whose only same-day evidence is an owner note edit", () => {
+  const notes = new Map([["nexus", [{
+    Created_Time: "2026-10-06T18:05:23-07:00", Modified_Time: "2026-10-07T14:32:35-07:00", Modified_By: mike,
+  }]]]);
+  assertEquals(BD_DAILY_RULES.A5([{ ...nexus, id: "nexus" }]), 0);
+  assertEquals(BD_DAILY_RULES.A5([{ ...nexus, id: "nexus" }], notes), 1);
+});

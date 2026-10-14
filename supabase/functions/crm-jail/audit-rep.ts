@@ -23,7 +23,7 @@ import bdMap from "./template-map.bd.json" with { type: "json" };
 import {
   copyTemplate, ensureFolderPath, scorecardFolderPath, scorecardTitle, writeCells, type Team,
 } from "./sheets.ts";
-import { noteText } from "./rules/helpers.ts";
+import { loggedOnActivityDay, noteText } from "./rules/helpers.ts";
 import type { ItemResult, RecordContext, SampledRecord, ZohoNote } from "./types.ts";
 
 const SAMPLE_SIZE = 5;
@@ -353,7 +353,20 @@ export async function auditRep(
   const eod = await eodContextFor(
     deps.googleToken, team, rep.full_name, deps.rosterNames ?? [rep.full_name], window,
   );
-  const daily = dailyResults(team, allWindowRecords, eod);
+  // A4/A5 need notes only for activities that look late on their own
+  // timestamps; a same-day note can still clear them. Fetched just for those.
+  const activityNotes = new Map<string, ZohoNote[]>();
+  if (team === "bd") {
+    for (const [section, fields] of [["Calls", ["Call_Start_Time"]], ["Meetings", ["Start_DateTime", "End_DateTime"]]] as const) {
+      for (const r of allWindowRecords[section] ?? []) {
+        if (loggedOnActivityDay(r, [...fields])) continue;
+        try {
+          activityNotes.set(String(r.id), await fetchRelated(deps.zohoToken, MODULE_FOR[section], String(r.id), "Notes") as ZohoNote[]);
+        } catch { /* no notes read: the timestamps alone decide, as before */ }
+      }
+    }
+  }
+  const daily = dailyResults(team, allWindowRecords, eod, activityNotes);
 
   const { writes, deferredCells } = buildWrites(
     {
@@ -465,6 +478,7 @@ export function dailyResults(
   team: Team,
   all: Record<string, Record<string, unknown>[]>,
   eod: EodContext | null = null,
+  activityNotes: ReadonlyMap<string, ZohoNote[]> = new Map(),
 ): ItemResult[] {
   if (team === "admissions") {
     const touched = [...(all.Leads ?? []), ...(all.Contacts ?? []), ...(all.Deals ?? [])];
@@ -481,8 +495,8 @@ export function dailyResults(
     { item: "A1", score: BD_DAILY_RULES.A1, explanation: "Referral form — Zoho Forms, Phase 2." },
     { ...eodSubmitted(eod), item: "A2" },
     { ...eodComplete(eod), item: "A3" },
-    { item: "A4", score: BD_DAILY_RULES.A4(all.Calls ?? []) },
-    { item: "A5", score: BD_DAILY_RULES.A5(all.Meetings ?? []) },
+    { item: "A4", score: BD_DAILY_RULES.A4(all.Calls ?? [], activityNotes) },
+    { item: "A5", score: BD_DAILY_RULES.A5(all.Meetings ?? [], activityNotes) },
     { item: "A6", score: BD_DAILY_RULES.A6, explanation: "Assigned spreadsheet — Phase 2." },
     { item: "A7", score: BD_DAILY_RULES.A7, explanation: "Assigned spreadsheet — Phase 2." },
   ];
