@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { BC_RULES, CALL_RULES, COMPANY_RULES, MEETING_RULES, BD_DAILY_RULES } from "./bd.ts";
+import { BC_RULES, CALL_RULES, COMPANY_RULES, MEETING_RULES, BD_DAILY_RULES, isVoicemailAttempt } from "./bd.ts";
 import type { ItemResult, RecordContext, Score } from "../types.ts";
 
 function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {}): RecordContext {
@@ -295,4 +295,33 @@ Deno.test("CA7 still judges a call where contact was made", () => {
   });
   assertEquals(s(CALL_RULES.CA7(made)), 1);
   assertEquals(s(CALL_RULES.CA7(ctx({ Call_Result: "Made Contact" }))), 0);
+});
+
+const desc = (t: string) => [{ Note_Title: "Description", Note_Content: t }];
+
+Deno.test("a voicemail note with no Call Result still makes CA7 N/A", () => {
+  for (const t of [
+    "VM was full sent 2 sets of TXT with no responses",
+    "Directly to VM not able to leave a VM",
+    "LVM, will try again tomorrow",
+    "no answer",
+    "<span>Left a message for Tony</span>",
+    "Voicemail box full",
+  ]) {
+    assertEquals(isVoicemailAttempt({ Call_Result: null }, desc(t)), true, t);
+    assertEquals(s(CALL_RULES.CA7(ctx({ Call_Result: null }, { notes: desc(t) }))), "N/A", t);
+  }
+});
+
+Deno.test("voicemail wording does not excuse a call where they also spoke", () => {
+  const t = "LVM, she called back an hour later and we talked about Soba Mesa";
+  assertEquals(isVoicemailAttempt({}, desc(t)), false);
+});
+
+Deno.test("a connected call is not mistaken for a voicemail", () => {
+  for (const t of [
+    "Logan called to give me an update on Deangela Smith",
+    "I spoke with the wife about getting her husband to Soba Mesa",
+    "Reviewed vmax rates with the owner",
+  ]) assertEquals(isVoicemailAttempt({}, desc(t)), false, t);
 });

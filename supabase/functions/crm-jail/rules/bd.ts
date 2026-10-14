@@ -143,6 +143,27 @@ export const BC_RULES: Record<string, RuleFn> = {
   BC11: judged("BC11"),
 };
 
+/**
+ * True when a call never reached anyone, from the Call Result or the notes.
+ *
+ * "LVM" is the only Call_Result that means nobody was reached; the others
+ * (Made Contact, Interested, Requested call back, ...) mean someone answered.
+ * Reps often leave Call_Result blank, so the notes are read too (Aaron,
+ * 2026-10-14): voicemail or no-answer wording counts unless the same notes
+ * also say a conversation happened — "LVM, then she called back and we
+ * talked" is a real call and still needs its narrative.
+ */
+const VOICEMAIL_RE =
+  /\b(lvm|vm|vmail|voice ?mail|mailbox (is )?full|no answer|did ?n[o']?t answer|not answering|left (a )?message|unable to reach|could ?n[o']?t reach|rang out)\b/i;
+const CONTACT_RE = /\b(spoke|spoken|speaking|talked|talking|made contact|discussed|explained|we went over)\b/i;
+
+export function isVoicemailAttempt(record: Record<string, unknown>, notes: ZohoNote[]): boolean {
+  if (String(record.Call_Result ?? "").trim().toUpperCase() === "LVM") return true;
+  const text = notes.map((n) => `${n.Note_Title ?? ""} ${n.Note_Content ?? ""}`).join("\n")
+    .replace(/<[^>]*>/g, " ");
+  return VOICEMAIL_RE.test(text) && !CONTACT_RE.test(text);
+}
+
 export const CALL_RULES: Record<string, RuleFn> = {
   CA1: (c) => (loggedOnActivityDay(c.record, ["Call_Start_Time"], c.notes) ? 1 : 0),
   CA2: field("Subject"),
@@ -151,12 +172,7 @@ export const CALL_RULES: Record<string, RuleFn> = {
   CA5: lookup("Who_Id"), // labelled "Contact Name"
   CA6: callAssociatedCompany,
   // A voicemail attempt has no conversation to narrate (Aaron, 2026-10-14).
-  // "LVM" is the only Call_Result that means nobody was reached; the others
-  // (Made Contact, Interested, Requested call back, ...) all mean someone
-  // answered. Calls left with no Call_Result are covered by the judge, whose
-  // CA7 criterion accepts a note that logs an unanswered attempt.
-  CA7: (c) =>
-    String(c.record.Call_Result ?? "").trim().toUpperCase() === "LVM" ? "N/A" : judged("CA7")(c),
+  CA7: (c) => (isVoicemailAttempt(c.record, c.notes) ? "N/A" : judged("CA7")(c)),
   // Next steps are dropped on Calls (Aaron, 2026-10-02). Most BD calls are
   // with potential referrals that get handed to admissions, so neither a
   // written next step nor a scheduled follow-up belongs to the BD rep; only
