@@ -106,3 +106,10 @@ Deno.test("excuse prompt treats an unreachable or refusing client as explaining 
   assertStringIncludes(p, "excuses the insurance fields");
   assertStringIncludes(p, "never excuses what the rep sets themselves");
 });
+
+Deno.test("excuse prompt lets a note explain a missing email or phone", () => {
+  const p = buildExcusePrompt("Caller did not provide an email, called from the facility line.", [
+    { item: "C4", label: "Email" },
+  ]);
+  assertStringIncludes(p, "excuses Email and Phone");
+});

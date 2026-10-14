@@ -81,6 +81,13 @@ function mdy(iso: string): string {
  * wrapped: a related-list failure degrades that record's dependent items to
  * DEFER rather than failing the whole audit.
  */
+/** Free-text fields reps write notes in, by API name and label. */
+const NOTE_FIELDS: Array<[string, string]> = [
+  ["Description", "Description"],
+  ["Notes", "Notes"],
+  ["Actions_Taken_Notes", "Action Taken/Notes"],
+];
+
 async function enrich(
   token: string,
   section: string,
@@ -115,9 +122,15 @@ async function enrich(
   // insurance ... UNABLE TO OBTAIN INSURANCE INFO" — and, seeing no note, never
   // asked whether that note excused the blank insurance fields.
   const notesIncludeDescription = section !== "Accounts";
-  const description = notesIncludeDescription ? String(record.Description ?? "").trim() : "";
-  if (description !== "") {
-    notes = [...notes, { Note_Title: "Description", Note_Content: description }];
+  // Reps also write into plain text fields that are not the Notes section:
+  // Contacts and Deals carry a "Notes" field, Leads an "Action Taken/Notes".
+  // Sabrina Johnson's Lyra Health contact (2026-10-13) had its whole note in
+  // Contacts.Notes and read to the bot as having none.
+  if (notesIncludeDescription) {
+    for (const [fieldName, label] of NOTE_FIELDS) {
+      const text = String(record[fieldName] ?? "").trim();
+      if (text !== "") notes = [...notes, { Note_Title: label, Note_Content: text }];
+    }
   }
 
   const attachments = section === "Deals"

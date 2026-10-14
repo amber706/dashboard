@@ -249,6 +249,8 @@ details, emergency contact, date of birth, insurance details, level of care, a \
 pre-screen or pre-assessment, an insurance card. "Refused to give insurance" \
 excuses the insurance fields. A note that the rep could not obtain "any empty \
 fields" counts when the notes also show why (no answer, hung up, refused).
+- Email and phone: a note that the caller would not or did not give an email or \
+phone, or that they called from a facility or main line, excuses Email and Phone.
 - Being unable to reach the client never excuses what the rep sets themselves: \
 name capitalization, owner, status, source, BD rep, referring company.
 

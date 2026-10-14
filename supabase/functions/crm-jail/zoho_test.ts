@@ -152,3 +152,12 @@ Deno.test("the daily window also takes activities created that day", () => {
   const weekly = buildWindowQuery("Events", "id", "42", b, 0);
   assertEquals(weekly.includes("Created_Time"), false);
 });
+
+// Lyra Health (Contacts) kept its note in the Notes text field; Leads carry
+// "Action Taken/Notes". Unselected, they read as null and the record as unnoted.
+Deno.test("selects carry the free-text note fields and Source Medium", () => {
+  assertStringIncludes(MODULE_SELECT.Contacts, "Notes");
+  assertStringIncludes(MODULE_SELECT.Deals, "Notes");
+  assertStringIncludes(MODULE_SELECT.Leads, "Actions_Taken_Notes");
+  assertStringIncludes(MODULE_SELECT.Leads, "Source_Medium");
+});

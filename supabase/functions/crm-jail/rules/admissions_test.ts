@@ -297,3 +297,11 @@ Deno.test("D40 accepts PA as the pre-assessment abbreviation", () => {
 Deno.test("D40 does not read PA inside another word", () => {
   assertEquals(s(DEAL_RULES.D40(ctx({}, { attachments: ["PAYMENT.pdf", "Pacific Ins.pdf"] }))), 0);
 });
+
+// Tracy Perkins, 2026-10-13: Source Medium "Talk Further Chat", no Tracking
+// Source, flagged on Sabrina Johnson's daily list.
+Deno.test("L15 is N/A on a Talk Further chat lead", () => {
+  assertEquals(s(LEAD_RULES.L15(ctx({ Source_Medium: "Talk Further Chat", Digital_Source: null }))), "N/A");
+  assertEquals(s(LEAD_RULES.L15(ctx({ Source_Medium: "Call Center", Digital_Source: null }))), 0);
+  assertEquals(s(LEAD_RULES.L15(ctx({ Source_Medium: "Call Center", Digital_Source: "Direct" }))), 1);
+});
