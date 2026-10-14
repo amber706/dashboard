@@ -174,6 +174,9 @@ Deno.serve(async (req) => {
   let rosterQuery = supabase
     .from("crm_jail_roster").select("*").eq("active", true).order("team").order("full_name");
   if (onlyRep) rosterQuery = rosterQuery.eq("zoho_user_id", onlyRep);
+  // `team` scopes every mode, not only notify_only. Without it, a BD-only
+  // re-run (2026-10-14) re-audited all nine admissions reps as well.
+  if (typeof body.team === "string") rosterQuery = rosterQuery.eq("team", body.team);
   // Replay: score an explicit record set (the one a human auditor sampled) and
   // return raw item results for diffing. No sheets, no notifications.
   if (body.replay && typeof body.replay === "object") {
@@ -203,6 +206,8 @@ Deno.serve(async (req) => {
       .eq("window_start", window.startISO).eq("window_end", window.endISO)
       .order("created_at", { ascending: false });
     if (onlyTeam) runsQuery = runsQuery.eq("team", onlyTeam);
+    // Re-sending one rep's corrected scorecard must not re-send the team's.
+    if (onlyRep) runsQuery = runsQuery.eq("zoho_user_id", onlyRep);
     const { data: runs, error: runsErr } = await runsQuery;
     if (runsErr) return json({ error: "RUNS_FAILED", detail: runsErr.message }, 500);
 
