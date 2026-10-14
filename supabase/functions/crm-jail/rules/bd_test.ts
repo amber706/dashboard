@@ -275,3 +275,24 @@ Deno.test("A5 clears a meeting whose only same-day evidence is an owner note edi
   assertEquals(BD_DAILY_RULES.A5([{ ...nexus, id: "nexus" }]), 0);
   assertEquals(BD_DAILY_RULES.A5([{ ...nexus, id: "nexus" }], notes), 1);
 });
+
+// Mike Mcluty's Tyler Spicer calls, 10/6: Call_Result "LVM", notes "VM was
+// full sent 2 sets of TXT" and "Directly to VM not able to leave a VM". Both
+// failed CA7 for lacking a conversation narrative.
+Deno.test("CA7 is N/A on a voicemail call, note or no note", () => {
+  const vm = ctx({ Call_Result: "LVM" }, {
+    notes: [{ Note_Title: "Description", Note_Content: "Directly to VM not able to leave a VM" }],
+    notesJudgments: { CA7: { score: 0, reason: "No conversation." } },
+  });
+  assertEquals(s(CALL_RULES.CA7(vm)), "N/A");
+  assertEquals(s(CALL_RULES.CA7(ctx({ Call_Result: "LVM" }))), "N/A");
+});
+
+Deno.test("CA7 still judges a call where contact was made", () => {
+  const made = ctx({ Call_Result: "Made Contact" }, {
+    notes: [{ Note_Title: "Description", Note_Content: "Spoke with the wife about Soba Mesa." }],
+    notesJudgments: { CA7: { score: 1, reason: "Narrative present." } },
+  });
+  assertEquals(s(CALL_RULES.CA7(made)), 1);
+  assertEquals(s(CALL_RULES.CA7(ctx({ Call_Result: "Made Contact" }))), 0);
+});

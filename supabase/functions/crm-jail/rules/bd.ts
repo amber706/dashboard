@@ -150,7 +150,13 @@ export const CALL_RULES: Record<string, RuleFn> = {
   CA4: lookup("Owner"),
   CA5: lookup("Who_Id"), // labelled "Contact Name"
   CA6: callAssociatedCompany,
-  CA7: judged("CA7"),
+  // A voicemail attempt has no conversation to narrate (Aaron, 2026-10-14).
+  // "LVM" is the only Call_Result that means nobody was reached; the others
+  // (Made Contact, Interested, Requested call back, ...) all mean someone
+  // answered. Calls left with no Call_Result are covered by the judge, whose
+  // CA7 criterion accepts a note that logs an unanswered attempt.
+  CA7: (c) =>
+    String(c.record.Call_Result ?? "").trim().toUpperCase() === "LVM" ? "N/A" : judged("CA7")(c),
   // Next steps are dropped on Calls (Aaron, 2026-10-02). Most BD calls are
   // with potential referrals that get handed to admissions, so neither a
   // written next step nor a scheduled follow-up belongs to the BD rep; only

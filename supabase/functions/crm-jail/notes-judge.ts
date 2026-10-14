@@ -25,7 +25,9 @@ export const ITEM_CRITERIA: Record<string, string> = {
   D23: "Any field that could not be completed is named in the notes with the reason.",
   D37: "The notes explain why the deal was lost and give the next step.",
   BC11: "The notes clearly describe this person's role and their relationship to us.",
-  CA7: "The notes contain a clear narrative of the conversation.",
+  CA7: "The notes contain a clear narrative of the conversation. If the call never " +
+    "connected — voicemail, voicemail full, no answer — a note recording that attempt " +
+    "is enough; there was no conversation to narrate.",
   CA8: "The notes contain a specific, actionable next step.",
   M7: "The meeting notes include the agenda.",
   M8: "The meeting notes include next steps.",
