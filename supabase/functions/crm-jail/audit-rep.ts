@@ -7,11 +7,11 @@
 // records in a week; fetching notes and attachments for all of them would be
 // slow and pointless when only 5 per section are scored.
 
-import { fetchByIds, fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
+import { fetchByIds, fetchOwned, fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
 import { EOD_SHEETS, fetchEodValues, judgeEod, parseEodSheet, rowsForRep, type EodRow } from "./eod.ts";
 import { expectedEodDays } from "./holidays.ts";
 import { dailyBounds, missesFor, type DailyMiss } from "./daily.ts";
-import { sampleRecords, sampleSeed } from "./sampler.ts";
+import { sampleRecords, sampleRotating, sampleSeed } from "./sampler.ts";
 import { judgeExcusedBlanks, judgeNotes, judgeDiagnostics } from "./notes-judge.ts";
 import { itemsForModule } from "./notes-judge.ts";
 import {
@@ -185,7 +185,24 @@ export interface AuditDeps {
   stageCategory: (raw: unknown) => string | null;
   sourceCategory: (raw: unknown) => string | null;
   dryRun?: boolean;
+  /**
+   * Past draws for the owned-record sections, and where to log new ones
+   * (crm_jail_samples). Absent in tests and replay: the draw then ignores
+   * history and nothing is written.
+   */
+  sampleHistory?: {
+    recent(section: string): Promise<Map<string, string>>;
+    record(section: string, rows: Array<{ id: string; name: string; failedItems: string[] }>): Promise<void>;
+  };
 }
+
+/**
+ * BD sections drawn from everything the rep owns, not from window activity
+ * (Aaron, 2026-10-14). BD reps work companies and contacts through calls and
+ * meetings and rarely edit the records, so the window pool was usually under
+ * five. See sampleRotating for the no-repeat rule.
+ */
+export const OWNED_SECTIONS = new Set(["Companies", "BusinessContacts"]);
 
 /**
  * Enriches and scores a set of already-chosen records for one section.
@@ -263,11 +280,18 @@ export async function auditRep(
   const sampled: Record<string, number> = {};
   const allWindowRecords: Record<string, Record<string, unknown>[]> = {};
   const timings: PhaseTimings = { fetchMs: 0, enrichJudgeMs: 0, writeMs: 0, poolSizes: {} };
+  const pendingSamples: Array<{
+    section: string;
+    rows: Array<{ id: string; name: string; failedItems: string[] }>;
+  }> = [];
 
   for (const section of SECTIONS[team]) {
     const mod = MODULE_FOR[section];
     const t0 = Date.now();
-    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
+    const owned = OWNED_SECTIONS.has(section);
+    let pool = owned
+      ? await fetchOwned(deps.zohoToken, mod, rep.zoho_user_id)
+      : await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
     timings.fetchMs += Date.now() - t0;
 
     // The BD scorecard's "Business Contacts" section means contacts with a
@@ -278,27 +302,51 @@ export async function auditRep(
     allWindowRecords[section] = pool;
     timings.poolSizes[section] = pool.length;
 
-    const drawn = sampleRecords(
-      pool,
-      SAMPLE_SIZE,
-      sampleSeed(window.startISO, rep.zoho_user_id, mod),
-    );
+    const seed = sampleSeed(window.startISO, rep.zoho_user_id, mod);
+    const drawn = owned
+      ? sampleRotating(
+        pool as Array<{ id?: unknown }>, SAMPLE_SIZE, seed,
+        deps.sampleHistory ? await deps.sampleHistory.recent(section) : new Map(),
+        window.startISO,
+      ) as Record<string, unknown>[]
+      : sampleRecords(pool, SAMPLE_SIZE, seed);
     sampled[section] = drawn.length;
 
     const t1 = Date.now();
     const { records, results } = await scoreDrawn(team, section, mod, drawn, window, deps, true);
     timings.enrichJudgeMs += Date.now() - t1;
     sections.push({ section, records, results });
+
+    // What each draw failed, so the next time the record comes up it shows
+    // whether the fix was made and held. Written below, once the rep is known
+    // not to be skipped.
+    if (owned) {
+      pendingSamples.push({
+        section,
+        rows: drawn.map((r, i) => ({
+          id: String(r.id),
+          name: records[i]?.name ?? "",
+          failedItems: (results[i] ?? []).filter((x) => x.score === 0).map((x) => x.item),
+        })),
+      });
+    }
   }
 
   // A rep with nothing in the window gets a flagged sheet, not a 0%. Someone
-  // on PTO must not land in jail for it.
-  const totalRecords = Object.values(sampled).reduce((a, b) => a + b, 0);
+  // on PTO must not land in jail for it. Owned sections always have records,
+  // so only window activity says whether the rep worked.
+  const totalRecords = Object.entries(sampled)
+    .filter(([section]) => !OWNED_SECTIONS.has(section))
+    .reduce((a, [, b]) => a + b, 0);
   if (totalRecords === 0) {
     return {
       rep: rep.full_name, team, status: "skipped_no_activity", timings,
       deferredCells: 0, auditorEmail: rep.auditor_email, sampled,
     };
+  }
+
+  if (!deps.dryRun && deps.sampleHistory) {
+    for (const p of pendingSamples) await deps.sampleHistory.record(p.section, p.rows);
   }
 
   // EOD sheets are Google, not Zoho, so this costs no CRM quota.

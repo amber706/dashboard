@@ -297,6 +297,30 @@ export async function coql(token: string, query: string): Promise<Record<string,
   return (json.data ?? []) as Record<string, unknown>[];
 }
 
+/**
+ * Every record the rep owns in a module, regardless of when it was touched.
+ * Used for the BD Companies and Business Contacts sections — see
+ * sampleRotating in sampler.ts.
+ */
+export async function fetchOwned(
+  token: string,
+  module: string,
+  ownerId: string,
+): Promise<Record<string, unknown>[]> {
+  const select = MODULE_SELECT[module];
+  if (!select) throw new Error(`No select list defined for module ${module}`);
+  const out: Record<string, unknown>[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const page = await coql(
+      token,
+      `select ${select} from ${module} where Owner = '${ownerId}' order by id limit ${PAGE_SIZE} offset ${offset}`,
+    );
+    out.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
 /** Pages until a short page comes back. Errors are thrown, never swallowed. */
 export async function fetchWindow(
   token: string,

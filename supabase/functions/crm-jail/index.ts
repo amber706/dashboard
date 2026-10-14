@@ -376,6 +376,7 @@ Deno.serve(async (req) => {
       const r = await auditRep(row, window, bounds, {
         zohoToken, googleToken, driveId: DRIVE_ID, stageCategory, sourceCategory, dryRun,
         rosterNames: ((roster ?? []) as unknown as Array<RosterRep>).map((x) => x.full_name),
+        sampleHistory: sampleHistoryFor(supabase, row.zoho_user_id, window.startISO),
       });
       results.push({
         rep: r.rep, team: r.team, status: r.status, sheetId: r.sheetId, sheetUrl: r.sheetUrl,
@@ -711,4 +712,45 @@ async function recordDaily(
   }, { onConflict: "run_date,zoho_user_id" });
   // A ledger write failing must not cost the rep a list already sent.
   if (error) console.error(`crm_jail_daily_runs upsert failed for ${rep.full_name}: ${error.message}`);
+}
+
+/**
+ * crm_jail_samples for one rep and window: the last window each owned record
+ * was drawn in (before this one), and where this window's draws are logged.
+ */
+function sampleHistoryFor(supabase: SupabaseClient, zohoUserId: string, windowStartISO: string) {
+  return {
+    async recent(section: string): Promise<Map<string, string>> {
+      const since = new Date(new Date(`${windowStartISO}T00:00:00Z`).getTime() - 90 * 86_400_000)
+        .toISOString().slice(0, 10);
+      const { data, error } = await supabase.from("crm_jail_samples")
+        .select("record_id, window_start")
+        .eq("zoho_user_id", zohoUserId).eq("section", section)
+        .gte("window_start", since).lt("window_start", windowStartISO);
+      // Failing closed would stall the audit; failing open risks a repeat
+      // draw. A repeat is the cheaper error, and it is logged.
+      if (error) {
+        console.error(`crm_jail_samples read failed (${section}): ${error.message}`);
+        return new Map();
+      }
+      const m = new Map<string, string>();
+      for (const r of data ?? []) {
+        const prev = m.get(String(r.record_id));
+        if (!prev || String(r.window_start) > prev) m.set(String(r.record_id), String(r.window_start));
+      }
+      return m;
+    },
+    async record(section: string, rows: Array<{ id: string; name: string; failedItems: string[] }>) {
+      if (rows.length === 0) return;
+      const { error } = await supabase.from("crm_jail_samples").upsert(rows.map((r) => ({
+        window_start: windowStartISO,
+        zoho_user_id: zohoUserId,
+        section,
+        record_id: r.id,
+        record_name: r.name,
+        failed_items: r.failedItems,
+      })), { onConflict: "window_start,zoho_user_id,section,record_id" });
+      if (error) console.error(`crm_jail_samples write failed (${section}): ${error.message}`);
+    },
+  };
 }
