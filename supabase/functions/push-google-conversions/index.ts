@@ -1,5 +1,6 @@
 // push-google-conversions v42 — v41's two fixes together, plus the 10/19 IVR's DUI queues.
 // CHANGES from v41:
+//   - body.replay: one-off backfills for conversions lost to the two bugs below (see handleReplay).
 //   - Two different v41s existed: end-of-day stamping (repo) and DUI-queue-by-route_id (deployed
 //     2026-10-19 from older source, which silently dropped the end-of-day fix). This carries both.
 //   - The "New Main Admissions IVR - 10/19/2026" sends DUI callers through the "DUI 2026 - New vs
@@ -253,6 +254,30 @@ async function uploadClickConversions(payload: any): Promise<{ ok: boolean; resp
   const j = await res.json().catch(() => null);
   if (!res.ok) return { ok: false, http_status: res.status, error: `google ads ${res.status}: ${JSON.stringify(j).slice(0, 500)}`, response: j };
   return { ok: true, http_status: res.status, response: j };
+}
+async function uploadConversionAdjustments(payload: any): Promise<{ ok: boolean; response?: any; error?: string }> {
+  const { token, error: oauthErr } = await getGoogleAdsAccessToken();
+  if (!token) return { ok: false, error: `google ads access token unavailable: ${oauthErr ?? "unknown"}` };
+  if (!GA_DEVELOPER_TOKEN) return { ok: false, error: "GOOGLE_ADS_DEVELOPER_TOKEN missing" };
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}`, "developer-token": GA_DEVELOPER_TOKEN, "content-type": "application/json" };
+  if (GA_LOGIN_CUSTOMER_ID) headers["login-customer-id"] = GA_LOGIN_CUSTOMER_ID;
+  const url = `https://googleads.googleapis.com/${GA_API_VERSION}/customers/${GA_CUSTOMER_ID}:uploadConversionAdjustments`;
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
+  const j = await res.json().catch(() => null);
+  if (!res.ok) return { ok: false, error: `google ads ${res.status}: ${JSON.stringify(j).slice(0, 500)}`, response: j };
+  return { ok: true, response: j };
+}
+// Partial-failure errors keyed by the index of the failing row in the request.
+function failuresByIndex(response: any, field: "conversions" | "conversion_adjustments"): Map<number, string> {
+  const out = new Map<number, string>();
+  const camel = field === "conversions" ? "conversions" : "conversionAdjustments";
+  for (const det of (response?.partialFailureError?.details ?? [])) {
+    for (const err of (det.errors ?? [])) {
+      const idx = err.location?.fieldPathElements?.find((p: any) => p.fieldName === field || p.fieldName === camel)?.index ?? -1;
+      if (idx >= 0) out.set(idx, extractErrorCode(err));
+    }
+  }
+  return out;
 }
 async function gaSearchStream(query: string): Promise<{ ok: boolean; data?: any; error?: string }> {
   const { token, error: oauthErr } = await getGoogleAdsAccessToken();
@@ -617,6 +642,98 @@ async function fetchZohoCommercialBackstopEvents(zohoToken: string, ctmCommercia
   return { events, scanned, skipped_covered, skipped_already_sent };
 }
 
+// One-off backfills, run by hand (body.replay). Each is idempotent: rows already recovered are skipped.
+//  - "retime": re-send conversions Google rejected as CONVERSION_PRECEDES_EVENT because a date-only
+//    field was stamped 12:00 UTC (05:00 AZ). Takes conversion_push_log ids; re-dates at end of the AZ day.
+//  - "dui_reroute": DUI-queue 4/5★ calls that went to the Commercial 4/5★ action because isDuiRouted()
+//    missed a renamed/new queue. Sends each to the DUI action and retracts the commercial upload where
+//    it carried a gclid (adjustments need gclid+time; identifier-only uploads have no order_id to target).
+async function handleReplay(replay: any, dryRun: boolean) {
+  const kind = replay?.kind;
+  if (kind === "retime") {
+    const ids: string[] = Array.isArray(replay.log_ids) ? replay.log_ids : [];
+    const { data: rows, error } = await supabase.from("conversion_push_log").select("*").in("id", ids);
+    if (error) return { ok: false, error: error.message };
+    const conversions: any[] = []; const meta: any[] = []; const skipped: any[] = [];
+    for (const r of (rows ?? []) as any[]) {
+      const orig = r.payload?.conversion_date_time as string | undefined;
+      if (r.status !== "failed" || r.error_msg !== "CONVERSION_PRECEDES_EVENT" || !orig?.endsWith(" 12:00:00+00:00")) { skipped.push({ id: r.id, reason: "not a noon-stamped CONVERSION_PRECEDES_EVENT" }); continue; }
+      const { data: later } = await supabase.from("conversion_push_log").select("id").eq("event_type", r.event_type).eq("zoho_lead_id", r.zoho_lead_id).eq("status", "success").gt("attempted_at", r.attempted_at).limit(1);
+      if (later && later.length > 0) { skipped.push({ id: r.id, reason: "already succeeded later" }); continue; }
+      const conv = { ...r.payload, conversion_date_time: toGaTimestamp(clampNotFuture(endOfArizonaDay(orig.slice(0, 10)))) };
+      conversions.push(conv); meta.push(r);
+    }
+    if (dryRun || conversions.length === 0) return { ok: true, kind, dry_run: dryRun, to_send: conversions.length, skipped, preview: conversions.map((c, i) => ({ log_id: meta[i].id, event_type: meta[i].event_type, from: meta[i].payload.conversion_date_time, to: c.conversion_date_time })) };
+    const res = await uploadClickConversions({ conversions, partial_failure: true, validate_only: false });
+    const fails = failuresByIndex(res.response, "conversions");
+    const logRows = conversions.map((c, i) => {
+      const m = meta[i]; const code = !res.ok ? "UPLOAD_FAILED" : fails.get(i); const ok = !code;
+      return { event_type: m.event_type, lead_id: m.lead_id, zoho_lead_id: m.zoho_lead_id, gclid: m.gclid, gclid_source: m.gclid_source, identifier_count: m.identifier_count, conversion_value_usd: m.conversion_value_usd, conversion_action_id: m.conversion_action_id, payload: c, dry_run: false, status: ok ? "success" : "failed", google_response: ok ? (res.response?.results?.[i] ?? null) : null, error_msg: ok ? "replay_retime" : (res.error ?? code) };
+    });
+    if (logRows.length) await supabase.from("conversion_push_log").insert(logRows);
+    return { ok: res.ok, kind, sent: conversions.length, succeeded: logRows.filter(r => r.status === "success").length, failed: logRows.filter(r => r.status === "failed").map(r => ({ zoho_id: r.zoho_lead_id, error: r.error_msg })), skipped };
+  }
+  if (kind === "dui_reroute") {
+    if (!ctmBot) return { ok: false, error: "CTM_BOT_SERVICE_ROLE_KEY missing" };
+    const ids: string[] = Array.isArray(replay.call_score_ids) ? replay.call_score_ids : [];
+    const scores: any[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data, error } = await ctmBot.from("call_score").select("id, call_id, score, override_score, ctm_45_commercial_pushed_at, ctm_45_dui_pushed_at").in("id", ids.slice(i, i + 100));
+      if (error) return { ok: false, error: error.message };
+      scores.push(...(data ?? []));
+    }
+    const eligible = scores.filter(s => s.ctm_45_dui_pushed_at == null && s.ctm_45_commercial_pushed_at != null && [4, 5].includes(s.override_score ?? s.score));
+    const callIds = eligible.map(s => s.call_id);
+    const callMap = new Map<string, any>();
+    for (let i = 0; i < callIds.length; i += 100) {
+      const { data } = await ctmBot.from("ctm_call").select("call_id, caller_number, raw_payload, received_at").in("call_id", callIds.slice(i, i + 100));
+      for (const c of (data ?? []) as any[]) callMap.set(c.call_id, c);
+    }
+    const ca = EVENT_CONFIG.dui_ctm_45;
+    const conversions: any[] = []; const meta: any[] = []; const skipped: any[] = [];
+    for (const s of eligible) {
+      const call = callMap.get(s.call_id); const raw = call?.raw_payload;
+      if (!call || !isDuiRouted(raw) || isCommercialRouted(raw)) { skipped.push({ id: s.id, reason: "not DUI-routed" }); continue; }
+      const gclid = raw?.ga?.gclid ?? null;
+      const identifiers = await buildUserIdentifiers({ email: normalizeEmail(raw?.email ?? null), phone: call.caller_number ?? null });
+      if (!gclid && identifiers.length === 0) { skipped.push({ id: s.id, reason: "no identifier" }); continue; }
+      const conv: any = { conversion_action: `customers/${GA_CUSTOMER_ID}/conversionActions/${ca.ca_id}`, conversion_date_time: toGaTimestamp(clampNotFuture(call.received_at)), conversion_value: ca.value_usd, currency_code: "USD" };
+      if (gclid) conv.gclid = gclid;
+      if (identifiers.length) conv.user_identifiers = identifiers;
+      conversions.push(conv); meta.push({ s, gclid, identifierCount: identifiers.length });
+    }
+    // Commercial uploads to retract: the logged gclid+time pair of each call's successful commercial push.
+    const retractions: any[] = []; const notRetractable: string[] = [];
+    for (const m of meta) {
+      const { data: logs } = await supabase.from("conversion_push_log").select("gclid, payload").eq("event_type", "commercial_ctm_45").eq("lead_id", m.s.call_id).eq("status", "success").eq("dry_run", false);
+      const withGclid = (logs ?? []).filter((l: any) => l.payload?.gclid);
+      if (withGclid.length === 0) { notRetractable.push(m.s.call_id); continue; }
+      for (const l of withGclid) retractions.push({ conversion_action: l.payload.conversion_action, adjustment_type: "RETRACTION", adjustment_date_time: toGaTimestamp(new Date().toISOString()), gclid_date_time_pair: { gclid: l.payload.gclid, conversion_date_time: l.payload.conversion_date_time } });
+    }
+    if (dryRun || conversions.length === 0) return { ok: true, kind, dry_run: dryRun, eligible: eligible.length, to_send_as_dui: conversions.length, to_retract: retractions.length, not_retractable: notRetractable.length, skipped };
+    const up = await uploadClickConversions({ conversions, partial_failure: true, validate_only: false });
+    const upFails = failuresByIndex(up.response, "conversions");
+    const logRows: any[] = []; const stampIds: string[] = [];
+    conversions.forEach((c, i) => {
+      const m = meta[i]; const code = !up.ok ? "UPLOAD_FAILED" : upFails.get(i); const ok = !code;
+      if (ok || PERMANENT_ERROR_CODES.has(code ?? "")) stampIds.push(m.s.id);
+      logRows.push({ event_type: "dui_ctm_45", lead_id: m.s.call_id, zoho_lead_id: m.s.id, gclid: m.gclid, gclid_source: m.gclid ? "ctm_call" : "none", identifier_count: m.identifierCount, conversion_value_usd: ca.value_usd, conversion_action_id: ca.ca_id, payload: c, dry_run: false, status: ok ? "success" : "failed", google_response: ok ? (up.response?.results?.[i] ?? null) : null, error_msg: ok ? "replay_dui_reroute" : (up.error ?? code) });
+    });
+    if (logRows.length) await supabase.from("conversion_push_log").insert(logRows);
+    for (let i = 0; i < stampIds.length; i += 100) await ctmBot.from("call_score").update({ ctm_45_dui_pushed_at: new Date().toISOString() }).in("id", stampIds.slice(i, i + 100));
+    let retracted = 0; const retractErrors: Record<string, number> = {};
+    for (let i = 0; i < retractions.length; i += 500) {
+      const batch = retractions.slice(i, i + 500);
+      const r = await uploadConversionAdjustments({ conversion_adjustments: batch, partial_failure: true, validate_only: false });
+      const f = r.ok ? failuresByIndex(r.response, "conversion_adjustments") : new Map<number, string>();
+      if (!r.ok) retractErrors[r.error ?? "UPLOAD_FAILED"] = (retractErrors[r.error ?? "UPLOAD_FAILED"] ?? 0) + batch.length;
+      else { retracted += batch.length - f.size; for (const code of f.values()) retractErrors[code] = (retractErrors[code] ?? 0) + 1; }
+    }
+    return { ok: up.ok, kind, sent_as_dui: conversions.length, succeeded: logRows.filter(r => r.status === "success").length, failed: logRows.filter(r => r.status === "failed").map(r => ({ call_id: r.lead_id, error: r.error_msg })), retracted, retract_errors: retractErrors, not_retractable: notRetractable.length, skipped };
+  }
+  return { ok: false, error: `unknown replay kind: ${kind}` };
+}
+
 Deno.serve(async (req) => {
   const _pre = handleCorsPreflight(req);
   if (_pre) return _pre;
@@ -625,6 +742,8 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const limit = Math.min(Number(body.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
     const dryRun = typeof body.dry_run === "boolean" ? body.dry_run : GA_DRY_RUN_ENV;
+
+    if (body.replay) return jsonResponse(await handleReplay(body.replay, dryRun));
 
     if (body.diagnose === true) {
       const caIds = [CA_COMMERCIAL_VOB, CA_COMMERCIAL_LEAD, CA_AHCCCS_LEAD, CA_AHCCCS_ADMIT, CA_COMMERCIAL_ADMIT, CA_AHCCCS_VOB, CA_DUI_CLOSED_WON];
