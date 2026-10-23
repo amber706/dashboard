@@ -107,6 +107,8 @@ export const MODULE_SELECT: Record<string, string> = {
  * `force` re-mints and overwrites — used when a cached token turns out to be
  * rejected, so one stale row cannot fail an entire run.
  */
+export const TOKEN_HEADROOM_MS = 15 * 60_000;
+
 export async function getCachedZohoAccessToken(
   // deno-lint-ignore no-explicit-any
   supabase: any,
@@ -118,8 +120,13 @@ export async function getCachedZohoAccessToken(
       .select("access_token,expires_at")
       .eq("singleton", true)
       .maybeSingle();
-    // 60s of headroom so a token cannot expire mid-audit.
-    if (data?.access_token && new Date(data.expires_at).getTime() > Date.now() + 60_000) {
+    // Enough headroom that a token cannot expire mid-audit. 60s was not: one
+    // rep's weekly audit takes several minutes, and on 2026-10-21 the token the
+    // 08:10 daily run had minted expired at ~09:03, in the middle of the last
+    // batch — Kenny Reitz and Mike Mcluty died on ZOHO_AUTH_FAILED with no
+    // scorecard. Zoho tokens live an hour; ours are stamped to expire at 50
+    // minutes, so this still reuses a token for its first 35.
+    if (data?.access_token && new Date(data.expires_at).getTime() > Date.now() + TOKEN_HEADROOM_MS) {
       return data.access_token as string;
     }
   }

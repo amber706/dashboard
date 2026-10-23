@@ -161,3 +161,11 @@ Deno.test("selects carry the free-text note fields and Source Medium", () => {
   assertStringIncludes(MODULE_SELECT.Leads, "Actions_Taken_Notes");
   assertStringIncludes(MODULE_SELECT.Leads, "Source_Medium");
 });
+
+import { TOKEN_HEADROOM_MS } from "./zoho.ts";
+
+// A weekly child audit runs several minutes; a token with 60s left died
+// mid-audit on 2026-10-21. The headroom must outlast one rep's audit.
+Deno.test("a cached Zoho token is only reused with at least 15 minutes left", () => {
+  assertEquals(TOKEN_HEADROOM_MS >= 15 * 60_000, true);
+});
