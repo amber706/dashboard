@@ -1,5 +1,18 @@
-// push-google-conversions v41 — v40 plus end-of-day stamping for date-only fields.
-// CHANGES from v40:
+// push-google-conversions v42 — v41's two fixes together, plus the 10/19 IVR's DUI queues.
+// CHANGES from v41:
+//   - Two different v41s existed: end-of-day stamping (repo) and DUI-queue-by-route_id (deployed
+//     2026-10-19 from older source, which silently dropped the end-of-day fix). This carries both.
+//   - The "New Main Admissions IVR - 10/19/2026" sends DUI callers through the "DUI 2026 - New vs
+//     Returning Router" into three new queues, and the old "Main Admissions IVR:2" item is gone. None
+//     matched isDuiRouted(), so from 10/19 DUI 4/5★ calls went to the Commercial 4/5★ action (32 of
+//     them by 10/22). Their route_ids are added below.
+// CHANGES from v41 (DUI queue by route_id):
+//   - isDuiRouted() matched CallQueue by route_name "DUI Queue 2025". The queue was renamed
+//     "DUI Queue 2026" on 2026-09-16 (same route_id), so DUI-queue calls that didn't pass through
+//     IVR:2 fell through to commercial_ctm_45 — 101 of them in the 30d to 2026-10-19. Now matched
+//     by CTM route_id (stable across renames), incl. the "Gary Weighted FTC/Repeat Tag" DUI queue
+//     added 2026-10-15.
+// CHANGES from v40 (end-of-day stamping):
 //   - VOB / Admit / DUI conversions dated from a Zoho date-only field were stamped 12:00 UTC
 //     (05:00 Arizona), so a click later that same day made Google reject the conversion as
 //     CONVERSION_PRECEDES_EVENT. Now stamped 23:59:59 Arizona (-07:00), capped at "now".
@@ -36,7 +49,7 @@
 //     "CTM 4's + 5's (Commercial Insurance)" action (7661904455), value 1, via new event type
 //     commercial_ctm_45 and new idempotency column call_score.ctm_45_commercial_pushed_at.
 //   - Routing is now QUEUE-based from ctm_call.raw_payload.call_path (the dui/commercial TAGS are
-//     unreliable): DUI-routed = CallQueue "DUI Queue 2025" OR VoiceMenuItem "Main Admissions IVR:2";
+//     unreliable): DUI-routed = DUI CallQueue (see DUI_QUEUE_ROUTE_IDS) OR VoiceMenuItem "Main Admissions IVR:2";
 //     commercial-routed = CallQueue "Treatment Reps - Commercial". A 4/5★ call is pushed unless it is
 //     DUI-routed AND not commercial-routed (those stay with CTM's native DUI conversions).
 //   - Second pass fetchZohoCommercialBackstopEvents(): Zoho Deals in Pipeline 'Commercial-Cash' within
@@ -417,8 +430,22 @@ function callPathHas(raw: any, routeType: string | null, routeName: string): boo
   const cp = Array.isArray(raw?.call_path) ? raw.call_path : [];
   return cp.some((s: any) => s?.route_name === routeName && (routeType === null || s?.route_type === routeType));
 }
+// CTM renames queues in place (e.g. "DUI Queue 2025" → "DUI Queue 2026"), but the route_id survives.
+// New DUI queues/routers must be added here or their 4/5★ calls land in the Commercial action.
+const DUI_QUEUE_ROUTE_IDS = new Set([
+  "CQU182BC82C1063561EC4B500D75B27E87FE99CD5E737D5479B", // DUI Queue 2026 (formerly DUI Queue 2025)
+  "CQU182BC82C1063561EC4B500D75B27E87FD7D17F132E0E4F20", // DUI Queue 2026 - Gary Weighted FTC/Repeat Tag
+  "COR1819B95F1F30B8D29D6074F01BE71F04F4DC6CB60FF01542F35190F3B03958D4", // DUI 2026 - New vs Returning Router (10/19 IVR)
+  "CQU182BC82C1063561EC4B500D75B27E87FB34FD17BC153BDA0", // DUI 2026 - New Callers (Robert)
+  "CQU182BC82C1063561EC4B500D75B27E87F9F2B5C12BB169F18", // DUI 2026 - Returning Callers (Farah/Sarah)
+  "CQU182BC82C1063561EC4B500D75B27E87FCE0327CA2E7A8E50", // DUI 2026 - Backup (Gary)
+]);
+function callPathHasRouteId(raw: any, routeIds: Set<string>): boolean {
+  const cp = Array.isArray(raw?.call_path) ? raw.call_path : [];
+  return cp.some((s: any) => routeIds.has(s?.route_id));
+}
 function isDuiRouted(raw: any): boolean {
-  return callPathHas(raw, "CallQueue", "DUI Queue 2025") || callPathHas(raw, null, "Main Admissions IVR:2");
+  return callPathHasRouteId(raw, DUI_QUEUE_ROUTE_IDS) || callPathHas(raw, null, "Main Admissions IVR:2");
 }
 function isCommercialRouted(raw: any): boolean {
   return callPathHas(raw, "CallQueue", "Treatment Reps - Commercial");
@@ -757,7 +784,7 @@ Deno.serve(async (req) => {
     // was spotted (2026-09-09). The CTM work above is already committed and is still reported here
     // — but the response is marked failed so pg_net's status_code surfaces it.
     const zohoOk = !!zohoToken;
-    return jsonResponse({ ok: zohoOk, ...(zohoOk ? {} : { error: "zoho_auth_unavailable: refresh returned no access token; Zoho-sourced conversions were skipped this run (CTM-sourced still pushed)" }), version: "v41", dry_run: dryRun, zoho_token_ok: zohoOk, max_deal_age_days: MAX_DEAL_AGE_DAYS, api_version: GA_API_VERSION, scanned: { dui_closed_won: dui.events.length, vob: vob.events.length, admit: admit.events.length, zoho_leads: zLeads.events.length, ctm: ctm.events.length, commercial_ctm_45: ctmCommercial.length, commercial_backstop: backstop.events.length }, backstop: { scanned: backstop.scanned, skipped_covered: backstop.skipped_covered, skipped_already_sent: backstop.skipped_already_sent }, pushed, dry_run_only: dryRunOnly, skipped_no_identifier: skippedNoIdent, failed, permanent_failures: permanentFailures, transient_failures: transientFailures, error_breakdown: errorBreakdown, zoho_writeback: zohoWriteback, ctm_call_scores_stamped: totalCtmStamps }, zohoOk ? 200 : 502);
+    return jsonResponse({ ok: zohoOk, ...(zohoOk ? {} : { error: "zoho_auth_unavailable: refresh returned no access token; Zoho-sourced conversions were skipped this run (CTM-sourced still pushed)" }), version: "v42", dry_run: dryRun, zoho_token_ok: zohoOk, max_deal_age_days: MAX_DEAL_AGE_DAYS, api_version: GA_API_VERSION, scanned: { dui_closed_won: dui.events.length, vob: vob.events.length, admit: admit.events.length, zoho_leads: zLeads.events.length, ctm: ctm.events.length, commercial_ctm_45: ctmCommercial.length, commercial_backstop: backstop.events.length }, backstop: { scanned: backstop.scanned, skipped_covered: backstop.skipped_covered, skipped_already_sent: backstop.skipped_already_sent }, pushed, dry_run_only: dryRunOnly, skipped_no_identifier: skippedNoIdent, failed, permanent_failures: permanentFailures, transient_failures: transientFailures, error_breakdown: errorBreakdown, zoho_writeback: zohoWriteback, ctm_call_scores_stamped: totalCtmStamps }, zohoOk ? 200 : 502);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return jsonResponse({ ok: false, error: message }, 500);
