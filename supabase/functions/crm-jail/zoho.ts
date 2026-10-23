@@ -35,7 +35,9 @@ export const MODULE_SELECT: Record<string, string> = {
     "Lead_Score_Rating", "Generated_By", "Digital_Source", "Source_Category",
     "BD_Rep", "Business_Contact_Name", "Referring_Contact_Business_Contact",
     "Insurance_Type", "Private_Insurance_Company", "AHCCCS_Insurance_Provider",
-    "DOB", "Member_ID", "Insurance_Policy_Type",
+    "DOB", "Member_ID", "Insurance_Policy_Type", "Source_Medium",
+    // Where reps write the narrative on these modules; folded into notes.
+    "Description", "Actions_Taken_Notes",
     "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
@@ -44,6 +46,8 @@ export const MODULE_SELECT: Record<string, string> = {
     "Emergency_Contact_Name", "Emergency_Contact_Phone_Number",
     "Contact_Type", "Owner", "Business_Contact_Role",
     "Account_Name", "Associated_Facility",
+    // Where reps write the narrative on these modules; folded into notes.
+    "Description", "Notes",
     "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
@@ -58,6 +62,8 @@ export const MODULE_SELECT: Record<string, string> = {
     "Referred_Out", "Outbound_Referral_BD_Rep", "Refer_Out_Type",
     "Admitted_at_Referred_Facility", "Refer_Out_Date",
     "Lost_Reasoning", "Close_Reasoning_DUI",
+    // Where reps write the narrative on these modules; folded into notes.
+    "Description", "Notes",
     "Created_Time", "Modified_Time", "Modified_By",
   ].join(","),
 
@@ -101,6 +107,8 @@ export const MODULE_SELECT: Record<string, string> = {
  * `force` re-mints and overwrites — used when a cached token turns out to be
  * rejected, so one stale row cannot fail an entire run.
  */
+export const TOKEN_HEADROOM_MS = 15 * 60_000;
+
 export async function getCachedZohoAccessToken(
   // deno-lint-ignore no-explicit-any
   supabase: any,
@@ -112,8 +120,13 @@ export async function getCachedZohoAccessToken(
       .select("access_token,expires_at")
       .eq("singleton", true)
       .maybeSingle();
-    // 60s of headroom so a token cannot expire mid-audit.
-    if (data?.access_token && new Date(data.expires_at).getTime() > Date.now() + 60_000) {
+    // Enough headroom that a token cannot expire mid-audit. 60s was not: one
+    // rep's weekly audit takes several minutes, and on 2026-10-21 the token the
+    // 08:10 daily run had minted expired at ~09:03, in the middle of the last
+    // batch — Kenny Reitz and Mike Mcluty died on ZOHO_AUTH_FAILED with no
+    // scorecard. Zoho tokens live an hour; ours are stamped to expire at 50
+    // minutes, so this still reuses a token for its first 35.
+    if (data?.access_token && new Date(data.expires_at).getTime() > Date.now() + TOKEN_HEADROOM_MS) {
       return data.access_token as string;
     }
   }
@@ -254,10 +267,19 @@ export function buildWindowQuery(
   ownerId: string,
   bounds: { from: string; toExclusive: string },
   offset: number,
+  activityOrCreated = false,
 ): string {
   const activityField = ACTIVITY_DATE_FIELD[module];
+  const happened = activityField &&
+    `${activityField} >= '${bounds.from}' and ${activityField} < '${bounds.toExclusive}'`;
+  // The daily list also wants activities the rep LOGGED that day: a meeting
+  // booked Thursday for next Monday is Thursday's work. Windowing on Start
+  // alone told Joey Masterson and Kenny Reitz (2026-10-01) they had done
+  // nothing, and they got no list.
   const when = activityField
-    ? `${activityField} >= '${bounds.from}' and ${activityField} < '${bounds.toExclusive}'`
+    ? activityOrCreated
+      ? `(${happened}) or (Created_Time >= '${bounds.from}' and Created_Time < '${bounds.toExclusive}')`
+      : happened
     : `(Created_Time >= '${bounds.from}' and Created_Time < '${bounds.toExclusive}') ` +
       `or ((Modified_Time >= '${bounds.from}' and Modified_Time < '${bounds.toExclusive}') ` +
       `and Modified_By = '${ownerId}')`;
@@ -282,18 +304,43 @@ export async function coql(token: string, query: string): Promise<Record<string,
   return (json.data ?? []) as Record<string, unknown>[];
 }
 
+/**
+ * Every record the rep owns in a module, regardless of when it was touched.
+ * Used for the BD Companies and Business Contacts sections — see
+ * sampleRotating in sampler.ts.
+ */
+export async function fetchOwned(
+  token: string,
+  module: string,
+  ownerId: string,
+): Promise<Record<string, unknown>[]> {
+  const select = MODULE_SELECT[module];
+  if (!select) throw new Error(`No select list defined for module ${module}`);
+  const out: Record<string, unknown>[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const page = await coql(
+      token,
+      `select ${select} from ${module} where Owner = '${ownerId}' order by id limit ${PAGE_SIZE} offset ${offset}`,
+    );
+    out.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
 /** Pages until a short page comes back. Errors are thrown, never swallowed. */
 export async function fetchWindow(
   token: string,
   module: string,
   ownerId: string,
   bounds: { from: string; toExclusive: string },
+  activityOrCreated = false,
 ): Promise<Record<string, unknown>[]> {
   const select = MODULE_SELECT[module];
   if (!select) throw new Error(`No select list defined for module ${module}`);
   const out: Record<string, unknown>[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const page = await coql(token, buildWindowQuery(module, select, ownerId, bounds, offset));
+    const page = await coql(token, buildWindowQuery(module, select, ownerId, bounds, offset, activityOrCreated));
     out.push(...page);
     if (page.length < PAGE_SIZE) break;
   }
@@ -307,7 +354,9 @@ export async function fetchWindow(
  * failed every rep on every language item.
  */
 const RELATED_FIELDS: Record<string, string> = {
-  Notes: "id,Note_Title,Note_Content,Created_Time",
+  // Modified_Time/By: a rep often writes the agenda the day before and edits the
+  // same note with the outcome on the day (Mike Mcluty, Nexus tour 10/7).
+  Notes: "id,Note_Title,Note_Content,Created_Time,Modified_Time,Modified_By",
   Attachments: "id,File_Name,Created_Time",
   Events: "id,Event_Title,Start_DateTime,Created_Time",
   Calls: "id,Subject,Call_Start_Time,Created_Time",

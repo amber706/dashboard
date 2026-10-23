@@ -25,7 +25,9 @@ export const ITEM_CRITERIA: Record<string, string> = {
   D23: "Any field that could not be completed is named in the notes with the reason.",
   D37: "The notes explain why the deal was lost and give the next step.",
   BC11: "The notes clearly describe this person's role and their relationship to us.",
-  CA7: "The notes contain a clear narrative of the conversation.",
+  CA7: "The notes contain a clear narrative of the conversation. If the call never " +
+    "connected — voicemail, voicemail full, no answer — a note recording that attempt " +
+    "is enough; there was no conversation to narrate.",
   CA8: "The notes contain a specific, actionable next step.",
   M7: "The meeting notes include the agenda.",
   M8: "The meeting notes include next steps.",
@@ -47,7 +49,8 @@ export function itemsForModule(module: string): string[] {
     case "Deals":
       return ["D22", "D23", "D37"];
     case "Calls":
-      return ["CA7", "CA8"];
+      // CA8 (next step) is N/A on Calls — see CALL_RULES.
+      return ["CA7"];
     case "Events":
       return ["M7", "M8"];
     default:
@@ -239,6 +242,17 @@ insurance details" excuses insurance fields, not the emergency contact.
 - A general apology, a status update, or a vague "will follow up" excuses nothing.
 - A note about a different field excuses nothing.
 - If the note does not mention the reason for that field being empty, it is not excused.
+- A note showing the client could not be reached or would not engage — no \
+answer, voicemail only, a form fill nobody ever spoke to, hung up, refused, went \
+non-responsive — explains every field that has to come FROM the client: contact \
+details, emergency contact, date of birth, insurance details, level of care, a \
+pre-screen or pre-assessment, an insurance card. "Refused to give insurance" \
+excuses the insurance fields. A note that the rep could not obtain "any empty \
+fields" counts when the notes also show why (no answer, hung up, refused).
+- Email and phone: a note that the caller would not or did not give an email or \
+phone, or that they called from a facility or main line, excuses Email and Phone.
+- Being unable to reach the client never excuses what the rep sets themselves: \
+name capitalization, owner, status, source, BD rep, referring company.
 
 Missing fields:
 ${list}

@@ -64,8 +64,26 @@ export function toSampledRecord(section: string, r: Record<string, unknown>): Sa
     record: r as SampledRecord["record"],
     name: displayName(section, r),
     url: zohoUrl(mod, String(r.id)),
-    createdDisplay: createdDisplay(String(r.Created_Time ?? "")),
+    createdDisplay: dateCellFor(section, r),
   };
+}
+
+/**
+ * The "Date created / logged" cell. For a call or meeting that is when it
+ * HAPPENED, which is what put it in the window, followed by when it was
+ * booked when that was another day. Showing Created_Time alone made Joey
+ * Masterson's 10/7-10/10 meetings, booked 9/15-10/4, look sampled from
+ * outside the 10/5-10/11 window.
+ */
+export function dateCellFor(section: string, r: Record<string, unknown>): string {
+  const happened = section === "Meetings" ? r.Start_DateTime : section === "Calls" ? r.Call_Start_Time : null;
+  const created = String(r.Created_Time ?? "");
+  if (!happened) return createdDisplay(created);
+  const when = createdDisplay(String(happened));
+  const day = (iso: string) => createdDisplay(iso).split(",").slice(0, 3).join(",");
+  return created && day(created) !== day(String(happened))
+    ? `${when} (booked ${day(created)})`
+    : when;
 }
 
 /** Runs one section's rule table over one record. */

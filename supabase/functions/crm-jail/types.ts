@@ -26,6 +26,8 @@ export interface ZohoNote {
   Note_Title?: string;
   Note_Content?: string;
   Created_Time?: string;
+  Modified_Time?: string;
+  Modified_By?: { id?: string; name?: string } | null;
 }
 
 export interface RelatedMeeting {
