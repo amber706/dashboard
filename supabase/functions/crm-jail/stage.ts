@@ -7,7 +7,8 @@
 //   3. last referral 31-89 days ago            -> Not Referring
 //   4. no referral in 90+ days                 -> Dormant
 // New accounts sit in Lead until initial contact, then New / Onboarding for 30
-// days, then follow the order above.
+// days, then follow the order above. A referral or admit at any point decides
+// the stage outright, onboarding or not (Aaron, 2026-10-26).
 //
 // Where the facts come from — and why not the Account's own date fields:
 // Date_of_Last_Refer_In and Date_of_Last_Admit stopped updating in July 2026
@@ -94,19 +95,27 @@ export function stageVerdict(currentRaw: unknown, f: StageFacts, todayISO: strin
     reason,
   });
 
-  if (f.firstContact && f.firstContact !== "older") {
-    const d = daysSince(f.firstContact, todayISO);
-    if (d <= 30) {
-      return verdict(STAGES.onboarding, `first contact ${f.firstContact} (${d} days ago) — onboarding runs 30 days`);
-    }
-  }
+  // An admit or a referral in the last 30 days decides the stage outright, for
+  // a new account as much as an established one (Aaron, 2026-10-26: "if we
+  // get a referral at any point, a company is considered referring"). Only
+  // without one does a new account sit in New / Onboarding.
   if (f.lastAdmit && daysSince(f.lastAdmit, todayISO) <= 30) {
     return verdict(STAGES.admitting, `admitted a client ${f.lastAdmit}`);
   }
-  if (f.lastReferral) {
-    const d = daysSince(f.lastReferral, todayISO);
-    if (d <= 30) return verdict(STAGES.referring, `last referral ${f.lastReferral} (${d} days ago)`);
-    if (d <= 89) return verdict(STAGES.notReferring, `last referral ${f.lastReferral} (${d} days ago)`);
+  const refDays = f.lastReferral ? daysSince(f.lastReferral, todayISO) : null;
+  if (refDays !== null && refDays <= 30) {
+    return verdict(STAGES.referring, `last referral ${f.lastReferral} (${refDays} days ago)`);
+  }
+  // Onboarding is only for an account that has not referred: one that has is
+  // on the referral ladder however recently it was first contacted.
+  if (refDays === null && f.firstContact && f.firstContact !== "older") {
+    const d = daysSince(f.firstContact, todayISO);
+    if (d <= 30) {
+      return verdict(STAGES.onboarding, `first contact ${f.firstContact} (${d} days ago), no referral yet — onboarding runs 30 days`);
+    }
+  }
+  if (refDays !== null && refDays <= 89) {
+    return verdict(STAGES.notReferring, `last referral ${f.lastReferral} (${refDays} days ago)`);
   }
   // No referral in 90 days. An account never contacted is a Lead; one whose
   // contact history was not checked may be either, so both are accepted.

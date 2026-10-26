@@ -31,10 +31,29 @@ Deno.test("a referral after a closed admit window still reads Referring", () => 
   assertEquals(v("Admitting - 100%", { lastReferral: "2026-10-10", lastAdmit: null }).expected, "Referring");
 });
 
-Deno.test("first contact in the last 30 days means New / Onboarding, whatever the referrals", () => {
-  const f = { lastReferral: "2026-10-20", lastAdmit: null, firstContact: "2026-10-05" };
+Deno.test("first contact in the last 30 days with no referral means New / Onboarding", () => {
+  const f = { ...none, firstContact: "2026-10-05" };
   assertEquals(v("New/Onboarding - 25%", f).correct, true);
   assertEquals(v("Leads - 10%", f).expected, "New / Onboarding");
+});
+
+// Aaron, 2026-10-26: "If we get a referral at any point, a company is
+// considered referring."
+Deno.test("a referral during onboarding makes the company Referring", () => {
+  const f = { lastReferral: "2026-10-20", lastAdmit: null, firstContact: "2026-10-05" };
+  assertEquals(v("New/Onboarding - 25%", f).expected, "Referring");
+  assertEquals(v("Leads - 10%", { lastReferral: "2026-10-20", lastAdmit: null }).expected, "Referring");
+});
+
+Deno.test("an admit during onboarding makes the company Admitting", () => {
+  const f = { lastReferral: "2026-10-20", lastAdmit: "2026-10-22", firstContact: "2026-10-05" };
+  assertEquals(v("New/Onboarding - 25%", f).expected, "Admitting");
+});
+
+Deno.test("a company that has referred is on the ladder, not onboarding", () => {
+  // Referral 40 days ago; first logged meeting 10 days ago.
+  const f = { lastReferral: "2026-09-16", lastAdmit: null, firstContact: "2026-10-16" };
+  assertEquals(v("New/Onboarding - 25%", f).expected, "Not Referring");
 });
 
 Deno.test("onboarding ends at day 30 and the ladder takes over", () => {
