@@ -14,7 +14,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders } from "../_shared/cors.ts";
 import { auditWindowFor, coqlBounds, windowFrom } from "./window.ts";
-import { getCachedZohoAccessToken, zohoTokenWorks } from "./zoho.ts";
+import { fetchOwned, getCachedZohoAccessToken, zohoTokenWorks } from "./zoho.ts";
 import { getGoogleAccessToken } from "./google-auth.ts";
 import { auditRep, auditRepDaily, replayRecords, type RosterRep } from "./audit-rep.ts";
 import {
@@ -22,6 +22,8 @@ import {
   phoenixToday, previousDay, repDayFromChild, type RepDay,
 } from "./daily.ts";
 import { notifyAuditors, shareAndNotify, type RepResult } from "./notify.ts";
+import { stageFactsSource, stageVerdict } from "./stage.ts";
+import { buildStageReportRows, stageReportSummary, type StageReportRep } from "./stage-report.ts";
 import { judgeDiagnostics } from "./notes-judge.ts";
 import { ensureFolderPath, type Team } from "./sheets.ts";
 
@@ -262,6 +264,39 @@ Deno.serve(async (req) => {
 
   const { data: roster, error: rosterErr } = await rosterQuery;
   if (rosterErr) return json({ error: "ROSTER_FAILED", detail: rosterErr.message }, 500);
+
+  // Daily BD stage-compliance report (Aaron, 2026-10-26): every Company each
+  // active BD rep owns, checked against the Company Staging Rules (stage.ts),
+  // emailed to Aaron at 16:30 Phoenix — before the reps' 17:00 deadline.
+  if (body.stage_report) {
+    const today = typeof body.date === "string" ? body.date : phoenixToday();
+    const reps = ((roster ?? []) as unknown as RosterRep[]).filter((r) => r.team === "bd");
+    const facts = stageFactsSource(zohoToken, reps.map((r) => r.zoho_user_id), today);
+    const results: StageReportRep[] = [];
+    for (const rep of reps) {
+      const accounts = await fetchOwned(zohoToken, "Accounts", rep.zoho_user_id);
+      const checked = await mapLimit(accounts, 5, async (a) => ({
+        account: a,
+        verdict: stageVerdict(a.Business_Contact_Pipeline_Stage, await facts(String(a.id)), today),
+      }));
+      results.push({ rep: rep.full_name, owned: accounts.length, checked });
+    }
+    const rows = buildStageReportRows(today, results);
+    const summary = stageReportSummary(today, results);
+    if (dryRun) return json({ stageReport: true, date: today, dryRun, summary, rows });
+
+    const folder = await ensureFolderPath(googleToken, DRIVE_ID, ["Stage Reports", today.slice(0, 7)]);
+    const sheet = await createSummarySheet(googleToken, `BD stage compliance ${today}`, rows, folder);
+    const failures: string[] = [];
+    for (const to of STAGE_REPORT_RECIPIENTS) {
+      try {
+        await shareAndNotify(googleToken, sheet.id, to, summary);
+      } catch (e) {
+        failures.push(`${to}: ${String(e)}`);
+      }
+    }
+    return json({ stageReport: true, date: today, sheetUrl: sheet.url, summary, shareFailures: failures });
+  }
 
   // Daily digests, built from crm_jail_daily_runs by their own job 30 minutes
   // after the lists go out. The dispatcher used to send them as its last step,
@@ -758,4 +793,19 @@ function sampleHistoryFor(supabase: SupabaseClient, zohoUserId: string, windowSt
       if (error) console.error(`crm_jail_samples write failed (${section}): ${error.message}`);
     },
   };
+}
+
+/** Who gets the 16:30 BD stage-compliance report. */
+const STAGE_REPORT_RECIPIENTS = ["aaron@cornerstonehealingcenter.com"];
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  }));
+  return out;
 }

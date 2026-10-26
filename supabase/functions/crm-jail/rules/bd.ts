@@ -183,6 +183,8 @@ export const CALL_RULES: Record<string, RuleFn> = {
   CA9: () => "N/A",
 };
 
+export const CO19_SCORED_FROM = "2026-10-26";
+
 export const COMPANY_RULES: Record<string, RuleFn> = {
   CO1: lookup("Owner"), // labelled "Company Owner"
   CO2: field("Account_Name"), // labelled "Company Name"
@@ -206,6 +208,22 @@ export const COMPANY_RULES: Record<string, RuleFn> = {
   CO16: field("States_Services_Are_Provided_In"),
   CO17: field("What_do_they_treat"),
   CO18: field("Date_of_Next_Scheduled_Contact"),
+  // In the stage the Company Staging Rules call for (Aaron, 2026-10-26).
+  // Shown from the 10/19-10/25 audit, scored from 10/26-11/1 on.
+  CO19: (c) => {
+    const v = c.stageCheck;
+    if (v === null) return "N/A"; // Archive / Delete
+    if (v === undefined) {
+      return { item: "CO19", score: "DEFER" as const, explanation: "Stage facts could not be read from Zoho." };
+    }
+    const explanation = v.correct
+      ? `${v.current} is correct: ${v.reason}.`
+      : `In ${v.current}, should be ${v.expected}: ${v.reason}.`;
+    if (c.window.startISO < CO19_SCORED_FROM) {
+      return { item: "CO19", score: "N/A" as const, preview: true, explanation: `Preview, scored from the 10/26 week. ${explanation}` };
+    }
+    return { item: "CO19", score: v.correct ? 1 : 0, explanation: v.correct ? undefined : explanation };
+  },
 };
 
 export const MEETING_RULES: Record<string, RuleFn> = {

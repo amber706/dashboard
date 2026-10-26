@@ -230,7 +230,7 @@ export function buildWrites(
         const v = cellValue(r.score);
         if (v === null) { deferred++; continue; }
         writes.push({ a1: cellFor(team, r.item, i), value: v });
-        if (r.score === 0) {
+        if (r.score === 0 || (r.preview && r.explanation)) {
           const list = reasons.get(r.item) ?? [];
           list.push(`#${i + 1}: ${reasonFor(team, r)}`);
           reasons.set(r.item, list);

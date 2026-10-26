@@ -15,6 +15,11 @@ export interface ItemResult {
    * which is the only place that has both the item id and the label.
    */
   reasonKind?: "blank" | "notLinked";
+  /**
+   * Shown but not scored yet (cell N/A): the explanation is still written so
+   * the auditor sees what the item would have said. CO19 before 2026-10-26.
+   */
+  preview?: boolean;
 }
 
 export interface ZohoRecord {
@@ -38,6 +43,11 @@ export interface RelatedMeeting {
 export interface RecordContext {
   /** The record being scored. */
   record: ZohoRecord;
+  /**
+   * Companies only: whether the pipeline stage matches the staging rules
+   * (stage.ts). null = not scored (Archive/Delete); undefined = not checked.
+   */
+  stageCheck?: import("./stage.ts").StageVerdict | null;
   /** Notes attached to the record, newest first. */
   notes: ZohoNote[];
   /**

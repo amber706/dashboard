@@ -325,3 +325,21 @@ Deno.test("a connected call is not mistaken for a voicemail", () => {
     "Reviewed vmax rates with the owner",
   ]) assertEquals(isVoicemailAttempt({}, desc(t)), false, t);
 });
+
+// CO19, Company Staging Rules (Aaron, 2026-10-26): shown but N/A for the
+// 10/19-10/25 audit, scored from the 10/26 week.
+const wrongStage = { correct: false, current: "Referring", expected: "Dormant", reason: "no referral in 90+ days" };
+Deno.test("CO19 previews before 10/26 and scores from it", () => {
+  const before = COMPANY_RULES.CO19(ctx({}, { stageCheck: wrongStage, window: { startISO: "2026-10-19", endISO: "2026-10-25" } }));
+  assertEquals(s(before), "N/A");
+  assertEquals((before as { preview?: boolean }).preview, true);
+  const after = COMPANY_RULES.CO19(ctx({}, { stageCheck: wrongStage, window: { startISO: "2026-10-26", endISO: "2026-11-01" } }));
+  assertEquals(s(after), 0);
+  assertEquals((after as { explanation?: string }).explanation, "In Referring, should be Dormant: no referral in 90+ days.");
+});
+
+Deno.test("CO19 is N/A for Archive/Delete and defers when facts could not be read", () => {
+  const w = { startISO: "2026-10-26", endISO: "2026-11-01" };
+  assertEquals(s(COMPANY_RULES.CO19(ctx({}, { stageCheck: null, window: w }))), "N/A");
+  assertEquals(s(COMPANY_RULES.CO19(ctx({}, { stageCheck: undefined, window: w }))), "DEFER");
+});

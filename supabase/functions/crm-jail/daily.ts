@@ -140,6 +140,9 @@ export function missesFor(
       // 0 only. "N/A" does not apply, 1 passed, and "DEFER" means nobody has
       // judged it yet — none of the three is something a rep can act on.
       if (r.score !== 0) continue;
+      // Stage compliance goes to Aaron in the 4:30 stage report, not to reps
+      // in their correction lists (Aaron, 2026-10-26).
+      if (r.item === "CO19") continue;
       forRecord.push({
         section,
         recordName: rec.name,

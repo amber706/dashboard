@@ -12,6 +12,7 @@ import { EOD_SHEETS, fetchEodValues, judgeEod, parseEodSheet, rowsForRep, type E
 import { expectedEodDays } from "./holidays.ts";
 import { dailyBounds, missesFor, type DailyMiss } from "./daily.ts";
 import { sampleRecords, sampleRotating, sampleSeed } from "./sampler.ts";
+import { stageFactsSource, stageVerdict } from "./stage.ts";
 import { judgeExcusedBlanks, judgeNotes, judgeDiagnostics } from "./notes-judge.ts";
 import { itemsForModule } from "./notes-judge.ts";
 import {
@@ -92,7 +93,7 @@ async function enrich(
   token: string,
   section: string,
   record: Record<string, unknown>,
-): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "notesIncludeDescription" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule" | "whoContactType">> {
+): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "notesIncludeDescription" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule" | "whoContactType" | "stageCheck">> {
   const mod = MODULE_FOR[section];
   const id = String(record.id);
   const safe = async <T>(fn: () => Promise<T>, fallback: T): Promise<T> => {
@@ -174,6 +175,21 @@ async function enrich(
     if (contact) whoContactType = String(contact.Contact_Type ?? "") || null;
   }
 
+  // CO19: is the company in the stage the staging rules call for? Facts are
+  // fetched once per invocation and owner (see stageFactsSource).
+  let stageCheck: RecordContext["stageCheck"] = undefined;
+  if (section === "Companies") {
+    const owner = String((record.Owner as { id?: string } | null)?.id ?? "");
+    const today = phoenixDay(new Date());
+    const key = `${owner}:${today}`;
+    stageSources[key] ??= stageFactsSource(token, [owner], today);
+    try {
+      stageCheck = stageVerdict(record.Business_Contact_Pipeline_Stage, await stageSources[key](String(record.id)), today);
+    } catch {
+      stageCheck = undefined; // CO19 defers rather than guessing
+    }
+  }
+
   return {
     notes,
     notesUnavailable,
@@ -185,8 +201,12 @@ async function enrich(
     accountOwnerId,
     whatIdModule: whatIdModuleOf(record),
     whoContactType,
+    stageCheck,
   };
 }
+
+const stageSources: Record<string, ReturnType<typeof stageFactsSource>> = {};
+const phoenixDay = (d: Date) => new Date(d.getTime() - 7 * 3600_000).toISOString().slice(0, 10);
 
 export interface AuditDeps {
   /** Every active rep on the team, so a first-name-only EOD row can be resolved. */
