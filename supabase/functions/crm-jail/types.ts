@@ -15,11 +15,8 @@ export interface ItemResult {
    * which is the only place that has both the item id and the label.
    */
   reasonKind?: "blank" | "notLinked";
-  /**
-   * Shown but not scored yet (cell N/A): the explanation is still written so
-   * the auditor sees what the item would have said. CO19 before 2026-10-26.
-   */
-  preview?: boolean;
+  /** Not written to the scorecard at all; the row stays blank. CO19 before 2026-10-26. */
+  omit?: boolean;
 }
 
 export interface ZohoRecord {

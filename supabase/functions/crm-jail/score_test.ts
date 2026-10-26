@@ -232,3 +232,15 @@ Deno.test("a call logged the day it happened shows one date", () => {
 Deno.test("records without an activity time keep their created date", () => {
   assertEquals(dateCellFor("Leads", { Created_Time: "2026-10-06T16:57:00-07:00" }), "Tue, Oct 6, 2026, 4:57 PM");
 });
+
+import { buildWrites as bw } from "./score.ts";
+
+Deno.test("an omitted item writes nothing to the scorecard", () => {
+  const { writes } = bw(
+    { rep: "Mike Mcluty", team: "bd", auditor: "a", windowFrom: "10/19/2026", windowTo: "10/25/2026" },
+    [{ section: "Companies", records: [{ record: { id: "1" }, name: "Nexus", url: "u", createdDisplay: "d" }],
+       results: [[{ item: "CO19", score: "N/A", omit: true }]] }],
+    [],
+  );
+  assertEquals(writes.some((w) => w.a1.endsWith("85")), false);
+});

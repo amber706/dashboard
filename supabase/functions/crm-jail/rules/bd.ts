@@ -209,7 +209,7 @@ export const COMPANY_RULES: Record<string, RuleFn> = {
   CO17: field("What_do_they_treat"),
   CO18: field("Date_of_Next_Scheduled_Contact"),
   // In the stage the Company Staging Rules call for (Aaron, 2026-10-26).
-  // Shown from the 10/19-10/25 audit, scored from 10/26-11/1 on.
+  // Scored from the 10/26-11/1 audit on; blank before that.
   CO19: (c) => {
     const v = c.stageCheck;
     if (v === null) return "N/A"; // Archive / Delete
@@ -219,8 +219,10 @@ export const COMPANY_RULES: Record<string, RuleFn> = {
     const explanation = v.correct
       ? `${v.current} is correct: ${v.reason}.`
       : `In ${v.current}, should be ${v.expected}: ${v.reason}.`;
+    // Before the 10/26 week the row stays blank: nothing written, no preview
+    // (Aaron, 2026-10-26: the 10/19-10/25 audit must not reflect stages).
     if (c.window.startISO < CO19_SCORED_FROM) {
-      return { item: "CO19", score: "N/A" as const, preview: true, explanation: `Preview, scored from the 10/26 week. ${explanation}` };
+      return { item: "CO19", score: "N/A" as const, omit: true };
     }
     return { item: "CO19", score: v.correct ? 1 : 0, explanation: v.correct ? undefined : explanation };
   },

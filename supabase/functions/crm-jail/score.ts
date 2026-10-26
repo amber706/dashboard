@@ -227,10 +227,11 @@ export function buildWrites(
     const reasons = new Map<string, string[]>();
     sec.results.forEach((itemResults, i) => {
       for (const r of itemResults) {
+        if (r.omit) continue;
         const v = cellValue(r.score);
         if (v === null) { deferred++; continue; }
         writes.push({ a1: cellFor(team, r.item, i), value: v });
-        if (r.score === 0 || (r.preview && r.explanation)) {
+        if (r.score === 0) {
           const list = reasons.get(r.item) ?? [];
           list.push(`#${i + 1}: ${reasonFor(team, r)}`);
           reasons.set(r.item, list);

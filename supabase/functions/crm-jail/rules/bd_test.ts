@@ -326,13 +326,13 @@ Deno.test("a connected call is not mistaken for a voicemail", () => {
   ]) assertEquals(isVoicemailAttempt({}, desc(t)), false, t);
 });
 
-// CO19, Company Staging Rules (Aaron, 2026-10-26): shown but N/A for the
+// CO19, Company Staging Rules (Aaron, 2026-10-26): left blank on the
 // 10/19-10/25 audit, scored from the 10/26 week.
 const wrongStage = { correct: false, current: "Referring", expected: "Dormant", reason: "no referral in 90+ days" };
-Deno.test("CO19 previews before 10/26 and scores from it", () => {
+Deno.test("CO19 is omitted before 10/26 and scored from it", () => {
   const before = COMPANY_RULES.CO19(ctx({}, { stageCheck: wrongStage, window: { startISO: "2026-10-19", endISO: "2026-10-25" } }));
-  assertEquals(s(before), "N/A");
-  assertEquals((before as { preview?: boolean }).preview, true);
+  assertEquals((before as { omit?: boolean }).omit, true);
+  assertEquals((before as { explanation?: string }).explanation, undefined);
   const after = COMPANY_RULES.CO19(ctx({}, { stageCheck: wrongStage, window: { startISO: "2026-10-26", endISO: "2026-11-01" } }));
   assertEquals(s(after), 0);
   assertEquals((after as { explanation?: string }).explanation, "In Referring, should be Dormant: no referral in 90+ days.");
