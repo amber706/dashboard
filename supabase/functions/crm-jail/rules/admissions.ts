@@ -161,7 +161,13 @@ export const LEAD_RULES: Record<string, RuleFn> = {
   L12: field("Age_Group"),
   L13: field("Lead_Score_Rating"),
   L14: field("Generated_By"),
-  L15: field("Digital_Source"), // labelled "Tracking Source"
+  // Labelled "Tracking Source". Talk Further chat leads carry no tracking
+  // source — the chat is the source (Aaron, 2026-10-14, from Sabrina
+  // Johnson's Tracy Perkins lead).
+  L15: (c) =>
+    String(c.record.Source_Medium ?? "").trim().toLowerCase() === "talk further chat"
+      ? "N/A"
+      : field("Digital_Source")(c),
   L16: field("Source_Category"),
   L17: when(isBdSourced, field("BD_Rep")),
   // "Partner Program" is the referring company (Amber, 2026-09-15). On Leads
@@ -304,7 +310,12 @@ export const DEAL_RULES: Record<string, RuleFn> = {
     explanation: "A referral packet cannot be identified from a filename — score by hand.",
   })),
   D39: hasAttachment(/vob/i),
-  D40: hasAttachment(/pre[-_ ]?(screen|assess)/i),
+  // "PA" is how reps abbreviate pre-assessment in filenames —
+  // "BHRFMentalHealthPA.pdf" on Jonathan Justice failed D40 on 2026-09-30.
+  // Case-sensitive and not followed by a letter, so "PAYMENT" or "Pacific"
+  // do not count.
+  D40: (c) =>
+    c.attachments.some((a) => /pre[-_ ]?(screen|assess)/i.test(a) || /PA(?![A-Za-z])/.test(a)) ? 1 : 0,
   D41: when(
     (c) => String(c.record.Insurance_Type ?? "").toLowerCase().includes("commercial"),
     hasAttachment(/insurance[-_ ]?card|ins[-_ ]?card/i),

@@ -32,7 +32,7 @@ Deno.test("section prefixes resolve to the expected item counts", () => {
   assertEquals(count(adminMap, "D"), 41);
   assertEquals(count(bdMap, "BC"), 10);  // BC3 does not exist
   assertEquals(count(bdMap, "CA"), 9);
-  assertEquals(count(bdMap, "CO"), 18);
+  assertEquals(count(bdMap, "CO"), 19); // CO19 added 2026-10-26
   assertEquals(count(bdMap, "M"), 9);
 });
 

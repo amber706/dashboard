@@ -14,14 +14,16 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders } from "../_shared/cors.ts";
 import { auditWindowFor, coqlBounds, windowFrom } from "./window.ts";
-import { getCachedZohoAccessToken, zohoTokenWorks } from "./zoho.ts";
+import { fetchOwned, getCachedZohoAccessToken, zohoTokenWorks } from "./zoho.ts";
 import { getGoogleAccessToken } from "./google-auth.ts";
 import { auditRep, auditRepDaily, replayRecords, type RosterRep } from "./audit-rep.ts";
 import {
   buildDailyMessage, buildDailyRows, buildDigestRows, dailyFolderPath, dailyTitle,
-  phoenixToday, previousDay, type RepDay,
+  phoenixToday, previousDay, repDayFromChild, type RepDay,
 } from "./daily.ts";
 import { notifyAuditors, shareAndNotify, type RepResult } from "./notify.ts";
+import { stageFactsSource, stageVerdict } from "./stage.ts";
+import { buildStageReportRows, stageReportSummary, type StageReportRep } from "./stage-report.ts";
 import { judgeDiagnostics } from "./notes-judge.ts";
 import { ensureFolderPath, type Team } from "./sheets.ts";
 
@@ -174,6 +176,9 @@ Deno.serve(async (req) => {
   let rosterQuery = supabase
     .from("crm_jail_roster").select("*").eq("active", true).order("team").order("full_name");
   if (onlyRep) rosterQuery = rosterQuery.eq("zoho_user_id", onlyRep);
+  // `team` scopes every mode, not only notify_only. Without it, a BD-only
+  // re-run (2026-10-14) re-audited all nine admissions reps as well.
+  if (typeof body.team === "string") rosterQuery = rosterQuery.eq("team", body.team);
   // Replay: score an explicit record set (the one a human auditor sampled) and
   // return raw item results for diffing. No sheets, no notifications.
   if (body.replay && typeof body.replay === "object") {
@@ -203,6 +208,8 @@ Deno.serve(async (req) => {
       .eq("window_start", window.startISO).eq("window_end", window.endISO)
       .order("created_at", { ascending: false });
     if (onlyTeam) runsQuery = runsQuery.eq("team", onlyTeam);
+    // Re-sending one rep's corrected scorecard must not re-send the team's.
+    if (onlyRep) runsQuery = runsQuery.eq("zoho_user_id", onlyRep);
     const { data: runs, error: runsErr } = await runsQuery;
     if (runsErr) return json({ error: "RUNS_FAILED", detail: runsErr.message }, 500);
 
@@ -258,6 +265,72 @@ Deno.serve(async (req) => {
   const { data: roster, error: rosterErr } = await rosterQuery;
   if (rosterErr) return json({ error: "ROSTER_FAILED", detail: rosterErr.message }, 500);
 
+  // Daily BD stage-compliance report (Aaron, 2026-10-26): every Company each
+  // active BD rep owns, checked against the Company Staging Rules (stage.ts),
+  // emailed to Aaron at 16:30 Phoenix — before the reps' 17:00 deadline.
+  if (body.stage_report) {
+    const today = typeof body.date === "string" ? body.date : phoenixToday();
+    const reps = ((roster ?? []) as unknown as RosterRep[]).filter((r) => r.team === "bd");
+    const facts = stageFactsSource(zohoToken, reps.map((r) => r.zoho_user_id), today);
+    const results: StageReportRep[] = [];
+    for (const rep of reps) {
+      const accounts = await fetchOwned(zohoToken, "Accounts", rep.zoho_user_id);
+      const checked = await mapLimit(accounts, 5, async (a) => ({
+        account: a,
+        verdict: stageVerdict(a.Business_Contact_Pipeline_Stage, await facts(String(a.id)), today),
+      }));
+      results.push({ rep: rep.full_name, owned: accounts.length, checked });
+    }
+    const rows = buildStageReportRows(today, results);
+    const summary = stageReportSummary(today, results);
+    if (dryRun) return json({ stageReport: true, date: today, dryRun, summary, rows });
+
+    const folder = await ensureFolderPath(googleToken, DRIVE_ID, ["Stage Reports", today.slice(0, 7)]);
+    const sheet = await createSummarySheet(googleToken, `BD stage compliance ${today}`, rows, folder);
+    const failures: string[] = [];
+    for (const to of STAGE_REPORT_RECIPIENTS) {
+      try {
+        await shareAndNotify(googleToken, sheet.id, to, summary);
+      } catch (e) {
+        failures.push(`${to}: ${String(e)}`);
+      }
+    }
+    return json({ stageReport: true, date: today, sheetUrl: sheet.url, summary, shareFailures: failures });
+  }
+
+  // Daily digests, built from crm_jail_daily_runs by their own job 30 minutes
+  // after the lists go out. The dispatcher used to send them as its last step,
+  // after awaiting every rep — and on 2026-10-02 the run passed the 150s
+  // gateway limit, the reps' lists went out and neither auditor got a digest.
+  // Same split, same reason, as crm-jail-weekly-notify (migration 202).
+  if (body.daily_digest) {
+    const dateISO = typeof body.date === "string" ? body.date : previousDay(phoenixToday());
+    const previewTo = typeof body.preview_to === "string" ? body.preview_to : null;
+    const { data: rows, error } = await supabase
+      .from("crm_jail_daily_runs").select("*").eq("run_date", dateISO);
+    if (error) return json({ error: "DAILY_RUNS_FAILED", detail: error.message }, 500);
+    const byRep = new Map((rows ?? []).map((r) => [String(r.zoho_user_id), r]));
+    const days: RepDay[] = ((roster ?? []) as unknown as RosterRep[]).map((rep) => {
+      const r = byRep.get(rep.zoho_user_id);
+      if (!r) {
+        return {
+          rep: rep.full_name, team: rep.team, recordsChecked: 0, misses: [],
+          status: "failed", error: "no result recorded — this rep's check did not finish",
+        };
+      }
+      return {
+        rep: rep.full_name, team: rep.team,
+        recordsChecked: Number(r.records_checked ?? 0),
+        misses: (r.misses ?? []) as RepDay["misses"],
+        sheetUrl: r.sheet_url ?? undefined,
+        status: r.status as RepDay["status"],
+        error: r.error_msg ?? undefined,
+      };
+    });
+    const sent = await sendDailyDigests(days, dateISO, previewTo, googleToken);
+    return json({ dailyDigest: true, date: dateISO, reps: days.length, ...sent });
+  }
+
   // Daily corrections. Different artifact, different audience: the weekly
   // scorecard goes to an auditor who decides jail, this goes to the rep so they
   // can fix things the same morning. See the header of daily.ts.
@@ -278,9 +351,20 @@ Deno.serve(async (req) => {
     const rep = reps[0];
     if (!rep) return json({ error: "REP_NOT_ON_ROSTER", rep: onlyRep }, 404);
 
-    const day = await auditRepDaily(rep, dateISO, {
-      zohoToken, googleToken, driveId: DRIVE_ID, stageCategory, sourceCategory, dryRun,
-    });
+    // Every live outcome goes in the ledger the digest job reads — including
+    // "nothing to send", so the digest can tell an idle rep from a check that
+    // never finished.
+    const record = (status: string, extra: Record<string, unknown> = {}) =>
+      dryRun ? Promise.resolve() : recordDaily(supabase, dateISO, rep, status, extra);
+    let day: Awaited<ReturnType<typeof auditRepDaily>>;
+    try {
+      day = await auditRepDaily(rep, dateISO, {
+        zohoToken, googleToken, driveId: DRIVE_ID, stageCategory, sourceCategory, dryRun,
+      });
+    } catch (e) {
+      await record("failed", { error_msg: String(e) });
+      throw e;
+    }
     const base = {
       date: dateISO, rep: rep.full_name, team: rep.team,
       recordsChecked: day.recordsChecked, missCount: day.misses.length,
@@ -288,8 +372,14 @@ Deno.serve(async (req) => {
     };
     // Nothing worked, or nothing wrong. Either way the rep hears nothing —
     // a daily "you have no corrections" mail is how a channel gets muted.
-    if (day.recordsChecked === 0) return json({ ...base, status: "no_activity" });
-    if (day.misses.length === 0) return json({ ...base, status: "clean" });
+    if (day.recordsChecked === 0) {
+      await record("no_activity");
+      return json({ ...base, status: "no_activity" });
+    }
+    if (day.misses.length === 0) {
+      await record("clean", { records_checked: day.recordsChecked });
+      return json({ ...base, status: "clean" });
+    }
 
     const rows = buildDailyRows(rep.full_name, dateISO, day.recordsChecked, day.misses);
     const message = buildDailyMessage(rep.full_name, dateISO, day.recordsChecked, day.misses);
@@ -303,7 +393,12 @@ Deno.serve(async (req) => {
     );
     const to = previewTo ?? rep.email;
     await shareAndNotify(googleToken, sheet.id, to, message);
-    return json({ ...base, status: "sent", sentTo: to, sheetUrl: sheet.url });
+    await record("sent", {
+      records_checked: day.recordsChecked, misses: day.misses, sheet_url: sheet.url, sent_to: to,
+    });
+    // misses go back to the dispatcher so the auditor's digest can count them.
+    // Without them every rep reads "0 fields to fix" on the day they were sent 30.
+    return json({ ...base, status: "sent", sentTo: to, sheetUrl: sheet.url, misses: day.misses });
   }
 
   // Dispatcher: fan out one invocation per rep, then summarise what comes back.
@@ -321,6 +416,7 @@ Deno.serve(async (req) => {
       const r = await auditRep(row, window, bounds, {
         zohoToken, googleToken, driveId: DRIVE_ID, stageCategory, sourceCategory, dryRun,
         rosterNames: ((roster ?? []) as unknown as Array<RosterRep>).map((x) => x.full_name),
+        sampleHistory: sampleHistoryFor(supabase, row.zoho_user_id, window.startISO),
       });
       results.push({
         rep: r.rep, team: r.team, status: r.status, sheetId: r.sheetId, sheetUrl: r.sheetUrl,
@@ -533,10 +629,13 @@ function json(payload: unknown, status = 200): Response {
  * Here the parent only owns the manager digest — losing it costs Aaron and
  * Megan a summary, not fourteen people their corrections.
  */
-/** Who gets each team's daily count. The reps' own lists go to the reps. */
-const DIGEST_RECIPIENT: Record<string, string> = {
-  admissions: "megan@cornerstonehealingcenter.com",
-  bd: "aaron@cornerstonehealingcenter.com",
+/**
+ * Who gets each team's daily count. Aaron sees both teams; Megan audits
+ * admissions only. The reps' own lists go to the reps.
+ */
+const DIGEST_RECIPIENTS: Record<string, string[]> = {
+  admissions: ["aaron@cornerstonehealingcenter.com", "megan@cornerstonehealingcenter.com"],
+  bd: ["aaron@cornerstonehealingcenter.com"],
 };
 
 async function dispatchDaily(
@@ -560,30 +659,7 @@ async function dispatchDaily(
           ...(previewTo ? { preview_to: previewTo } : {}),
         }),
       });
-      const b = await res.json();
-      if (!res.ok) {
-        return {
-          rep: rep.full_name, team: rep.team, recordsChecked: 0, misses: [],
-          status: "failed", error: b.detail ?? b.error ?? `HTTP ${res.status}`,
-        };
-      }
-      return {
-        rep: b.rep ?? rep.full_name,
-        team: rep.team,
-        recordsChecked: b.recordsChecked ?? 0,
-        misses: b.misses ?? [],
-        sheetUrl: b.sheetUrl,
-        // The child reports what it did; missCount survives even when the
-        // misses themselves are not returned.
-        status: b.status === "sent"
-          ? "sent"
-          : b.status === "clean"
-          ? "clean"
-          : b.status === "no_activity"
-          ? "no_activity"
-          : "sent",
-        error: undefined,
-      } as RepDay;
+      return repDayFromChild(rep, res.ok, res.status, await res.json());
     } catch (e) {
       return {
         rep: rep.full_name, team: rep.team, recordsChecked: 0, misses: [],
@@ -597,21 +673,48 @@ async function dispatchDaily(
     days.push(...await Promise.all(roster.slice(i, i + CONCURRENCY).map(one)));
   }
 
-  // One digest per team, to that team's auditor. Counts only — the client
-  // detail stays in the rep's own list.
+  // No digest here. It is crm-jail-daily-digest's job, read from the ledger
+  // each child writes — see the daily_digest branch in the handler.
+  return json({
+    daily: true, date: dateISO, dryRun, previewTo,
+    reps: days.length,
+    sent: days.filter((d) => d.status === "sent").length,
+    wouldSend: days.filter((d) => d.status === "dry_run").length,
+    clean: days.filter((d) => d.status === "clean").length,
+    noActivity: days.filter((d) => d.status === "no_activity").length,
+    failed: days.filter((d) => d.status === "failed").map((d) => `${d.rep}: ${d.error}`),
+  });
+}
+
+/** One digest per team. Counts only — the client detail stays in the rep's own list. */
+async function sendDailyDigests(
+  days: RepDay[],
+  dateISO: string,
+  previewTo: string | null,
+  googleToken: string,
+): Promise<{ digests: Array<{ team: string; url: string; to: string }>; digestFailures: string[] }> {
   const digests: Array<{ team: string; url: string; to: string }> = [];
   const failures: string[] = [];
-  if (!dryRun) {
-    for (const team of ["admissions", "bd"] as const) {
-      const mine = days.filter((d) => d.team === team);
-      if (mine.length === 0) continue;
-      const to = previewTo ?? DIGEST_RECIPIENT[team];
+  for (const team of ["admissions", "bd"] as const) {
+    const mine = days.filter((d) => d.team === team);
+    // Nobody on the team worked the day (a Saturday, a holiday): no digest.
+    // A summary of zeros is the auditor's version of a "nothing to fix" mail.
+    if (mine.every((d) => d.status === "no_activity")) continue;
+    let sheet: { id: string; url: string };
+    try {
+      sheet = await createSummarySheet(
+        googleToken,
+        `CRM daily corrections — ${team} — ${dateISO}`,
+        buildDigestRows(dateISO, mine),
+      );
+    } catch (e) {
+      failures.push(`${team} digest: ${String(e)}`);
+      continue;
+    }
+    // Shared one recipient at a time, so one failed share does not cost the
+    // other auditor their copy.
+    for (const to of previewTo ? [previewTo] : DIGEST_RECIPIENTS[team]) {
       try {
-        const sheet = await createSummarySheet(
-          googleToken,
-          `CRM daily corrections — ${team} — ${dateISO}`,
-          buildDigestRows(dateISO, mine),
-        );
         await shareAndNotify(
           googleToken, sheet.id, to,
           `Daily CRM corrections for ${dateISO}. Each rep has already been sent ` +
@@ -623,14 +726,86 @@ async function dispatchDaily(
       }
     }
   }
+  return { digests, digestFailures: failures };
+}
 
-  return json({
-    daily: true, date: dateISO, dryRun, previewTo,
-    reps: days.length,
-    sent: days.filter((d) => d.status === "sent").length,
-    clean: days.filter((d) => d.status === "clean").length,
-    noActivity: days.filter((d) => d.status === "no_activity").length,
-    failed: days.filter((d) => d.status === "failed").map((d) => `${d.rep}: ${d.error}`),
-    digests, digestFailures: failures,
-  });
+async function recordDaily(
+  supabase: SupabaseClient,
+  dateISO: string,
+  rep: RosterRep,
+  status: string,
+  extra: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await supabase.from("crm_jail_daily_runs").upsert({
+    run_date: dateISO,
+    zoho_user_id: rep.zoho_user_id,
+    full_name: rep.full_name,
+    team: rep.team,
+    status,
+    records_checked: 0,
+    misses: [],
+    sheet_url: null,
+    sent_to: null,
+    error_msg: null,
+    ...extra,
+    recorded_at: new Date().toISOString(),
+  }, { onConflict: "run_date,zoho_user_id" });
+  // A ledger write failing must not cost the rep a list already sent.
+  if (error) console.error(`crm_jail_daily_runs upsert failed for ${rep.full_name}: ${error.message}`);
+}
+
+/**
+ * crm_jail_samples for one rep and window: the last window each owned record
+ * was drawn in (before this one), and where this window's draws are logged.
+ */
+function sampleHistoryFor(supabase: SupabaseClient, zohoUserId: string, windowStartISO: string) {
+  return {
+    async recent(section: string): Promise<Map<string, string>> {
+      const since = new Date(new Date(`${windowStartISO}T00:00:00Z`).getTime() - 90 * 86_400_000)
+        .toISOString().slice(0, 10);
+      const { data, error } = await supabase.from("crm_jail_samples")
+        .select("record_id, window_start")
+        .eq("zoho_user_id", zohoUserId).eq("section", section)
+        .gte("window_start", since).lt("window_start", windowStartISO);
+      // Failing closed would stall the audit; failing open risks a repeat
+      // draw. A repeat is the cheaper error, and it is logged.
+      if (error) {
+        console.error(`crm_jail_samples read failed (${section}): ${error.message}`);
+        return new Map();
+      }
+      const m = new Map<string, string>();
+      for (const r of data ?? []) {
+        const prev = m.get(String(r.record_id));
+        if (!prev || String(r.window_start) > prev) m.set(String(r.record_id), String(r.window_start));
+      }
+      return m;
+    },
+    async record(section: string, rows: Array<{ id: string; name: string; failedItems: string[] }>) {
+      if (rows.length === 0) return;
+      const { error } = await supabase.from("crm_jail_samples").upsert(rows.map((r) => ({
+        window_start: windowStartISO,
+        zoho_user_id: zohoUserId,
+        section,
+        record_id: r.id,
+        record_name: r.name,
+        failed_items: r.failedItems,
+      })), { onConflict: "window_start,zoho_user_id,section,record_id" });
+      if (error) console.error(`crm_jail_samples write failed (${section}): ${error.message}`);
+    },
+  };
+}
+
+/** Who gets the 16:30 BD stage-compliance report. */
+const STAGE_REPORT_RECIPIENTS = ["aaron@cornerstonehealingcenter.com"];
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  }));
+  return out;
 }
