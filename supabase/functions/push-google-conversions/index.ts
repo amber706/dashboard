@@ -1,4 +1,8 @@
-// push-google-conversions v42 — v41's two fixes together, plus the 10/19 IVR's DUI queues.
+// push-google-conversions v43 — stop logging backstop no-identifier skips every run.
+// CHANGES from v42:
+//   - commercial_ctm45_zoho deals with no identifier are no longer written to conversion_push_log on
+//   every run (same ~70 deals, 8x a day). They are still counted in skipped_no_identifier.
+// v42 — v41's two fixes together, plus the 10/19 IVR's DUI queues.
 // CHANGES from v41:
 //   - body.replay: one-off backfills for conversions lost to the two bugs below (see handleReplay).
 //   - Two different v41s existed: end-of-day stamping (repo) and DUI-queue-by-route_id (deployed
@@ -782,7 +786,10 @@ Deno.serve(async (req) => {
       const identifiers = await buildUserIdentifiers({ email: ev.email, phone: ev.phone, first_name: ev.first_name, last_name: ev.last_name, postal_code: ev.postal_code, city: ev.city, state: ev.state });
       const hasIdent = Boolean(ev.gclid) || identifiers.length > 0;
       if (!hasIdent) {
-        logRows.push({ event_type: ev.event_type, lead_id: ev.audit_lead_id, zoho_lead_id: ev.audit_zoho_id, gclid: null, gclid_source: "none", identifier_count: 0, conversion_value_usd: ca.value_usd, conversion_action_id: ca.ca_id, payload: null, dry_run: dryRun, status: "skipped_no_identifier" });
+        // Backstop deals have no Zoho/CTM stamp, so a no-identifier deal is rescanned every run; logging
+        // each skip wrote the same ~70 deals 8x a day (19.8k rows by 2026-11-02). It's re-checked next
+        // run anyway, and fires once contact info lands, so there's nothing worth recording here.
+        if (ev.event_type !== "commercial_ctm45_zoho") logRows.push({ event_type: ev.event_type, lead_id: ev.audit_lead_id, zoho_lead_id: ev.audit_zoho_id, gclid: null, gclid_source: "none", identifier_count: 0, conversion_value_usd: ca.value_usd, conversion_action_id: ca.ca_id, payload: null, dry_run: dryRun, status: "skipped_no_identifier" });
         skippedNoIdent++;
         skippedEvents.push(ev);
         continue;
@@ -903,7 +910,7 @@ Deno.serve(async (req) => {
     // was spotted (2026-09-09). The CTM work above is already committed and is still reported here
     // — but the response is marked failed so pg_net's status_code surfaces it.
     const zohoOk = !!zohoToken;
-    return jsonResponse({ ok: zohoOk, ...(zohoOk ? {} : { error: "zoho_auth_unavailable: refresh returned no access token; Zoho-sourced conversions were skipped this run (CTM-sourced still pushed)" }), version: "v42", dry_run: dryRun, zoho_token_ok: zohoOk, max_deal_age_days: MAX_DEAL_AGE_DAYS, api_version: GA_API_VERSION, scanned: { dui_closed_won: dui.events.length, vob: vob.events.length, admit: admit.events.length, zoho_leads: zLeads.events.length, ctm: ctm.events.length, commercial_ctm_45: ctmCommercial.length, commercial_backstop: backstop.events.length }, backstop: { scanned: backstop.scanned, skipped_covered: backstop.skipped_covered, skipped_already_sent: backstop.skipped_already_sent }, pushed, dry_run_only: dryRunOnly, skipped_no_identifier: skippedNoIdent, failed, permanent_failures: permanentFailures, transient_failures: transientFailures, error_breakdown: errorBreakdown, zoho_writeback: zohoWriteback, ctm_call_scores_stamped: totalCtmStamps }, zohoOk ? 200 : 502);
+    return jsonResponse({ ok: zohoOk, ...(zohoOk ? {} : { error: "zoho_auth_unavailable: refresh returned no access token; Zoho-sourced conversions were skipped this run (CTM-sourced still pushed)" }), version: "v43", dry_run: dryRun, zoho_token_ok: zohoOk, max_deal_age_days: MAX_DEAL_AGE_DAYS, api_version: GA_API_VERSION, scanned: { dui_closed_won: dui.events.length, vob: vob.events.length, admit: admit.events.length, zoho_leads: zLeads.events.length, ctm: ctm.events.length, commercial_ctm_45: ctmCommercial.length, commercial_backstop: backstop.events.length }, backstop: { scanned: backstop.scanned, skipped_covered: backstop.skipped_covered, skipped_already_sent: backstop.skipped_already_sent }, pushed, dry_run_only: dryRunOnly, skipped_no_identifier: skippedNoIdent, failed, permanent_failures: permanentFailures, transient_failures: transientFailures, error_breakdown: errorBreakdown, zoho_writeback: zohoWriteback, ctm_call_scores_stamped: totalCtmStamps }, zohoOk ? 200 : 502);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return jsonResponse({ ok: false, error: message }, 500);
