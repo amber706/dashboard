@@ -1,7 +1,7 @@
 {
  "_source": "BD CRM Jail Audit Template 1c5N_EUgwNoKyhJDBIWp-nrJiCh4QNPG3V5OM17gvDVo",
  "_generated": "2026-09-15",
- "_note": "Rows from the BLANK template's CSV export (not Kenny's completed copy). Column D holds the item id, E-I the five sampled records, J the Missed formula, K the Explanation the bot writes. Note the template skips BC3.",
+ "_note": "Rows from the BLANK template's CSV export (not Kenny's completed copy). Column D holds the item id, E-I the five sampled records, J the Missed formula, K the Explanation the bot writes. Note the template skips BC3. 2026-10-26: CO19 (correct pipeline stage) inserted as row 85 under CO8; every row from 85 down moved +1.",
  "recordColumns": [
   "E",
   "F",
@@ -23,19 +23,19 @@
    37,
    56,
    74,
-   101
+   102
   ],
   "link": [
    38,
    57,
    75,
-   102
+   103
   ],
   "date": [
    39,
    58,
    76,
-   103
+   104
   ]
  },
  "items": {
@@ -175,87 +175,91 @@
    "row": 84,
    "label": "Pipeline Stage"
   },
-  "CO9": {
+  "CO19": {
    "row": 85,
+   "label": "Company is in the correct pipeline stage (Company Staging Rules)"
+  },
+  "CO9": {
+   "row": 86,
    "label": "Niche Code"
   },
   "CO10": {
-   "row": 86,
+   "row": 87,
    "label": "Reciprocity"
   },
   "CO11": {
-   "row": 87,
+   "row": 88,
    "label": "Unattached or Attached"
   },
   "CO12": {
-   "row": 88,
+   "row": 89,
    "label": "Commercial or AHCCCS"
   },
   "CO13": {
-   "row": 89,
+   "row": 90,
    "label": "In-Network Payors"
   },
   "CO14": {
-   "row": 90,
+   "row": 91,
    "label": "OON Referred Policies"
   },
   "CO15": {
-   "row": 91,
+   "row": 92,
    "label": "Level of Care"
   },
   "CO16": {
-   "row": 92,
+   "row": 93,
    "label": "States services are in"
   },
   "CO17": {
-   "row": 93,
+   "row": 94,
    "label": "What they treat"
   },
   "CO18": {
-   "row": 94,
+   "row": 95,
    "label": "Next scheduled contact is on the record"
   },
   "M1": {
-   "row": 104,
+   "row": 105,
    "label": "Meeting logged the same day it occurred"
   },
   "M2": {
-   "row": 105,
+   "row": 106,
    "label": "Meeting Name"
   },
   "M3": {
-   "row": 106,
+   "row": 107,
    "label": "Meeting Time"
   },
   "M4": {
-   "row": 107,
+   "row": 108,
    "label": "Meeting Owner"
   },
   "M5": {
-   "row": 108,
+   "row": 109,
    "label": "Associated Contact"
   },
   "M6": {
-   "row": 109,
+   "row": 110,
    "label": "Associated Company"
   },
   "M7": {
-   "row": 110,
+   "row": 111,
    "label": "Meeting Notes include the agenda"
   },
   "M8": {
-   "row": 111,
+   "row": 112,
    "label": "Meeting Notes include next steps"
   },
   "M9": {
-   "row": 112,
+   "row": 113,
    "label": "Next meeting or contact is already scheduled"
   }
  },
  "computedCells": [
-  "E113",
   "E114",
   "E115",
+  "E116",
   "E33",
   "E50",
   "E51",
@@ -263,12 +267,12 @@
   "E68",
   "E69",
   "E70",
-  "E95",
   "E96",
   "E97",
-  "F113",
+  "E98",
   "F114",
   "F115",
+  "F116",
   "F33",
   "F50",
   "F51",
@@ -276,12 +280,12 @@
   "F68",
   "F69",
   "F70",
-  "F95",
   "F96",
   "F97",
-  "G113",
+  "F98",
   "G114",
   "G115",
+  "G116",
   "G33",
   "G50",
   "G51",
@@ -289,12 +293,12 @@
   "G68",
   "G69",
   "G70",
-  "G95",
   "G96",
   "G97",
-  "H113",
+  "G98",
   "H114",
   "H115",
+  "H116",
   "H33",
   "H50",
   "H51",
@@ -302,12 +306,12 @@
   "H68",
   "H69",
   "H70",
-  "H95",
   "H96",
   "H97",
-  "I113",
+  "H98",
   "I114",
   "I115",
+  "I116",
   "I33",
   "I50",
   "I51",
@@ -315,10 +319,9 @@
   "I68",
   "I69",
   "I70",
-  "I95",
   "I96",
   "I97",
-  "J104",
+  "I98",
   "J105",
   "J106",
   "J107",
@@ -330,6 +333,7 @@
   "J113",
   "J114",
   "J115",
+  "J116",
   "J26",
   "J27",
   "J28",
@@ -383,7 +387,8 @@
   "J94",
   "J95",
   "J96",
-  "J97"
+  "J97",
+  "J98"
  ],
  "sheetName": "BD Scorecard"
 }

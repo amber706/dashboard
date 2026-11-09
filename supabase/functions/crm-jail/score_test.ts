@@ -211,3 +211,36 @@ Deno.test("one shared reason is stated once, naming which records failed", () =>
     "#1, #2, #3: Not met: Next call or meeting is scheduled on the record.",
   );
 });
+
+import { dateCellFor } from "./score.ts";
+
+// Joey Masterson's "Todd from Kingman at WV": happened 10/8, booked 9/15.
+Deno.test("a meeting's date cell shows when it happened, then when it was booked", () => {
+  const cell = dateCellFor("Meetings", {
+    Start_DateTime: "2026-10-08T08:00:00-07:00", Created_Time: "2026-09-15T08:29:44-07:00",
+  });
+  assertEquals(cell, "Thu, Oct 8, 2026, 8:00 AM (booked Tue, Sep 15, 2026)");
+});
+
+Deno.test("a call logged the day it happened shows one date", () => {
+  assertEquals(
+    dateCellFor("Calls", { Call_Start_Time: "2026-10-06T16:57:00-07:00", Created_Time: "2026-10-06T17:10:00-07:00" }),
+    "Tue, Oct 6, 2026, 4:57 PM",
+  );
+});
+
+Deno.test("records without an activity time keep their created date", () => {
+  assertEquals(dateCellFor("Leads", { Created_Time: "2026-10-06T16:57:00-07:00" }), "Tue, Oct 6, 2026, 4:57 PM");
+});
+
+import { buildWrites as bw } from "./score.ts";
+
+Deno.test("an omitted item writes nothing to the scorecard", () => {
+  const { writes } = bw(
+    { rep: "Mike Mcluty", team: "bd", auditor: "a", windowFrom: "10/19/2026", windowTo: "10/25/2026" },
+    [{ section: "Companies", records: [{ record: { id: "1" }, name: "Nexus", url: "u", createdDisplay: "d" }],
+       results: [[{ item: "CO19", score: "N/A", omit: true }]] }],
+    [],
+  );
+  assertEquals(writes.some((w) => w.a1.endsWith("85")), false);
+});

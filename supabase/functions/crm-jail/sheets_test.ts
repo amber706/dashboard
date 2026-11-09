@@ -9,9 +9,11 @@ Deno.test("maps an item and record index to the right cell", () => {
   assertEquals(cellFor("admissions", "L1", 0), "E38");
   assertEquals(cellFor("admissions", "L1", 4), "I38");
   assertEquals(cellFor("admissions", "D41", 0), "E137");
-  // BD: BC1 is row 40, CO18 is row 94.
+  // BD: BC1 is row 40. CO19 was inserted at row 85 on 2026-10-26, under CO8,
+  // so CO18 moved from 94 to 95.
   assertEquals(cellFor("bd", "BC1", 0), "E40");
-  assertEquals(cellFor("bd", "CO18", 2), "G94");
+  assertEquals(cellFor("bd", "CO19", 0), "E85");
+  assertEquals(cellFor("bd", "CO18", 2), "G95");
 });
 
 Deno.test("BD has no BC3 and asking for it fails loudly", () => {
@@ -27,9 +29,9 @@ Deno.test("identity cells follow section order", () => {
   assertEquals(identityCellsFor("admissions", "Leads", 0).name, "E35");
   assertEquals(identityCellsFor("admissions", "Deals", 0).name, "E94");
   assertEquals(identityCellsFor("admissions", "Contacts", 1).link, "F73");
-  // BD sections: BusinessContacts, Calls, Companies, Meetings -> 37, 56, 74, 101.
+  // BD sections: BusinessContacts, Calls, Companies, Meetings -> 37, 56, 74, 102.
   assertEquals(identityCellsFor("bd", "BusinessContacts", 0).name, "E37");
-  assertEquals(identityCellsFor("bd", "Meetings", 0).date, "E103");
+  assertEquals(identityCellsFor("bd", "Meetings", 0).date, "E104");
 });
 
 Deno.test("daily items are scored once, in the first record column", () => {

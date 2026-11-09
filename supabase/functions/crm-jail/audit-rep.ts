@@ -7,11 +7,12 @@
 // records in a week; fetching notes and attachments for all of them would be
 // slow and pointless when only 5 per section are scored.
 
-import { fetchByIds, fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
+import { fetchByIds, fetchOwned, fetchRelated, fetchWindow, whatIdModuleOf } from "./zoho.ts";
 import { EOD_SHEETS, fetchEodValues, judgeEod, parseEodSheet, rowsForRep, type EodRow } from "./eod.ts";
 import { expectedEodDays } from "./holidays.ts";
 import { dailyBounds, missesFor, type DailyMiss } from "./daily.ts";
-import { sampleRecords, sampleSeed } from "./sampler.ts";
+import { sampleRecords, sampleRotating, sampleSeed } from "./sampler.ts";
+import { stageFactsSource, stageVerdict } from "./stage.ts";
 import { judgeExcusedBlanks, judgeNotes, judgeDiagnostics } from "./notes-judge.ts";
 import { itemsForModule } from "./notes-judge.ts";
 import {
@@ -23,7 +24,7 @@ import bdMap from "./template-map.bd.json" with { type: "json" };
 import {
   copyTemplate, ensureFolderPath, scorecardFolderPath, scorecardTitle, writeCells, type Team,
 } from "./sheets.ts";
-import { noteText } from "./rules/helpers.ts";
+import { loggedOnActivityDay, noteText } from "./rules/helpers.ts";
 import type { ItemResult, RecordContext, SampledRecord, ZohoNote } from "./types.ts";
 
 const SAMPLE_SIZE = 5;
@@ -81,11 +82,18 @@ function mdy(iso: string): string {
  * wrapped: a related-list failure degrades that record's dependent items to
  * DEFER rather than failing the whole audit.
  */
+/** Free-text fields reps write notes in, by API name and label. */
+const NOTE_FIELDS: Array<[string, string]> = [
+  ["Description", "Description"],
+  ["Notes", "Notes"],
+  ["Actions_Taken_Notes", "Action Taken/Notes"],
+];
+
 async function enrich(
   token: string,
   section: string,
   record: Record<string, unknown>,
-): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "notesIncludeDescription" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule" | "whoContactType">> {
+): Promise<Pick<RecordContext, "notes" | "notesUnavailable" | "notesIncludeDescription" | "attachments" | "relatedMeetings" | "relatedDealCount" | "futureActivityCount" | "accountOwnerId" | "whatIdModule" | "whoContactType" | "stageCheck">> {
   const mod = MODULE_FOR[section];
   const id = String(record.id);
   const safe = async <T>(fn: () => Promise<T>, fallback: T): Promise<T> => {
@@ -107,10 +115,23 @@ async function enrich(
   // kept for anyone who used it. Call_Result is deliberately NOT folded in —
   // it is a picklist outcome ("Made Contact"), and it must never pass CA7 on
   // its own when there is no narrative behind it.
-  const notesIncludeDescription = section === "Meetings" || section === "Calls";
-  const description = notesIncludeDescription ? String(record.Description ?? "").trim() : "";
-  if (description !== "") {
-    notes = [...notes, { Note_Title: "Description", Note_Content: description }];
+  //
+  // Leads, Contacts and Deals too. Admissions reps write the first-call
+  // narrative in the lead's Description, not the Notes section. Reading Notes
+  // alone, the first live daily list (2026-09-30) told Sabrina Johnson that
+  // Logan Mintz had no note while the Description read "Caller refused to give
+  // insurance ... UNABLE TO OBTAIN INSURANCE INFO" — and, seeing no note, never
+  // asked whether that note excused the blank insurance fields.
+  const notesIncludeDescription = section !== "Accounts";
+  // Reps also write into plain text fields that are not the Notes section:
+  // Contacts and Deals carry a "Notes" field, Leads an "Action Taken/Notes".
+  // Sabrina Johnson's Lyra Health contact (2026-10-13) had its whole note in
+  // Contacts.Notes and read to the bot as having none.
+  if (notesIncludeDescription) {
+    for (const [fieldName, label] of NOTE_FIELDS) {
+      const text = String(record[fieldName] ?? "").trim();
+      if (text !== "") notes = [...notes, { Note_Title: label, Note_Content: text }];
+    }
   }
 
   const attachments = section === "Deals"
@@ -129,7 +150,9 @@ async function enrich(
 
   // "Is a follow-up scheduled?" — a future Call or Task on the record.
   const now = new Date().toISOString();
-  const futureActivityCount = ["Calls", "Meetings", "Deals"].includes(section)
+  // Not Calls: CA9 is N/A, so the two related-list round trips per call
+  // would buy nothing.
+  const futureActivityCount = ["Meetings", "Deals"].includes(section)
     ? [
       ...(await safe(() => fetchRelated(token, mod, id, "Calls"), [])),
       ...(await safe(() => fetchRelated(token, mod, id, "Tasks"), [])),
@@ -152,6 +175,21 @@ async function enrich(
     if (contact) whoContactType = String(contact.Contact_Type ?? "") || null;
   }
 
+  // CO19: is the company in the stage the staging rules call for? Facts are
+  // fetched once per invocation and owner (see stageFactsSource).
+  let stageCheck: RecordContext["stageCheck"] = undefined;
+  if (section === "Companies") {
+    const owner = String((record.Owner as { id?: string } | null)?.id ?? "");
+    const today = phoenixDay(new Date());
+    const key = `${owner}:${today}`;
+    stageSources[key] ??= stageFactsSource(token, [owner], today);
+    try {
+      stageCheck = stageVerdict(record.Business_Contact_Pipeline_Stage, await stageSources[key](String(record.id)), today);
+    } catch {
+      stageCheck = undefined; // CO19 defers rather than guessing
+    }
+  }
+
   return {
     notes,
     notesUnavailable,
@@ -163,8 +201,12 @@ async function enrich(
     accountOwnerId,
     whatIdModule: whatIdModuleOf(record),
     whoContactType,
+    stageCheck,
   };
 }
+
+const stageSources: Record<string, ReturnType<typeof stageFactsSource>> = {};
+const phoenixDay = (d: Date) => new Date(d.getTime() - 7 * 3600_000).toISOString().slice(0, 10);
 
 export interface AuditDeps {
   /** Every active rep on the team, so a first-name-only EOD row can be resolved. */
@@ -176,7 +218,24 @@ export interface AuditDeps {
   stageCategory: (raw: unknown) => string | null;
   sourceCategory: (raw: unknown) => string | null;
   dryRun?: boolean;
+  /**
+   * Past draws for the owned-record sections, and where to log new ones
+   * (crm_jail_samples). Absent in tests and replay: the draw then ignores
+   * history and nothing is written.
+   */
+  sampleHistory?: {
+    recent(section: string): Promise<Map<string, string>>;
+    record(section: string, rows: Array<{ id: string; name: string; failedItems: string[] }>): Promise<void>;
+  };
 }
+
+/**
+ * BD sections drawn from everything the rep owns, not from window activity
+ * (Aaron, 2026-10-14). BD reps work companies and contacts through calls and
+ * meetings and rarely edit the records, so the window pool was usually under
+ * five. See sampleRotating for the no-repeat rule.
+ */
+export const OWNED_SECTIONS = new Set(["Companies", "BusinessContacts"]);
 
 /**
  * Enriches and scores a set of already-chosen records for one section.
@@ -254,11 +313,18 @@ export async function auditRep(
   const sampled: Record<string, number> = {};
   const allWindowRecords: Record<string, Record<string, unknown>[]> = {};
   const timings: PhaseTimings = { fetchMs: 0, enrichJudgeMs: 0, writeMs: 0, poolSizes: {} };
+  const pendingSamples: Array<{
+    section: string;
+    rows: Array<{ id: string; name: string; failedItems: string[] }>;
+  }> = [];
 
   for (const section of SECTIONS[team]) {
     const mod = MODULE_FOR[section];
     const t0 = Date.now();
-    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
+    const owned = OWNED_SECTIONS.has(section);
+    let pool = owned
+      ? await fetchOwned(deps.zohoToken, mod, rep.zoho_user_id)
+      : await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
     timings.fetchMs += Date.now() - t0;
 
     // The BD scorecard's "Business Contacts" section means contacts with a
@@ -269,22 +335,42 @@ export async function auditRep(
     allWindowRecords[section] = pool;
     timings.poolSizes[section] = pool.length;
 
-    const drawn = sampleRecords(
-      pool,
-      SAMPLE_SIZE,
-      sampleSeed(window.startISO, rep.zoho_user_id, mod),
-    );
+    const seed = sampleSeed(window.startISO, rep.zoho_user_id, mod);
+    const drawn = owned
+      ? sampleRotating(
+        pool as Array<{ id?: unknown }>, SAMPLE_SIZE, seed,
+        deps.sampleHistory ? await deps.sampleHistory.recent(section) : new Map(),
+        window.startISO,
+      ) as Record<string, unknown>[]
+      : sampleRecords(pool, SAMPLE_SIZE, seed);
     sampled[section] = drawn.length;
 
     const t1 = Date.now();
     const { records, results } = await scoreDrawn(team, section, mod, drawn, window, deps, true);
     timings.enrichJudgeMs += Date.now() - t1;
     sections.push({ section, records, results });
+
+    // What each draw failed, so the next time the record comes up it shows
+    // whether the fix was made and held. Written below, once the rep is known
+    // not to be skipped.
+    if (owned) {
+      pendingSamples.push({
+        section,
+        rows: drawn.map((r, i) => ({
+          id: String(r.id),
+          name: records[i]?.name ?? "",
+          failedItems: (results[i] ?? []).filter((x) => x.score === 0).map((x) => x.item),
+        })),
+      });
+    }
   }
 
   // A rep with nothing in the window gets a flagged sheet, not a 0%. Someone
-  // on PTO must not land in jail for it.
-  const totalRecords = Object.values(sampled).reduce((a, b) => a + b, 0);
+  // on PTO must not land in jail for it. Owned sections always have records,
+  // so only window activity says whether the rep worked.
+  const totalRecords = Object.entries(sampled)
+    .filter(([section]) => !OWNED_SECTIONS.has(section))
+    .reduce((a, [, b]) => a + b, 0);
   if (totalRecords === 0) {
     return {
       rep: rep.full_name, team, status: "skipped_no_activity", timings,
@@ -292,11 +378,28 @@ export async function auditRep(
     };
   }
 
+  if (!deps.dryRun && deps.sampleHistory) {
+    for (const p of pendingSamples) await deps.sampleHistory.record(p.section, p.rows);
+  }
+
   // EOD sheets are Google, not Zoho, so this costs no CRM quota.
   const eod = await eodContextFor(
     deps.googleToken, team, rep.full_name, deps.rosterNames ?? [rep.full_name], window,
   );
-  const daily = dailyResults(team, allWindowRecords, eod);
+  // A4/A5 need notes only for activities that look late on their own
+  // timestamps; a same-day note can still clear them. Fetched just for those.
+  const activityNotes = new Map<string, ZohoNote[]>();
+  if (team === "bd") {
+    for (const [section, fields] of [["Calls", ["Call_Start_Time"]], ["Meetings", ["Start_DateTime", "End_DateTime"]]] as const) {
+      for (const r of allWindowRecords[section] ?? []) {
+        if (loggedOnActivityDay(r, [...fields])) continue;
+        try {
+          activityNotes.set(String(r.id), await fetchRelated(deps.zohoToken, MODULE_FOR[section], String(r.id), "Notes") as ZohoNote[]);
+        } catch { /* no notes read: the timestamps alone decide, as before */ }
+      }
+    }
+  }
+  const daily = dailyResults(team, allWindowRecords, eod, activityNotes);
 
   const { writes, deferredCells } = buildWrites(
     {
@@ -408,6 +511,7 @@ export function dailyResults(
   team: Team,
   all: Record<string, Record<string, unknown>[]>,
   eod: EodContext | null = null,
+  activityNotes: ReadonlyMap<string, ZohoNote[]> = new Map(),
 ): ItemResult[] {
   if (team === "admissions") {
     const touched = [...(all.Leads ?? []), ...(all.Contacts ?? []), ...(all.Deals ?? [])];
@@ -424,8 +528,8 @@ export function dailyResults(
     { item: "A1", score: BD_DAILY_RULES.A1, explanation: "Referral form — Zoho Forms, Phase 2." },
     { ...eodSubmitted(eod), item: "A2" },
     { ...eodComplete(eod), item: "A3" },
-    { item: "A4", score: BD_DAILY_RULES.A4(all.Calls ?? []) },
-    { item: "A5", score: BD_DAILY_RULES.A5(all.Meetings ?? []) },
+    { item: "A4", score: BD_DAILY_RULES.A4(all.Calls ?? [], activityNotes) },
+    { item: "A5", score: BD_DAILY_RULES.A5(all.Meetings ?? [], activityNotes) },
     { item: "A6", score: BD_DAILY_RULES.A6, explanation: "Assigned spreadsheet — Phase 2." },
     { item: "A7", score: BD_DAILY_RULES.A7, explanation: "Assigned spreadsheet — Phase 2." },
   ];
@@ -527,7 +631,7 @@ export async function auditRepDaily(
 
   for (const section of SECTIONS[team]) {
     const mod = MODULE_FOR[section];
-    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds);
+    let pool = await fetchWindow(deps.zohoToken, mod, rep.zoho_user_id, bounds, true);
     if (section === "BusinessContacts") {
       pool = pool.filter((r) => String(r.Business_Contact_Role ?? "").trim() !== "");
     }
@@ -542,7 +646,7 @@ export async function auditRepDaily(
     recordsChecked += pool.length;
 
     const { records, results } = await scoreDrawn(team, section, mod, pool, window, deps, false);
-    misses.push(...missesFor(team, section, records, results));
+    misses.push(...missesFor(team, section, records, results, deps.stageCategory, dateISO));
   }
 
   return { rep: rep.full_name, team, recordsChecked, misses, truncated };

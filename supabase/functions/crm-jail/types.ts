@@ -15,6 +15,8 @@ export interface ItemResult {
    * which is the only place that has both the item id and the label.
    */
   reasonKind?: "blank" | "notLinked";
+  /** Not written to the scorecard at all; the row stays blank. CO19 before 2026-10-26. */
+  omit?: boolean;
 }
 
 export interface ZohoRecord {
@@ -26,6 +28,8 @@ export interface ZohoNote {
   Note_Title?: string;
   Note_Content?: string;
   Created_Time?: string;
+  Modified_Time?: string;
+  Modified_By?: { id?: string; name?: string } | null;
 }
 
 export interface RelatedMeeting {
@@ -36,6 +40,11 @@ export interface RelatedMeeting {
 export interface RecordContext {
   /** The record being scored. */
   record: ZohoRecord;
+  /**
+   * Companies only: whether the pipeline stage matches the staging rules
+   * (stage.ts). null = not scored (Archive/Delete); undefined = not checked.
+   */
+  stageCheck?: import("./stage.ts").StageVerdict | null;
   /** Notes attached to the record, newest first. */
   notes: ZohoNote[];
   /**

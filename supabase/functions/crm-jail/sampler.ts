@@ -47,3 +47,45 @@ export function sampleRecords<T>(pool: readonly T[], n: number, seed: string): T
 export function sampleSeed(windowStartISO: string, zohoUserId: string, module: string): string {
   return `${windowStartISO}:${zohoUserId}:${module}`;
 }
+
+const DAY_MS = 86_400_000;
+
+function daysBefore(iso: string, days: number): string {
+  return new Date(new Date(`${iso}T00:00:00Z`).getTime() - days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * Draw for sections sampled from everything the rep OWNS (BD Companies and
+ * Business Contacts) rather than from what they touched in the window.
+ *
+ * Aaron, 2026-10-14: sample 5 regardless of activity, to see whether the
+ * corrections a record draws are made and stay made — so the same record must
+ * not come straight back. A record sampled in any of the previous 90 days is
+ * held out. When that leaves fewer than `n`, records last sampled 30-90 days
+ * ago fill the gap; nothing sampled in the last 30 days is ever redrawn.
+ *
+ * `history` maps record id -> the window_start it was last sampled in.
+ * Samples from the current window are ignored, so re-running a week redraws
+ * the identical records. The pool is sorted by id first: Zoho does not
+ * guarantee row order, and the draw must not depend on it.
+ */
+export function sampleRotating<T extends { id?: unknown }>(
+  pool: readonly T[],
+  n: number,
+  seed: string,
+  history: ReadonlyMap<string, string>,
+  windowStartISO: string,
+): T[] {
+  const sorted = pool.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const quarterAgo = daysBefore(windowStartISO, 90);
+  const monthAgo = daysBefore(windowStartISO, 30);
+  const last = (r: T) => {
+    const w = history.get(String(r.id));
+    return w && w < windowStartISO ? w : null;
+  };
+  const fresh = sorted.filter((r) => { const w = last(r); return !w || w < quarterAgo; });
+  const drawn = sampleRecords(fresh, n, seed);
+  if (drawn.length >= n) return drawn;
+  const older = sorted.filter((r) => { const w = last(r); return !!w && w >= quarterAgo && w < monthAgo; });
+  return [...drawn, ...sampleRecords(older, n - drawn.length, `${seed}:refill`)];
+}

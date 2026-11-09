@@ -135,3 +135,37 @@ Deno.test("every activity date field is actually selected, or it filters on a nu
     assertStringIncludes(MODULE_SELECT[m], field);
   }
 });
+
+// Admissions reps write the lead narrative in Description. Without it in the
+// select, the notes fold reads undefined and every such lead "has no note".
+Deno.test("Leads, Contacts and Deals select Description", () => {
+  for (const m of ["Leads", "Contacts", "Deals"]) assertStringIncludes(MODULE_SELECT[m], "Description");
+});
+
+// Joey Masterson and Kenny Reitz, 2026-10-01: each booked a meeting for the
+// following week and nothing else. Windowed on Start alone, both read as idle.
+Deno.test("the daily window also takes activities created that day", () => {
+  const b = { from: "2026-10-01T00:00:00-07:00", toExclusive: "2026-10-02T00:00:00-07:00" };
+  const q = buildWindowQuery("Events", "id", "42", b, 0, true);
+  assertStringIncludes(q, "Start_DateTime >= '2026-10-01T00:00:00-07:00'");
+  assertStringIncludes(q, "or (Created_Time >= '2026-10-01T00:00:00-07:00'");
+  const weekly = buildWindowQuery("Events", "id", "42", b, 0);
+  assertEquals(weekly.includes("Created_Time"), false);
+});
+
+// Lyra Health (Contacts) kept its note in the Notes text field; Leads carry
+// "Action Taken/Notes". Unselected, they read as null and the record as unnoted.
+Deno.test("selects carry the free-text note fields and Source Medium", () => {
+  assertStringIncludes(MODULE_SELECT.Contacts, "Notes");
+  assertStringIncludes(MODULE_SELECT.Deals, "Notes");
+  assertStringIncludes(MODULE_SELECT.Leads, "Actions_Taken_Notes");
+  assertStringIncludes(MODULE_SELECT.Leads, "Source_Medium");
+});
+
+import { TOKEN_HEADROOM_MS } from "./zoho.ts";
+
+// A weekly child audit runs several minutes; a token with 60s left died
+// mid-audit on 2026-10-21. The headroom must outlast one rep's audit.
+Deno.test("a cached Zoho token is only reused with at least 15 minutes left", () => {
+  assertEquals(TOKEN_HEADROOM_MS >= 15 * 60_000, true);
+});

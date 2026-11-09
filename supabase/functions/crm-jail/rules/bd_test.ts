@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { BC_RULES, CALL_RULES, COMPANY_RULES, MEETING_RULES, BD_DAILY_RULES } from "./bd.ts";
+import { BC_RULES, CALL_RULES, COMPANY_RULES, MEETING_RULES, BD_DAILY_RULES, isVoicemailAttempt } from "./bd.ts";
 import type { ItemResult, RecordContext, Score } from "../types.ts";
 
 function ctx(record: Record<string, unknown>, over: Partial<RecordContext> = {}): RecordContext {
@@ -72,9 +72,18 @@ Deno.test("CA5 requires an associated contact on every call, unconditionally", (
   assertEquals(s(CALL_RULES.CA5(ctx({ Who_Id: { id: "7" } }))), 1);
 });
 
-Deno.test("CA9 uses a forward-looking activity query — no field backs it", () => {
-  assertEquals(s(CALL_RULES.CA9(ctx({}, { futureActivityCount: 0 }))), 0);
-  assertEquals(s(CALL_RULES.CA9(ctx({}, { futureActivityCount: 2 }))), 1);
+// Aaron, 2026-10-02: BD calls are mostly referrals handed to admissions, so
+// next steps are not the BD rep's to give.
+Deno.test("CA8 and CA9 are N/A on every call, with or without a next step", () => {
+  const withNext = ctx({}, {
+    futureActivityCount: 2,
+    notes: [{ Note_Title: "", Note_Content: "Referral for J.D., passed to admissions. Call back Monday." }],
+    notesJudgments: { CA8: { score: 1, reason: "Next step present." } },
+  });
+  for (const c of [withNext, ctx({}, { futureActivityCount: 0 })]) {
+    assertEquals(s(CALL_RULES.CA8(c)), "N/A");
+    assertEquals(s(CALL_RULES.CA9(c)), "N/A");
+  }
 });
 
 Deno.test("CO12 reads Zoho's misspelled API name", () => {
@@ -179,4 +188,158 @@ Deno.test('"Made Contact" alone is an outcome, not a narrative, so CA7 still fai
     (out as { explanation?: string }).explanation,
     "Nothing in the Notes section and nothing in the Description.",
   );
+});
+
+// Ben Coulter's "Lunch with Horizon integrated", verified in Zoho 2026-10-02:
+// booked 9/22 for 10/1 11:00-12:00, edited by Ben 10/1 1:51pm, meeting note
+// written 10/1 1:59pm. Logged the same day; the Created_Time test failed it.
+const ben = { id: "5162065000329857001" };
+const horizon = {
+  Start_DateTime: "2026-10-01T11:00:00-07:00",
+  End_DateTime: "2026-10-01T12:00:00-07:00",
+  Created_Time: "2026-09-22T15:26:18-07:00",
+  Owner: ben,
+};
+
+Deno.test("M1 passes a meeting booked ahead and edited by its owner on the day", () => {
+  const rec = { ...horizon, Modified_Time: "2026-10-01T13:51:16-07:00", Modified_By: ben };
+  assertEquals(s(MEETING_RULES.M1(ctx(rec))), 1);
+});
+
+Deno.test("M1 passes a meeting booked ahead whose note was written on the day", () => {
+  const rec = { ...horizon, Modified_Time: "2026-10-03T09:00:00-07:00", Modified_By: ben };
+  const notes = [{ Note_Title: "First Meeting", Note_Content: "", Created_Time: "2026-10-01T13:59:36-07:00" }];
+  assertEquals(s(MEETING_RULES.M1(ctx(rec, { notes }))), 1);
+});
+
+Deno.test("M1 fails a meeting booked ahead and never touched on the day", () => {
+  const rec = { ...horizon, Modified_Time: "2026-09-22T15:26:18-07:00", Modified_By: ben };
+  assertEquals(s(MEETING_RULES.M1(ctx(rec))), 0);
+});
+
+Deno.test("M1 does not count a same-day edit by someone other than the owner", () => {
+  const rec = { ...horizon, Modified_Time: "2026-10-01T13:51:16-07:00", Modified_By: { id: "999" } };
+  assertEquals(s(MEETING_RULES.M1(ctx(rec))), 0);
+});
+
+Deno.test("M1 accepts the To day for a meeting that runs past midnight", () => {
+  const rec = {
+    ...horizon, Start_DateTime: "2026-10-01T22:00:00-07:00", End_DateTime: "2026-10-02T01:00:00-07:00",
+    Modified_Time: "2026-10-02T08:00:00-07:00", Modified_By: ben,
+  };
+  assertEquals(s(MEETING_RULES.M1(ctx(rec))), 1);
+});
+
+Deno.test("CA1 passes a scheduled call its owner updated on the day it happened", () => {
+  const rec = {
+    Call_Start_Time: "2026-10-01T10:00:00-07:00", Created_Time: "2026-09-28T09:00:00-07:00",
+    Modified_Time: "2026-10-01T10:30:00-07:00", Modified_By: ben, Owner: ben,
+  };
+  assertEquals(s(CALL_RULES.CA1(ctx(rec))), 1);
+  assertEquals(BD_DAILY_RULES.A4([rec]), 1);
+});
+
+// Mike Mcluty's "Nexus - CHC - Tour", verified in Zoho 2026-10-14: meeting
+// 10/7 9:30-10:30, record last edited 10/6, agenda note created 10/6 6:05pm
+// and edited by Mike with the outcome 10/7 2:32pm.
+const mike = { id: "5162065000138237001" };
+const nexus = {
+  Start_DateTime: "2026-10-07T09:30:00-07:00",
+  End_DateTime: "2026-10-07T10:30:00-07:00",
+  Created_Time: "2026-10-01T11:08:14-07:00",
+  Modified_Time: "2026-10-06T18:03:40-07:00",
+  Modified_By: mike,
+  Owner: mike,
+};
+
+Deno.test("M1 passes when the owner edits the agenda note on the meeting day", () => {
+  const notes = [{
+    Note_Content: "Nexus tour — 10/7/2026 ...", Created_Time: "2026-10-06T18:05:23-07:00",
+    Modified_Time: "2026-10-07T14:32:35-07:00", Modified_By: mike,
+  }];
+  assertEquals(s(MEETING_RULES.M1(ctx(nexus, { notes }))), 1);
+});
+
+Deno.test("M1 does not count a note edited on the day by someone else", () => {
+  const notes = [{
+    Note_Content: "Nexus tour", Created_Time: "2026-10-06T18:05:23-07:00",
+    Modified_Time: "2026-10-07T14:32:35-07:00", Modified_By: { id: "5162065000000520063" },
+  }];
+  assertEquals(s(MEETING_RULES.M1(ctx(nexus, { notes }))), 0);
+});
+
+Deno.test("A5 clears a meeting whose only same-day evidence is an owner note edit", () => {
+  const notes = new Map([["nexus", [{
+    Created_Time: "2026-10-06T18:05:23-07:00", Modified_Time: "2026-10-07T14:32:35-07:00", Modified_By: mike,
+  }]]]);
+  assertEquals(BD_DAILY_RULES.A5([{ ...nexus, id: "nexus" }]), 0);
+  assertEquals(BD_DAILY_RULES.A5([{ ...nexus, id: "nexus" }], notes), 1);
+});
+
+// Mike Mcluty's Tyler Spicer calls, 10/6: Call_Result "LVM", notes "VM was
+// full sent 2 sets of TXT" and "Directly to VM not able to leave a VM". Both
+// failed CA7 for lacking a conversation narrative.
+Deno.test("CA7 is N/A on a voicemail call, note or no note", () => {
+  const vm = ctx({ Call_Result: "LVM" }, {
+    notes: [{ Note_Title: "Description", Note_Content: "Directly to VM not able to leave a VM" }],
+    notesJudgments: { CA7: { score: 0, reason: "No conversation." } },
+  });
+  assertEquals(s(CALL_RULES.CA7(vm)), "N/A");
+  assertEquals(s(CALL_RULES.CA7(ctx({ Call_Result: "LVM" }))), "N/A");
+});
+
+Deno.test("CA7 still judges a call where contact was made", () => {
+  const made = ctx({ Call_Result: "Made Contact" }, {
+    notes: [{ Note_Title: "Description", Note_Content: "Spoke with the wife about Soba Mesa." }],
+    notesJudgments: { CA7: { score: 1, reason: "Narrative present." } },
+  });
+  assertEquals(s(CALL_RULES.CA7(made)), 1);
+  assertEquals(s(CALL_RULES.CA7(ctx({ Call_Result: "Made Contact" }))), 0);
+});
+
+const desc = (t: string) => [{ Note_Title: "Description", Note_Content: t }];
+
+Deno.test("a voicemail note with no Call Result still makes CA7 N/A", () => {
+  for (const t of [
+    "VM was full sent 2 sets of TXT with no responses",
+    "Directly to VM not able to leave a VM",
+    "LVM, will try again tomorrow",
+    "no answer",
+    "<span>Left a message for Tony</span>",
+    "Voicemail box full",
+  ]) {
+    assertEquals(isVoicemailAttempt({ Call_Result: null }, desc(t)), true, t);
+    assertEquals(s(CALL_RULES.CA7(ctx({ Call_Result: null }, { notes: desc(t) }))), "N/A", t);
+  }
+});
+
+Deno.test("voicemail wording does not excuse a call where they also spoke", () => {
+  const t = "LVM, she called back an hour later and we talked about Soba Mesa";
+  assertEquals(isVoicemailAttempt({}, desc(t)), false);
+});
+
+Deno.test("a connected call is not mistaken for a voicemail", () => {
+  for (const t of [
+    "Logan called to give me an update on Deangela Smith",
+    "I spoke with the wife about getting her husband to Soba Mesa",
+    "Reviewed vmax rates with the owner",
+  ]) assertEquals(isVoicemailAttempt({}, desc(t)), false, t);
+});
+
+// CO19, Company Staging Rules (Aaron, 2026-10-26): left blank on the
+// 10/19-10/25 audit, scored from the 10/26 week.
+const wrongStage = { correct: false, current: "Referring", expected: "Dormant", reason: "no referral in 90+ days" };
+Deno.test("CO19 is omitted before 10/26 and scored from it", () => {
+  const before = COMPANY_RULES.CO19(ctx({}, { stageCheck: wrongStage, window: { startISO: "2026-10-19", endISO: "2026-10-25" } }));
+  assertEquals((before as { omit?: boolean }).omit, true);
+  assertEquals((before as { explanation?: string }).explanation, undefined);
+  const after = COMPANY_RULES.CO19(ctx({}, { stageCheck: wrongStage, window: { startISO: "2026-10-26", endISO: "2026-11-01" } }));
+  assertEquals(s(after), 0);
+  assertEquals((after as { explanation?: string }).explanation, "In Referring, should be Dormant: no referral in 90+ days.");
+});
+
+Deno.test("CO19 is N/A for Archive/Delete and defers when facts could not be read", () => {
+  const w = { startISO: "2026-10-26", endISO: "2026-11-01" };
+  assertEquals(s(COMPANY_RULES.CO19(ctx({}, { stageCheck: null, window: w }))), "N/A");
+  assertEquals(s(COMPANY_RULES.CO19(ctx({}, { stageCheck: undefined, window: w }))), "DEFER");
 });
